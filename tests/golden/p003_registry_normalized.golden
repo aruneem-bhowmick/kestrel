@@ -1,0 +1,43 @@
+{
+  "models": {
+    "glm-5.2": {
+      "api_key_env": "OPENROUTER_API_KEY",
+      "backend": "openrouter",
+      "context_window": 200000,
+      "endpoint": null,
+      "id": "glm-5.2",
+      "max_output": 16384,
+      "precision_pin": null,
+      "provider_model": "zai-org/GLM-5.2",
+      "supports_cache": true,
+      "supports_tools": true,
+      "tags": [
+        "executor",
+        "planner"
+      ],
+      "usd_per_mtok_cached": "0.11",
+      "usd_per_mtok_input": "0.6",
+      "usd_per_mtok_output": "2.2"
+    },
+    "glm-5.2-zai": {
+      "api_key_env": "ZAI_API_KEY",
+      "backend": "zai",
+      "context_window": 200000,
+      "endpoint": "https://api.z.ai/api/paas/v4",
+      "id": "glm-5.2-zai",
+      "max_output": 16384,
+      "precision_pin": null,
+      "provider_model": "glm-5.2",
+      "supports_cache": true,
+      "supports_tools": true,
+      "tags": [
+        "executor",
+        "planner"
+      ],
+      "usd_per_mtok_cached": "0.11",
+      "usd_per_mtok_input": "0.6",
+      "usd_per_mtok_output": "2.2"
+    }
+  },
+  "source": null
+}

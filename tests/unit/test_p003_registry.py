@@ -144,3 +144,187 @@ def test_missing_explicit_path_raises_registry_error(tmp_path: Path) -> None:
     with pytest.raises(RegistryError, match="not found"):
         load_registry(missing)
 
+
+def test_malformed_toml_syntax_raises_registry_error(tmp_path: Path) -> None:
+    """Given a models.toml that is not valid TOML, when load_registry
+    runs, then it raises RegistryError describing the syntax problem."""
+    registry_path = tmp_path / "models.toml"
+    registry_path.write_text("this is not valid toml [[[")
+
+    with pytest.raises(RegistryError, match="invalid TOML syntax"):
+        load_registry(registry_path)
+
+
+@pytest.mark.acceptance
+def test_missing_required_field_names_file_entry_and_field(tmp_path: Path) -> None:
+    """Given a models.toml entry with an id but missing a required field,
+    when load_registry runs, then RegistryError names the file, the
+    entry's id, and the missing field -- the "helpful errors on
+    misconfiguration" requirement made concrete."""
+    registry_path = tmp_path / "models.toml"
+    registry_path.write_text(
+        "[[models]]\n"
+        'id = "incomplete"\n'
+        'backend = "openrouter"\n'
+        'provider_model = "test/model"\n'
+        "max_output = 100\n"
+        "usd_per_mtok_input = 1.0\n"
+        "usd_per_mtok_output = 2.0\n"
+        "usd_per_mtok_cached = 0.5\n"
+        "supports_tools = true\n"
+        "supports_cache = false\n"
+    )
+
+    with pytest.raises(RegistryError) as exc_info:
+        load_registry(registry_path)
+
+    message = str(exc_info.value)
+    assert str(registry_path) in message
+    assert "incomplete" in message
+    assert "context_window" in message
+
+
+def test_unknown_field_is_rejected(tmp_path: Path) -> None:
+    """Given a models.toml entry with a key outside the schema, when
+    load_registry runs, then it raises RegistryError naming that key."""
+    registry_path = tmp_path / "models.toml"
+    registry_path.write_text(
+        _minimal_entry_toml("extra-field").rstrip("\n") + '\nbogus_key = "x"\n'
+    )
+
+    with pytest.raises(RegistryError, match="bogus_key"):
+        load_registry(registry_path)
+
+
+def test_duplicate_id_is_rejected(tmp_path: Path) -> None:
+    """Given two entries sharing the same id, when load_registry runs,
+    then it raises RegistryError naming the duplicated id."""
+    entry = _minimal_entry_toml("dup")
+    registry_path = tmp_path / "models.toml"
+    registry_path.write_text(entry + "\n" + entry)
+
+    with pytest.raises(RegistryError, match="dup"):
+        load_registry(registry_path)
+
+
+def test_zai_backend_without_endpoint_is_rejected(tmp_path: Path) -> None:
+    """Given a "zai" entry with no endpoint, when load_registry runs, then
+    it raises RegistryError -- direct backends cannot resolve a base URL
+    on their own."""
+    registry_path = tmp_path / "models.toml"
+    registry_path.write_text(
+        "[[models]]\n"
+        'id = "zai-no-endpoint"\n'
+        'backend = "zai"\n'
+        'provider_model = "glm-5.2"\n'
+        "context_window = 1000\n"
+        "max_output = 100\n"
+        "usd_per_mtok_input = 1.0\n"
+        "usd_per_mtok_output = 2.0\n"
+        "usd_per_mtok_cached = 0.5\n"
+        "supports_tools = true\n"
+        "supports_cache = false\n"
+    )
+
+    with pytest.raises(RegistryError, match="endpoint"):
+        load_registry(registry_path)
+
+
+@pytest.mark.regression
+def test_coding_plan_endpoint_is_rejected(tmp_path: Path) -> None:
+    """Given a "zai" entry whose endpoint targets the Z.ai Coding-Plan
+    route, when load_registry runs, then it is rejected -- the registry
+    must never be able to express a Coding-Plan endpoint, since that
+    quota is contractually restricted to recognized coding tools and
+    Kestrel is a custom application. This guards the ToS guard against
+    regressing."""
+    registry_path = tmp_path / "models.toml"
+    registry_path.write_text(
+        "[[models]]\n"
+        'id = "coding-plan"\n'
+        'backend = "zai"\n'
+        'provider_model = "glm-5.2"\n'
+        'endpoint = "https://api.z.ai/api/coding/paas/v4"\n'
+        "context_window = 1000\n"
+        "max_output = 100\n"
+        "usd_per_mtok_input = 1.0\n"
+        "usd_per_mtok_output = 2.0\n"
+        "usd_per_mtok_cached = 0.5\n"
+        "supports_tools = true\n"
+        "supports_cache = false\n"
+    )
+
+    with pytest.raises(RegistryError, match="Coding-Plan"):
+        load_registry(registry_path)
+
+
+def test_get_unknown_model_id_lists_available_ids() -> None:
+    """Given a loaded registry, when Registry.get is called with an id
+    that does not exist, then it raises UnknownModelError listing every
+    id that is actually available."""
+    registry = load_registry()
+
+    with pytest.raises(UnknownModelError) as exc_info:
+        registry.get("nope")
+
+    message = str(exc_info.value)
+    assert "nope" in message
+    assert "glm-5.2" in message
+    assert "glm-5.2-zai" in message
+
+
+def test_invalid_tag_is_rejected(tmp_path: Path) -> None:
+    """Given an entry tagged with a value outside the recognized set,
+    when load_registry runs, then it raises RegistryError naming the
+    rejected tag."""
+    registry_path = tmp_path / "models.toml"
+    registry_path.write_text(
+        _minimal_entry_toml("bad-tag").rstrip("\n") + '\ntags = ["not-a-real-tag"]\n'
+    )
+
+    with pytest.raises(RegistryError, match="not-a-real-tag"):
+        load_registry(registry_path)
+
+
+def test_cached_rate_above_input_rate_logs_warning_but_still_loads(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Given an entry whose cached rate exceeds its input rate, when
+    load_registry runs, then the entry still loads (a provider is free to
+    price cache reads above input) but a warning is logged, since this
+    combination is almost always a pricing mistake worth flagging."""
+    registry_path = tmp_path / "models.toml"
+    registry_path.write_text(
+        "[[models]]\n"
+        'id = "pricey-cache"\n'
+        'backend = "openrouter"\n'
+        'provider_model = "test/model"\n'
+        "context_window = 1000\n"
+        "max_output = 100\n"
+        "usd_per_mtok_input = 1.0\n"
+        "usd_per_mtok_output = 2.0\n"
+        "usd_per_mtok_cached = 5.0\n"
+        "supports_tools = true\n"
+        "supports_cache = false\n"
+    )
+
+    with caplog.at_level("WARNING", logger="kestrel.registry"):
+        registry = load_registry(registry_path)
+
+    assert registry.ids() == ["pricey-cache"]
+    assert "exceeds input rate" in caplog.text
+
+
+@pytest.mark.regression
+def test_packaged_default_registry_matches_golden_snapshot() -> None:
+    """The packaged default registry, normalized to sorted JSON, must
+    match a pinned snapshot byte-for-byte -- an accidental change to the
+    schema or the shipped defaults shows up as a diff here instead of
+    surfacing later as a silent behavior change."""
+    registry = load_registry()
+
+    normalized = json.dumps(
+        json.loads(registry.model_dump_json()), indent=2, sort_keys=True
+    )
+
+    assert normalized + "\n" == _GOLDEN_FILE.read_text()
