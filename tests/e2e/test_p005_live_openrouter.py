@@ -10,7 +10,9 @@ possible reply rather than by a request parameter.
 
 from __future__ import annotations
 
+import asyncio
 import os
+from typing import Any
 
 import pytest
 
@@ -22,6 +24,7 @@ pytestmark = [pytest.mark.p005, pytest.mark.e2e, pytest.mark.live]
 _LIVE_TESTS_ENV = "KESTREL_LIVE_TESTS"
 _API_KEY_ENV = "OPENROUTER_API_KEY"
 _MODEL_ID = "glm-5.2"
+_COLLECTION_TIMEOUT_S = 30.0
 
 _SKIP_REASON = (
     f"set {_LIVE_TESTS_ENV}=1 and {_API_KEY_ENV} to run the live OpenRouter smoke test"
@@ -39,16 +42,19 @@ async def test_live_openrouter_completion_returns_text_and_usage() -> None:
     registry = load_registry()
     client = LiteLLMClient(registry)
 
-    events = [
-        event
-        async for event in client.complete(
-            messages=[{"role": "user", "content": "Reply with exactly: kestrel"}],
-            tools=None,
-            model_id=_MODEL_ID,
-            effort="high",
-            stream=True,
-        )
-    ]
+    async def _collect() -> list[Any]:
+        return [
+            event
+            async for event in client.complete(
+                messages=[{"role": "user", "content": "Reply with exactly: kestrel"}],
+                tools=None,
+                model_id=_MODEL_ID,
+                effort="high",
+                stream=True,
+            )
+        ]
+
+    events = await asyncio.wait_for(_collect(), timeout=_COLLECTION_TIMEOUT_S)
 
     text = "".join(event.text for event in events if hasattr(event, "text"))
     assert text.strip() != ""
