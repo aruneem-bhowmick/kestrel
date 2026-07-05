@@ -52,6 +52,11 @@ logger = logging.getLogger("kestrel.provider")
 _OPENROUTER_BASE_URL_ENV = "KESTREL_OPENROUTER_BASE_URL"
 _DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
+# Applied to every litellm.acompletion call so a hung connection surfaces as
+# a typed ServerError (via litellm's own Timeout exception) instead of
+# blocking the caller indefinitely on whatever litellm's own default is.
+_REQUEST_TIMEOUT_S = 120.0
+
 _FINISH_REASON_MAP: dict[str, StopReason] = {
     "stop": "end_turn",
     "tool_calls": "tool_use",
@@ -418,6 +423,7 @@ class LiteLLMClient(ProviderClient):
                     api_key=api_key,
                     stream=True,
                     stream_options={"include_usage": True},
+                    timeout=_REQUEST_TIMEOUT_S,
                 )
                 async for chunk in response:
                     for event in normalizer.feed(chunk):
@@ -431,6 +437,7 @@ class LiteLLMClient(ProviderClient):
                     tools=litellm_tools,
                     api_key=api_key,
                     stream=False,
+                    timeout=_REQUEST_TIMEOUT_S,
                 )
                 for event in _events_from_response(
                     response, model_id=entry.id, backend=entry.backend
