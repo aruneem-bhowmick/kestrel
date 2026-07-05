@@ -1,0 +1,31 @@
+# Kestrel global configuration.
+#
+# This file documents every recognized key and its default value. Kestrel
+# does not read this file directly -- copy the sections you need into your
+# own kestrel.toml and edit from there.
+#
+# Configuration is resolved from exactly one file. Kestrel checks, in
+# order, and stops at the first match:
+#   1. the path given to --config
+#   2. $KESTREL_CONFIG
+#   3. ./kestrel.toml (current working directory)
+#   4. <user config directory>/kestrel.toml
+#   5. built-in defaults, if none of the above exist
+#
+# Secrets (API keys, tokens, passwords) must never appear in this file.
+# Any key that looks like one is rejected at load time -- set it as an
+# environment variable instead.
+
+[general]
+# Registry id used when no --model flag or /model command has selected
+# another entry.
+# default_model = "glm-5.2"
+
+# Minimum severity of log records emitted to stderr. One of: "DEBUG",
+# "INFO", "WARNING", "ERROR".
+# log_level = "INFO"
+
+[paths]
+# Explicit override for the model registry file. Leave unset to use the
+# registry loader's own default search.
+# models_file = "/path/to/models.toml"
