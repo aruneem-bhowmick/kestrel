@@ -314,15 +314,30 @@ class _StreamNormalizer:
                     pending.arguments_json += arguments
 
 
-def _events_from_response(response: Any) -> list[StreamEvent]:
+def _events_from_response(
+    response: Any, *, model_id: str, backend: str
+) -> list[StreamEvent]:
     """Normalize a single, buffered (``stream=False``) litellm response.
 
     Produces the same event grammar as the streaming path -- one
     ``TextDelta`` holding the full response text instead of incremental
     chunks, any complete tool calls, the turn's usage, and the closing
     stop event.
+
+    Raises:
+        ServerError: ``response.choices`` is empty. A well-formed chat
+            completion always has at least one choice; a backend that
+            returns none is a malformed response, not something this
+            adapter should crash on with a raw ``IndexError``.
     """
-    choice = response.choices[0]
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        raise ServerError(
+            "backend returned a response with no choices",
+            model_id=model_id,
+            backend=backend,
+        )
+    choice = choices[0]
     message = choice.message
     events: list[StreamEvent] = []
 
@@ -417,7 +432,9 @@ class LiteLLMClient(ProviderClient):
                     api_key=api_key,
                     stream=False,
                 )
-                for event in _events_from_response(response):
+                for event in _events_from_response(
+                    response, model_id=entry.id, backend=entry.backend
+                ):
                     yield event
         except _MAPPED_LITELLM_ERRORS as exc:
             raise _map_error(exc, model_id=entry.id, backend=entry.backend) from exc

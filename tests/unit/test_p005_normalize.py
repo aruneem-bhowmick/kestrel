@@ -326,7 +326,7 @@ def test_events_from_response_yields_one_text_delta_and_closing_events() -> None
     )
     response = _buffered_response(content="Hello from GLM-5.2", usage=usage)
 
-    events = _events_from_response(response)
+    events = _events_from_response(response, model_id="glm-5.2", backend="openrouter")
 
     assert events == [
         TextDelta(text="Hello from GLM-5.2"),
@@ -350,7 +350,7 @@ def test_events_from_response_includes_complete_tool_calls() -> None:
         tool_calls=[tool_call], finish_reason="tool_calls", usage=usage
     )
 
-    events = _events_from_response(response)
+    events = _events_from_response(response, model_id="glm-5.2", backend="openrouter")
 
     assert (
         ToolCallEvent(id="call_1", name="read_file", arguments_json='{"path": "a.py"}')
@@ -367,10 +367,26 @@ def test_events_from_response_missing_usage_synthesizes_zeros_and_warns(
     response = _buffered_response(content="hi", usage=None)
 
     with caplog.at_level("WARNING", logger="kestrel.provider"):
-        events = _events_from_response(response)
+        events = _events_from_response(
+            response, model_id="glm-5.2", backend="openrouter"
+        )
 
     assert UsageEvent(input_tokens=0, output_tokens=0, cached_tokens=0) in events
     assert "no usage" in caplog.text
+
+
+def test_events_from_response_raises_server_error_on_empty_choices() -> None:
+    """Given a buffered response with no choices at all, when normalized,
+    then a typed ServerError is raised naming the model and backend --
+    a malformed upstream response must not crash the caller with a raw
+    IndexError."""
+    response = SimpleNamespace(choices=[], usage=None)
+
+    with pytest.raises(ServerError) as exc_info:
+        _events_from_response(response, model_id="glm-5.2", backend="openrouter")
+
+    assert exc_info.value.model_id == "glm-5.2"
+    assert exc_info.value.backend == "openrouter"
 
 
 # --- _litellm_params ----------------------------------------------------------
