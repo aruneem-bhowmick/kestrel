@@ -95,8 +95,10 @@ def _litellm_params(entry: ModelEntry) -> dict[str, Any]:
                 ),
             }
         case "zai" | "anthropic" | "ollama":
-            raise NotImplementedError(
-                f"backend '{entry.backend}' is not implemented yet"
+            raise ServerError(
+                f"backend '{entry.backend}' is not implemented yet",
+                model_id=entry.id,
+                backend=entry.backend,
             )
         case _:
             assert_never(entry.backend)
