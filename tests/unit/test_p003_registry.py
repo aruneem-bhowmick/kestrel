@@ -196,6 +196,24 @@ def test_unknown_field_is_rejected(tmp_path: Path) -> None:
         load_registry(registry_path)
 
 
+def test_sensitive_field_redaction(tmp_path: Path) -> None:
+    """Given an entry with an extra/invalid field containing key/token/secret,
+    when validation fails, the error message redacts the raw value."""
+    registry_path = tmp_path / "models.toml"
+    registry_path.write_text(
+        _minimal_entry_toml("sensitive-extra").rstrip("\n")
+        + '\napi_key = "super-secret-value-123"\n'
+    )
+
+    with pytest.raises(RegistryError) as exc_info:
+        load_registry(registry_path)
+
+    message = str(exc_info.value)
+    assert "api_key" in message
+    assert "super-secret-value-123" not in message
+    assert "[REDACTED]" in message
+
+
 def test_duplicate_id_is_rejected(tmp_path: Path) -> None:
     """Given two entries sharing the same id, when load_registry runs,
     then it raises RegistryError naming the duplicated id."""

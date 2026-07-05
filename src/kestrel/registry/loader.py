@@ -51,7 +51,16 @@ def _render_entry_error(
     lines = [f"invalid entry at {heading}"]
     for error in exc.errors():
         location = ".".join(str(part) for part in error["loc"]) or "<root>"
-        lines.append(f"  {location}: {error['msg']} (got: {error['input']!r})")
+        val_input = error["input"]
+        is_sensitive = False
+        for part in error["loc"]:
+            part_str = str(part).lower()
+            if any(sensitive in part_str for sensitive in ("key", "token", "secret")):
+                is_sensitive = True
+                break
+        if is_sensitive:
+            val_input = "[REDACTED]"
+        lines.append(f"  {location}: {error['msg']} (got: {val_input!r})")
     return "\n".join(lines)
 
 
