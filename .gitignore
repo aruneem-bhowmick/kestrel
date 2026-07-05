@@ -1,0 +1,10 @@
+# Tool/editor directories
+.claude/
+.zed/
+.vscode/
+.history/
+.specstory/
+.cursorindexingignore
+
+# Private local documentation
+docs-kestrel/
