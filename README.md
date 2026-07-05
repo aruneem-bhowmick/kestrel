@@ -6,5 +6,5 @@
 git clone https://github.com/aruneem-bhowmick/kestrel.git
 cd kestrel
 uv sync
-uv run pytest
+uv run pytest -m "not live and not e2e"
 ```
