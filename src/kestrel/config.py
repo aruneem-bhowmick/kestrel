@@ -154,8 +154,13 @@ def load_config(
         source, layer = None, ""
 
         env_value = os.environ.get(_CONFIG_ENV_VAR)
-        if env_value and Path(env_value).is_file():
-            source, layer = Path(env_value), f"${_CONFIG_ENV_VAR}"
+        if env_value:
+            env_path = Path(env_value)
+            if not env_path.is_file():
+                raise ConfigError(
+                    f"Config file not found: {env_path}", path=env_path
+                )
+            source, layer = env_path, f"${_CONFIG_ENV_VAR}"
 
         if source is None:
             cwd_path = Path(_CONFIG_FILENAME)
