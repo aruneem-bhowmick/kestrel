@@ -49,6 +49,7 @@ def test_console_script_prints_version() -> None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=10.0,
     )
 
     assert result.returncode == 0
