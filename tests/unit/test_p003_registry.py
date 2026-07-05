@@ -225,6 +225,22 @@ def test_duplicate_id_is_rejected(tmp_path: Path) -> None:
         load_registry(registry_path)
 
 
+def test_models_field_not_array_of_tables(tmp_path: Path) -> None:
+    """Given a models.toml where models is not an array of tables, when
+    load_registry runs, then it raises RegistryError."""
+    registry_path = tmp_path / "models.toml"
+
+    # Try with a dictionary (table instead of array of tables)
+    registry_path.write_text("[models]\nid = 'foo'\n")
+    with pytest.raises(RegistryError, match="models must be an array of tables"):
+        load_registry(registry_path)
+
+    # Try with a string
+    registry_path.write_text("models = 'not-a-list'\n")
+    with pytest.raises(RegistryError, match="models must be an array of tables"):
+        load_registry(registry_path)
+
+
 def test_zai_backend_without_endpoint_is_rejected(tmp_path: Path) -> None:
     """Given a "zai" entry with no endpoint, when load_registry runs, then
     it raises RegistryError -- direct backends cannot resolve a base URL
