@@ -32,8 +32,8 @@ capture of a real API response). To add one:
 1. Decide the exact text, token counts, and stop reason you want the
    fixture to represent.
 2. Write one `chat.completion.chunk` JSON object per line, each prefixed
-   with `data: ` and followed by a blank line, splitting the reply text
-   across as many `delta.content` fragments as you like.
+   with `data:` and a space, and followed by a blank line, splitting the
+   reply text across as many `delta.content` fragments as you like.
 3. End the content chunks with one carrying an empty `delta` and the
    `finish_reason` you want (`"stop"`, `"tool_calls"`, or `"length"`).
 4. Add one final chunk with an empty `choices` list and a populated
