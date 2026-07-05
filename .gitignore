@@ -8,3 +8,14 @@
 
 # Private local documentation
 docs-kestrel/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.coverage
+.mypy_cache/
+.ruff_cache/
+dist/
+.kestrel/

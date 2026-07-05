@@ -1,0 +1,84 @@
+[project]
+name = "kestrel-cli"
+version = "0.0.1"
+description = "Kestrel: a terminal coding assistant for constrained edge hardware."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "litellm",
+    "pydantic>=2",
+    "platformdirs",
+]
+
+[project.scripts]
+kestrel = "kestrel.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kestrel"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "hypothesis",
+    "ruff",
+    "mypy",
+    "starlette",
+    "uvicorn",
+    "httpx",
+]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/kestrel"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "--strict-markers"
+asyncio_mode = "auto"
+filterwarnings = [
+    "error",
+    # litellm pulls in dependencies that emit deprecation noise on import;
+    # this is a targeted ignore, not a blanket suppression.
+    "ignore::DeprecationWarning:litellm.*",
+]
+markers = [
+    "unit: fast, deterministic tests of pure logic with no network or filesystem side effects",
+    "integration: tests exercising a real seam (e.g. provider layer) against recorded fixtures",
+    "system: full end-to-end behavior against a hermetic fixture repo and mock model server",
+    "acceptance: a phase Definition-of-Done clause encoded as an executable scenario",
+    "smoke: checks run by `kestrel doctor`, in CI, and on launch",
+    "sanity: the fast (< 30s) subset gating every commit",
+    "regression: a pinned test guarding a previously fixed bug or a golden-file contract",
+    "e2e: opt-in, budget-capped tests against a live model backend",
+    "api: contract tests for normalized event streams and tool schemas",
+    "ui: Textual Pilot snapshot and interaction tests",
+    "redteam: prompt-injection and adversarial-input corpus tests",
+    "cost_regression: tests asserting token/cost bands for fixture tasks",
+    "live: requires live network access and real provider credentials; skipped by default",
+    "dod_phase_0: acceptance scenario for the initial skeleton milestone's Definition of Done",
+    "p001: scaffold, packaging, and test-harness milestone",
+    "p002: kestrel.toml configuration-loading milestone",
+    "p003: model registry milestone",
+    "p004: provider event stream, protocol, and error taxonomy milestone",
+    "p005: LiteLLM streaming adapter and OpenRouter backend milestone",
+    "p006: Z.ai backend and per-entry dispatch milestone",
+    "p007: usage-to-cost metering milestone",
+    "p008: streaming REPL and model hot-swap milestone",
+    "p009: `kestrel doctor` diagnostics milestone",
+    "p010: Jetson provisioning documentation milestone",
+    "p011: aarch64 CI and initial-milestone acceptance",
+]
