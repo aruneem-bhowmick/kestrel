@@ -71,7 +71,9 @@ def _build_registry(data: dict[str, Any], *, source: Path | None) -> Registry:
     file_label = str(source) if source is not None else "packaged default registry"
     raw_entries = data.get("models", [])
 
-    if not isinstance(raw_entries, list) or not all(isinstance(entry, dict) for entry in raw_entries):
+    if not isinstance(raw_entries, list) or not all(
+        isinstance(entry, dict) for entry in raw_entries
+    ):
         raise RegistryError(f"{file_label}: models must be an array of tables")
 
     entries: dict[str, ModelEntry] = {}

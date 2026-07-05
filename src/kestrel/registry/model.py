@@ -99,7 +99,10 @@ class ModelEntry(BaseModel):
         coding tools; Kestrel is a custom application and must only ever
         route through per-token/MaaS endpoints (spec section 2.2).
         """
-        if self.endpoint is not None and _CODING_PLAN_PATH_SEGMENT.lower() in self.endpoint.lower():
+        if (
+            self.endpoint is not None
+            and _CODING_PLAN_PATH_SEGMENT.lower() in self.endpoint.lower()
+        ):
             raise ValueError(
                 f"entry '{self.id}': Coding-Plan endpoints are excluded by "
                 "spec section 2.2; use a per-token endpoint."
@@ -141,7 +144,9 @@ class Registry(BaseModel):
         return self
 
     @field_serializer("models")
-    def _serialize_models(self, models: Mapping[str, ModelEntry]) -> dict[str, ModelEntry]:
+    def _serialize_models(
+        self, models: Mapping[str, ModelEntry]
+    ) -> dict[str, ModelEntry]:
         return dict(models)
 
     def get(self, model_id: str) -> ModelEntry:
