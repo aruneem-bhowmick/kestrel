@@ -45,3 +45,14 @@ grammar. On failure, a call raises a typed `ProviderError` subclass
 (`AuthError`, `RateLimitError`, `ContextOverflowError`, `ServerError`)
 naming the active model id and backend, instead of emitting a stop event.
 No call site outside an adapter names a vendor.
+
+`kestrel.provider.LiteLLMClient` is the first concrete adapter: it routes
+any registry entry with `backend = "openrouter"` through LiteLLM's
+OpenAI-compatible streaming interface, normalizing OpenRouter's chunks and
+errors into that same grammar and taxonomy. It reads its API key from the
+entry's `api_key_env`, never from a config file, and fails with `AuthError`
+before making any network call if that variable is unset or empty.
+Integration tests redirect it to a local mock server via the
+`KESTREL_OPENROUTER_BASE_URL` environment variable instead of the real
+OpenRouter endpoint; this variable is inert unless set and has no effect
+outside test runs.

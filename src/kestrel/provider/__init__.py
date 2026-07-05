@@ -17,11 +17,13 @@ from kestrel.provider.events import (
     UsageEvent,
     validate_stream_order,
 )
+from kestrel.provider.litellm_client import LiteLLMClient
 
 __all__ = [
     "AuthError",
     "ContextOverflowError",
     "Effort",
+    "LiteLLMClient",
     "Message",
     "ProviderClient",
     "ProviderError",
