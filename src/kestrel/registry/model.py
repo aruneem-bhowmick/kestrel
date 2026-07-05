@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from decimal import Decimal
 from pathlib import Path
+from types import MappingProxyType
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
@@ -133,6 +134,15 @@ class Registry(BaseModel):
 
     models: Mapping[str, ModelEntry]
     source: Path | None
+
+    @model_validator(mode="after")
+    def _wrap_models_immutable(self) -> Registry:
+        object.__setattr__(self, "models", MappingProxyType(self.models))
+        return self
+
+    @field_serializer("models")
+    def _serialize_models(self, models: Mapping[str, ModelEntry]) -> dict[str, ModelEntry]:
+        return dict(models)
 
     def get(self, model_id: str) -> ModelEntry:
         """Look up an entry by id.

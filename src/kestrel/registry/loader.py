@@ -6,6 +6,7 @@ import logging
 import tomllib
 from importlib import resources
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import platformdirs
@@ -98,7 +99,7 @@ def _build_registry(data: dict[str, Any], *, source: Path | None) -> Registry:
 
         entries[entry.id] = entry
 
-    return Registry(models=entries, source=source)
+    return Registry(models=MappingProxyType(entries), source=source)
 
 
 def load_registry(path: Path | None = None) -> Registry:

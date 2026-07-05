@@ -369,5 +369,15 @@ def test_packaged_default_registry_matches_golden_snapshot() -> None:
     normalized = json.dumps(
         json.loads(registry.model_dump_json()), indent=2, sort_keys=True
     )
-
     assert normalized + "\n" == _GOLDEN_FILE.read_text()
+
+
+def test_registry_models_is_immutable() -> None:
+    """Verify that Registry.models is wrapped in an immutable mapping and cannot be mutated."""
+    registry = load_registry()
+    with pytest.raises(TypeError):
+        registry.models["new_key"] = registry.models["glm-5.2"]  # type: ignore
+
+    # Verify serialize/deserialize round-trip through model_dump_json still works
+    dumped = registry.model_dump_json()
+    assert "glm-5.2" in dumped
