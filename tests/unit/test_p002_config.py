@@ -114,3 +114,78 @@ def test_user_config_dir_used_when_no_higher_layer_exists(
 
     assert loaded.general.default_model == "from-user-dir"
     assert source == user_config_dir / "kestrel.toml"
+
+
+def test_unknown_key_raises_config_error_naming_the_key(tmp_path: Path) -> None:
+    """Given a kestrel.toml with a key outside the schema, when load_config
+    runs, then it raises ConfigError naming that key."""
+    (tmp_path / "kestrel.toml").write_text('[general]\nbogus_key = "x"\n')
+
+    with pytest.raises(config.ConfigError, match="bogus_key"):
+        config.load_config()
+
+
+def test_wrong_type_raises_config_error_naming_key_and_expectation(
+    tmp_path: Path,
+) -> None:
+    """Given a kestrel.toml where log_level is not one of the recognized
+    strings, when load_config runs, then it raises ConfigError naming the
+    key and the accepted values."""
+    (tmp_path / "kestrel.toml").write_text("[general]\nlog_level = 3\n")
+
+    with pytest.raises(config.ConfigError, match="log_level") as exc_info:
+        config.load_config()
+
+    assert "DEBUG" in str(exc_info.value)
+
+
+def test_malformed_toml_syntax_raises_config_error(tmp_path: Path) -> None:
+    """Given a kestrel.toml that is not valid TOML, when load_config runs,
+    then it raises ConfigError describing the syntax problem."""
+    (tmp_path / "kestrel.toml").write_text("this is not valid toml [[[")
+
+    with pytest.raises(config.ConfigError, match="invalid TOML syntax"):
+        config.load_config()
+
+
+@pytest.mark.regression
+def test_secret_shaped_key_is_rejected(tmp_path: Path) -> None:
+    """Given a kestrel.toml containing a key that looks like a credential,
+    when load_config runs, then it raises ConfigError instructing the user
+    to use an environment variable instead -- regardless of case or of the
+    exact key name variant used. This guards the no-secrets-on-disk rule
+    against regressing.
+    """
+    (tmp_path / "kestrel.toml").write_text(
+        '[general]\nAPI_KEY = "sk-do-not-put-me-here"\n'
+    )
+
+    with pytest.raises(
+        config.ConfigError, match="Secrets belong in environment variables"
+    ):
+        config.load_config()
+
+
+@pytest.mark.regression
+def test_secret_shaped_key_inside_array_of_tables_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """Given a secret-shaped key nested inside an array of tables, when
+    load_config runs, then it is still caught -- the secret scan walks
+    lists, not just top-level tables."""
+    (tmp_path / "kestrel.toml").write_text('[[general.servers]]\ntoken = "abc123"\n')
+
+    with pytest.raises(
+        config.ConfigError, match="Secrets belong in environment variables"
+    ):
+        config.load_config()
+
+
+def test_missing_explicit_path_raises_config_error(tmp_path: Path) -> None:
+    """Given an explicit path that does not exist, when load_config runs,
+    then it raises ConfigError rather than silently falling back to a
+    lower-precedence layer."""
+    missing = tmp_path / "does-not-exist.toml"
+
+    with pytest.raises(config.ConfigError, match="not found"):
+        config.load_config(explicit_path=missing)
