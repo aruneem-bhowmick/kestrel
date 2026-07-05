@@ -249,7 +249,16 @@ def test_zai_backend_without_endpoint_is_rejected(tmp_path: Path) -> None:
 
 
 @pytest.mark.regression
-def test_coding_plan_endpoint_is_rejected(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://api.z.ai/api/coding/paas/v4",
+        "https://api.z.ai/api/CODING/paas/v4",
+        "https://api.z.ai/API/coding/paas/v4",
+        "https://api.z.ai/api/Coding/paas/v4",
+    ],
+)
+def test_coding_plan_endpoint_is_rejected(tmp_path: Path, endpoint: str) -> None:
     """Given a "zai" entry whose endpoint targets the Z.ai Coding-Plan
     route, when load_registry runs, then it is rejected -- the registry
     must never be able to express a Coding-Plan endpoint, since that
@@ -262,7 +271,7 @@ def test_coding_plan_endpoint_is_rejected(tmp_path: Path) -> None:
         'id = "coding-plan"\n'
         'backend = "zai"\n'
         'provider_model = "glm-5.2"\n'
-        'endpoint = "https://api.z.ai/api/coding/paas/v4"\n'
+        f'endpoint = "{endpoint}"\n'
         "context_window = 1000\n"
         "max_output = 100\n"
         "usd_per_mtok_input = 1.0\n"

@@ -98,7 +98,7 @@ class ModelEntry(BaseModel):
         coding tools; Kestrel is a custom application and must only ever
         route through per-token/MaaS endpoints (spec section 2.2).
         """
-        if self.endpoint is not None and _CODING_PLAN_PATH_SEGMENT in self.endpoint:
+        if self.endpoint is not None and _CODING_PLAN_PATH_SEGMENT.lower() in self.endpoint.lower():
             raise ValueError(
                 f"entry '{self.id}': Coding-Plan endpoints are excluded by "
                 "spec section 2.2; use a per-token endpoint."
