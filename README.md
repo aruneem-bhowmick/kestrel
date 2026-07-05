@@ -24,9 +24,11 @@ variables instead.
 
 Available models live in `models.toml`, an array of `[[models]]` tables
 each naming a Kestrel-stable id, backend, provider-side model name, and
-USD-per-million-token rates. On startup Kestrel checks `./models.toml`
-and a per-user config directory before falling back to the registry
-bundled with the package (`src/kestrel/data/models.default.toml`), which
-ships two GLM-5.2 routes (OpenRouter and Z.ai direct). Every entry is
-validated at load time; misconfigured entries fail with a message naming
-the file, the entry, and the field at fault.
+USD-per-million-token rates. On startup Kestrel checks, in order, an
+explicit registry path passed to `load_registry()`, `./models.toml`, and
+a per-user config directory, stopping at the first one it finds; if none
+exist it falls back to the registry bundled with the package
+(`src/kestrel/data/models.default.toml`), which ships two GLM-5.2 routes
+(OpenRouter and Z.ai direct). Files are never merged across these layers.
+Every entry is validated at load time; misconfigured entries fail with a
+message naming the file, the entry, and the field at fault.
