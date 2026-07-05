@@ -32,3 +32,16 @@ exist it falls back to the registry bundled with the package
 (OpenRouter and Z.ai direct). Files are never merged across these layers.
 Every entry is validated at load time; misconfigured entries fail with a
 message naming the file, the entry, and the field at fault.
+
+## Provider layer
+
+Every backend adapter implements one interface,
+`kestrel.provider.ProviderClient.complete()`, and streams a normalized
+event sequence rather than its own wire format: zero or more
+`TextDelta`/`ToolCallEvent` events, then exactly one `UsageEvent`, then
+exactly one `StopEvent` as the final event --
+`kestrel.provider.validate_stream_order()` checks a sequence against this
+grammar. On failure, a call raises a typed `ProviderError` subclass
+(`AuthError`, `RateLimitError`, `ContextOverflowError`, `ServerError`)
+naming the active model id and backend, instead of emitting a stop event.
+No call site outside an adapter names a vendor.
