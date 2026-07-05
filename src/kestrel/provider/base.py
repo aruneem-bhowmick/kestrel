@@ -65,5 +65,17 @@ class ProviderClient(Protocol):
         effort: Effort,
         stream: bool = True,
     ) -> AsyncIterator[StreamEvent]:
-        """Stream a completion for ``model_id`` given ``messages`` and optional ``tools``."""
+        """Stream a completion for ``model_id`` given ``messages`` and optional ``tools``.
+
+        When ``stream=True``, the adapter yields events incrementally (e.g., multiple
+        ``TextDelta`` events as chunks arrive) as they are produced by the provider.
+
+        When ``stream=False``, the adapter must buffer the response from the provider
+        and emit a single consolidated sequence of events (e.g., a single ``TextDelta``
+        containing the full accumulated generated text, or fully populated
+        ``ToolCallEvent``s, followed by ``UsageEvent`` and ``StopEvent``) rather
+        than yielding incremental updates. Even with ``stream=False``, the return
+        value remains an ``AsyncIterator[StreamEvent]`` and must satisfy the normal
+        stream ordering grammar.
+        """
         ...
