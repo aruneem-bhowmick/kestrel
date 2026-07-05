@@ -30,7 +30,7 @@ _EXCLUDED_PATHS = {
     _SRC_ROOT / "registry" / "model.py",
 }
 
-_VENDOR_NAME_PATTERN = re.compile(r"openrouter|z\.ai|anthropic|ollama")
+_VENDOR_NAME_PATTERN = re.compile(r"openrouter|z\.ai|anthropic|ollama", re.IGNORECASE)
 
 
 def test_no_vendor_names_outside_adapter() -> None:
