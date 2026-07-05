@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -16,6 +17,8 @@ import pytest
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from fixtures.mock_openai import MockOpenAIServer  # noqa: E402
+
+logger = logging.getLogger("tests.conftest")
 
 
 class MockOpenAIServerFactory(Protocol):
@@ -62,4 +65,9 @@ def mock_openai_server() -> Iterator[MockOpenAIServerFactory]:
     yield _start
 
     for server in servers:
-        server.stop()
+        try:
+            server.stop()
+        except Exception:
+            # One server failing to shut down cleanly shouldn't leave the
+            # rest of the test session's servers running.
+            logger.exception("mock_openai_server: server.stop() failed")
