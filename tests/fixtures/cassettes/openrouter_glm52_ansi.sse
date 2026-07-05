@@ -1,0 +1,12 @@
+data: {"id": "chatcmpl-glm52-ansi", "object": "chat.completion.chunk", "created": 1700000000, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "before "}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-glm52-ansi", "object": "chat.completion.chunk", "created": 1700000000, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {"content": "\u001b[2J\u001b]0;evil title\u0007"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-glm52-ansi", "object": "chat.completion.chunk", "created": 1700000000, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {"content": " after"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-glm52-ansi", "object": "chat.completion.chunk", "created": 1700000000, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"id": "chatcmpl-glm52-ansi", "object": "chat.completion.chunk", "created": 1700000000, "model": "z-ai/glm-5.2", "choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15, "prompt_tokens_details": {"cached_tokens": 0}}}
+
+data: [DONE]
+
