@@ -7,7 +7,7 @@
 [[models]]
 id = "glm-5.2"
 backend = "openrouter"
-provider_model = "zai-org/GLM-5.2"
+provider_model = "z-ai/glm-5.2"
 api_key_env = "OPENROUTER_API_KEY"
 context_window = 200000
 max_output = 16384

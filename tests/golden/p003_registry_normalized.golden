@@ -8,7 +8,7 @@
       "id": "glm-5.2",
       "max_output": 16384,
       "precision_pin": null,
-      "provider_model": "zai-org/GLM-5.2",
+      "provider_model": "z-ai/glm-5.2",
       "supports_cache": true,
       "supports_tools": true,
       "tags": [
