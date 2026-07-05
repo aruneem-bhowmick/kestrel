@@ -71,6 +71,7 @@ class ConfigError(Exception):
     as a one-screen human message (file, table, key, expected type)."""
 
     def __init__(self, message: str, *, path: Path | None = None) -> None:
+        """Store the rendered message alongside the file it came from."""
         super().__init__(message)
         self.path = path
 
