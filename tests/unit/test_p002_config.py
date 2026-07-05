@@ -189,3 +189,17 @@ def test_missing_explicit_path_raises_config_error(tmp_path: Path) -> None:
 
     with pytest.raises(config.ConfigError, match="not found"):
         config.load_config(explicit_path=missing)
+
+
+def test_missing_env_var_path_raises_config_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Given an environment variable config path that does not exist, when
+    load_config runs, then it raises ConfigError rather than silently falling
+    back to a lower-precedence layer."""
+    missing = tmp_path / "does-not-exist.toml"
+    monkeypatch.setenv("KESTREL_CONFIG", str(missing))
+
+    with pytest.raises(config.ConfigError, match="not found"):
+        config.load_config()
+
