@@ -202,4 +202,3 @@ def test_missing_env_var_path_raises_config_error(
 
     with pytest.raises(config.ConfigError, match="not found"):
         config.load_config()
-
