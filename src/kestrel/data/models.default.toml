@@ -1,0 +1,34 @@
+# Default Kestrel model registry.
+#
+# Used only when no ./models.toml or per-user models.toml exists. Rates
+# are placeholders pending provider-confirmed pricing -- do not treat
+# them as authoritative for cost accounting.
+
+[[models]]
+id = "glm-5.2"
+backend = "openrouter"
+provider_model = "zai-org/GLM-5.2"
+api_key_env = "OPENROUTER_API_KEY"
+context_window = 200000
+max_output = 16384
+usd_per_mtok_input = 0.60
+usd_per_mtok_output = 2.20
+usd_per_mtok_cached = 0.11
+supports_tools = true
+supports_cache = true
+tags = ["planner", "executor"]
+
+[[models]]
+id = "glm-5.2-zai"
+backend = "zai"
+provider_model = "glm-5.2"
+endpoint = "https://api.z.ai/api/paas/v4"
+api_key_env = "ZAI_API_KEY"
+context_window = 200000
+max_output = 16384
+usd_per_mtok_input = 0.60
+usd_per_mtok_output = 2.20
+usd_per_mtok_cached = 0.11
+supports_tools = true
+supports_cache = true
+tags = ["planner", "executor"]
