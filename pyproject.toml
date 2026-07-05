@@ -54,6 +54,9 @@ filterwarnings = [
     # litellm pulls in dependencies that emit deprecation noise on import;
     # this is a targeted ignore, not a blanket suppression.
     "ignore::DeprecationWarning:litellm.*",
+    # Ignore deprecation warnings from test infrastructure and core libraries
+    "ignore::DeprecationWarning:hypothesis.*",
+    "ignore::DeprecationWarning:pytest_asyncio.*",
 ]
 markers = [
     "unit: fast, deterministic tests of pure logic with no network or filesystem side effects",
