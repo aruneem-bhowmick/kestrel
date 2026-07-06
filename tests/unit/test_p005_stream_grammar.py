@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = [pytest.mark.p005, pytest.mark.regression]
+pytestmark = [pytest.mark.p005, pytest.mark.p006, pytest.mark.regression]
 
 _SRC_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "kestrel"
 
@@ -24,13 +24,19 @@ _SRC_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "kestrel"
 # The registry's own schema module legitimately enumerates the set of valid
 # backend identifiers -- declaring that set is not the same as a call site
 # choosing among them. Packaged TOML data ships concrete backend values by
-# design.
+# design (and is out of scope for this guard regardless, since only *.py
+# files are scanned below).
 _EXCLUDED_PATHS = {
     _SRC_ROOT / "provider" / "litellm_client.py",
     _SRC_ROOT / "registry" / "model.py",
 }
 
-_VENDOR_NAME_PATTERN = re.compile(r"openrouter|z\.ai|anthropic|ollama", re.IGNORECASE)
+# "zai" (bare, no dot) is the registry's own backend identifier, distinct
+# from "z.ai" (the vendor's own name for itself); both are guarded here so
+# neither form of the name can leak into a call site outside the adapter.
+_VENDOR_NAME_PATTERN = re.compile(
+    r"openrouter|z\.ai|zai|anthropic|ollama", re.IGNORECASE
+)
 
 
 def test_no_vendor_names_outside_adapter() -> None:
