@@ -421,14 +421,14 @@ def test_litellm_params_openrouter_honors_base_url_override(
     assert params["api_base"] == "http://127.0.0.1:9999/v1"
 
 
-@pytest.mark.parametrize("backend", ["zai", "anthropic", "ollama"])
+@pytest.mark.parametrize("backend", ["anthropic", "ollama"])
 def test_litellm_params_raises_server_error_for_other_backends(backend: str) -> None:
     """Given a registry entry for a backend this adapter does not yet
     implement, when translated, then it raises a typed ServerError instead
     of silently falling back to some default routing -- a caller that
     catches ProviderError generically must still see a typed failure here,
     not a raw NotImplementedError."""
-    endpoint = "https://example.invalid" if backend in ("zai", "ollama") else None
+    endpoint = "https://example.invalid" if backend == "ollama" else None
     entry = _entry(backend=backend, endpoint=endpoint)
 
     with pytest.raises(ServerError, match=backend) as exc_info:

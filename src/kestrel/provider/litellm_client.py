@@ -90,6 +90,12 @@ def _litellm_params(entry: ModelEntry) -> dict[str, Any]:
     base URL (so it is inert in production) and lets integration/system
     tests redirect every OpenRouter call to a local mock server without
     touching this function's interface or monkeypatching its internals.
+
+    The zai branch has no equivalent env-var seam: ``entry.endpoint`` is
+    used verbatim, since the registry already carries the base URL to call
+    (and, for tests, may simply be pointed at a mock server directly). This
+    keeps backend selection entirely registry-driven, with no vendor ever
+    named outside this function.
     """
     match entry.backend:
         case "openrouter":
@@ -99,7 +105,12 @@ def _litellm_params(entry: ModelEntry) -> dict[str, Any]:
                     _OPENROUTER_BASE_URL_ENV, _DEFAULT_OPENROUTER_BASE_URL
                 ),
             }
-        case "zai" | "anthropic" | "ollama":
+        case "zai":
+            return {
+                "model": f"openai/{entry.provider_model}",
+                "api_base": entry.endpoint,
+            }
+        case "anthropic" | "ollama":
             raise ServerError(
                 f"backend '{entry.backend}' is not implemented yet",
                 model_id=entry.id,
