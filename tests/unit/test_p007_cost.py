@@ -5,6 +5,7 @@ per-turn cost line.
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,6 +15,10 @@ from kestrel.provider.events import UsageEvent
 from kestrel.registry.model import ModelEntry
 
 pytestmark = [pytest.mark.p007, pytest.mark.unit]
+
+_GOLDEN_FILE = (
+    Path(__file__).resolve().parent.parent / "golden" / "p007_cost_line.golden"
+)
 
 
 def _entry(**overrides: Any) -> ModelEntry:
@@ -191,3 +196,45 @@ def test_format_cost_line_zero_usage_turn_is_visibly_suspicious() -> None:
     line = format_cost_line(turn, session_usd=Decimal("1.577537"))
 
     assert line == "in:0 out:0 · $0.0000 turn · $1.5775 session"
+
+
+@pytest.mark.cost_regression
+def test_canonical_turn_band() -> None:
+    """The canonical mock turn (42 input / 7 output / 0 cached tokens, at
+    the packaged glm-5.2 default rates) must cost exactly
+    Decimal("0.000041"); any drift in the pricing formula, the default
+    rates, or the rounding mode fails this test rather than surfacing
+    later as an unexplained cost-band violation."""
+    usage = UsageEvent(input_tokens=42, output_tokens=7, cached_tokens=0)
+
+    assert compute_turn_cost(usage, _entry()) == Decimal("0.000041")
+
+
+@pytest.mark.regression
+@pytest.mark.acceptance
+def test_cost_line_format_matches_golden_snapshot() -> None:
+    """The exact per-turn line the REPL prints, for four canonical shapes
+    (a cache hit, no cache hit, a zero-usage turn, and a large turn),
+    must match a pinned snapshot byte-for-byte -- this text is the DoD's
+    "prints usage/cost per turn" clause made concrete, and an accidental
+    formatting change should surface here rather than downstream."""
+    meter = CostMeter()
+    entry = _entry()
+    entry_zai = _entry(id="glm-5.2-zai")
+
+    lines = [
+        format_cost_line(
+            meter.record(UsageEvent(1_000_000, 500_000, 250_000), entry),
+            meter.session_usd,
+        ),
+        format_cost_line(
+            meter.record(UsageEvent(40, 6, 0), entry_zai), meter.session_usd
+        ),
+        format_cost_line(meter.record(UsageEvent(0, 0, 0), entry), meter.session_usd),
+        format_cost_line(
+            meter.record(UsageEvent(50_000_000, 16_384, 10_000_000), entry),
+            meter.session_usd,
+        ),
+    ]
+
+    assert "\n".join(lines) + "\n" == _GOLDEN_FILE.read_text(encoding="utf-8")
