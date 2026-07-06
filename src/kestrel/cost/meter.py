@@ -50,11 +50,20 @@ def compute_turn_cost(usage: UsageEvent, entry: ModelEntry) -> Decimal:
     across many accumulated turns.
 
     Raises:
-        ValueError: ``usage.cached_tokens`` exceeds ``usage.input_tokens``.
-            A backend reporting more cached tokens than input tokens is
-            malformed; pricing it anyway would silently produce a wrong
-            number instead of surfacing the bad data.
+        ValueError: Any token count in ``usage`` is negative, or
+            ``usage.cached_tokens`` exceeds ``usage.input_tokens``. A
+            backend reporting negative counts or more cached tokens than
+            input tokens is malformed; pricing it anyway would silently
+            produce a wrong number instead of surfacing the bad data.
     """
+    if usage.input_tokens < 0 or usage.output_tokens < 0 or usage.cached_tokens < 0:
+        raise ValueError(
+            f"Token counts must be non-negative (got "
+            f"input_tokens={usage.input_tokens}, "
+            f"output_tokens={usage.output_tokens}, "
+            f"cached_tokens={usage.cached_tokens})"
+        )
+
     if usage.cached_tokens > usage.input_tokens:
         raise ValueError(
             f"cached_tokens ({usage.cached_tokens}) exceeds input_tokens "
