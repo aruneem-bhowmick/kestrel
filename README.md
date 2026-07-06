@@ -55,4 +55,7 @@ before making any network call if that variable is unset or empty.
 Integration tests redirect it to a local mock server via the
 `KESTREL_OPENROUTER_BASE_URL` environment variable instead of the real
 OpenRouter endpoint; this variable is inert unless set and has no effect
-outside test runs.
+outside test runs. A registry entry with `backend = "zai"` routes through
+the same client's OpenAI-compatible path against the entry's own
+`endpoint` directly -- no environment-variable redirection, since the
+registry itself already names where to call.
