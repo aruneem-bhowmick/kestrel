@@ -140,6 +140,12 @@ class Registry(BaseModel):
 
     @model_validator(mode="after")
     def _wrap_models_immutable(self) -> Registry:
+        """Replace the validated ``models`` dict with a read-only view.
+
+        Runs after pydantic's own validation has built a plain ``dict``,
+        so the registry's frozen model config alone would not stop a
+        caller from mutating that dict in place through the attribute.
+        """
         object.__setattr__(self, "models", MappingProxyType(self.models))
         return self
 
@@ -147,6 +153,12 @@ class Registry(BaseModel):
     def _serialize_models(
         self, models: Mapping[str, ModelEntry]
     ) -> dict[str, ModelEntry]:
+        """Serialize the ``MappingProxyType`` back to a plain dict.
+
+        Pydantic's serializers do not know how to handle a
+        ``MappingProxyType`` on their own; without this, dumping a
+        ``Registry`` to JSON or a Python dict would raise.
+        """
         return dict(models)
 
     def get(self, model_id: str) -> ModelEntry:
