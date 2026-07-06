@@ -59,3 +59,16 @@ outside test runs. A registry entry with `backend = "zai"` routes through
 the same client's OpenAI-compatible path against the entry's own
 `endpoint` directly -- no environment-variable redirection, since the
 registry itself already names where to call.
+
+## Cost
+
+Every completed turn is priced from the active model's own registry rates
+using `kestrel.cost.compute_turn_cost`, which turns a `UsageEvent`'s
+input/output/cached token counts into a `Decimal` USD amount (six decimal
+places, `ROUND_HALF_EVEN`). `kestrel.cost.CostMeter` accumulates these
+across a session, and `kestrel.cost.format_cost_line` renders the exact
+line printed after each turn: input and output token counts, the turn's
+own cost, and the running session total, each rounded to four decimal
+places for display. A cache-hit count is only shown when nonzero, and a
+turn with no usage at all still prints `$0.0000` rather than nothing --
+a missing cost is meant to be noticed, not hidden.
