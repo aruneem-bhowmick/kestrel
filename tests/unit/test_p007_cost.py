@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from kestrel.cost import CostMeter, TurnCost, compute_turn_cost, format_cost_line
 from kestrel.provider.events import UsageEvent
@@ -238,3 +240,61 @@ def test_cost_line_format_matches_golden_snapshot() -> None:
     ]
 
     assert "\n".join(lines) + "\n" == _GOLDEN_FILE.read_text(encoding="utf-8")
+
+
+_RATE = st.decimals(
+    min_value=0, max_value=1000, places=6, allow_nan=False, allow_infinity=False
+)
+
+
+@pytest.mark.api
+@given(
+    input_tokens=st.integers(min_value=0, max_value=10**9),
+    output_tokens=st.integers(min_value=0, max_value=10**9),
+    cached_fraction=st.floats(min_value=0.0, max_value=1.0),
+    in_rate=_RATE,
+    out_rate=_RATE,
+    cached_rate=_RATE,
+)
+def test_cost_is_non_negative_and_monotonic_in_input_and_output(
+    input_tokens: int,
+    output_tokens: int,
+    cached_fraction: float,
+    in_rate: Decimal,
+    out_rate: Decimal,
+    cached_rate: Decimal,
+) -> None:
+    """Given any non-negative token counts (cached kept <= input) and any
+    non-negative rates, when priced, then the cost is never negative, and
+    it never decreases when either input_tokens or output_tokens grows
+    with everything else held fixed.
+
+    Growing cached_tokens alone is deliberately not asserted here: unlike
+    input and output tokens, its rate multiplies a *shifted* share of the
+    input count rather than adding a new one, so whether cost rises or
+    falls with cached_tokens depends on whether the cached rate is above
+    or below the input rate. Registry validation only warns (rather than
+    rejects) when the cached rate exceeds the input rate, so no
+    monotonicity direction holds unconditionally for that field.
+    """
+    entry = _entry(
+        usd_per_mtok_input=in_rate,
+        usd_per_mtok_output=out_rate,
+        usd_per_mtok_cached=cached_rate,
+    )
+    cached_tokens = int(input_tokens * cached_fraction)
+
+    baseline = compute_turn_cost(
+        UsageEvent(input_tokens, output_tokens, cached_tokens), entry
+    )
+    assert baseline >= 0
+
+    grown_output = compute_turn_cost(
+        UsageEvent(input_tokens, output_tokens + 1, cached_tokens), entry
+    )
+    assert grown_output >= baseline
+
+    grown_input = compute_turn_cost(
+        UsageEvent(input_tokens + 1, output_tokens, cached_tokens), entry
+    )
+    assert grown_input >= baseline
