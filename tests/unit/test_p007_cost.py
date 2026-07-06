@@ -69,6 +69,19 @@ def test_zero_usage_costs_nothing() -> None:
 
 
 @pytest.mark.sanity
+def test_negative_tokens_raise_value_error() -> None:
+    """Given a UsageEvent with any negative token counts, when priced,
+    then compute_turn_cost raises ValueError."""
+    for usage in [
+        UsageEvent(input_tokens=-1, output_tokens=0, cached_tokens=0),
+        UsageEvent(input_tokens=0, output_tokens=-1, cached_tokens=0),
+        UsageEvent(input_tokens=0, output_tokens=0, cached_tokens=-1),
+    ]:
+        with pytest.raises(ValueError, match="must be non-negative"):
+            compute_turn_cost(usage, _entry())
+
+
+@pytest.mark.sanity
 def test_cached_tokens_exceeding_input_tokens_raises_value_error() -> None:
     """Given a UsageEvent reporting more cached tokens than input tokens,
     when priced, then compute_turn_cost raises ValueError instead of
