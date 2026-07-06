@@ -44,6 +44,7 @@ async def test_live_zai_completion_returns_text_and_usage() -> None:
     client = LiteLLMClient(registry)
 
     async def _collect() -> list[Any]:
+        """Run the live completion to exhaustion and return its full event list."""
         return [
             event
             async for event in client.complete(
