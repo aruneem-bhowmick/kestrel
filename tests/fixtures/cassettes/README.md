@@ -22,6 +22,20 @@ carries one `choices[0].delta` fragment and (on the last content chunk) a
   carries a screen-clear escape sequence and a terminal-title OSC sequence
   embedded between two chunks of ordinary text, for exercising terminal
   output sanitization against a realistic adversarial completion.
+- `zai_glm52_hello.sse` -- the zai-backend counterpart to the OpenRouter
+  "hello" cassette: a four-chunk "Hello from Z.ai GLM" reply with `usage`
+  (`prompt_tokens=40`, `completion_tokens=6`, `cached_tokens=0`) and
+  `finish_reason="stop"`.
+
+## Re-recording the zai cassette
+
+The zai backend has no environment-variable seam the way OpenRouter does
+(see `KESTREL_OPENROUTER_BASE_URL`): a test simply builds a registry entry
+whose `endpoint` field is the mock server's `base_url` directly, since
+that field is exactly what a real deployment would set to a genuine Z.ai
+endpoint. Re-recording `zai_glm52_hello.sse` (or adding a new zai
+cassette) needs no special handling beyond the general recipe below --
+only the registry entry construction differs, not the cassette format.
 
 ## Recording a new cassette
 
