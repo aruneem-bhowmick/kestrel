@@ -48,9 +48,7 @@ def test_litellm_params_for_zai_entry_uses_registry_endpoint_verbatim() -> None:
     prefixed for litellm's OpenAI-compatible path and api_base is taken
     verbatim from the entry's own endpoint -- no environment-variable
     seam, unlike the OpenRouter branch."""
-    entry = _entry(
-        provider_model="glm-5.2", endpoint="https://api.z.ai/api/paas/v4"
-    )
+    entry = _entry(provider_model="glm-5.2", endpoint="https://api.z.ai/api/paas/v4")
 
     params = _litellm_params(entry)
 
