@@ -1,0 +1,18 @@
+# Fixture model registry for the `kestrel doctor` system smoke test.
+#
+# Paired with kestrel.system.toml; never touched outside that test. The
+# credential env var name is test-specific (not a real provider's) so the
+# smoke test never depends on -- or risks colliding with -- a real API key.
+
+[[models]]
+id = "glm-5.2-system"
+backend = "openrouter"
+provider_model = "z-ai/glm-5.2"
+api_key_env = "KESTREL_SYSTEM_TEST_API_KEY"
+context_window = 200000
+max_output = 16384
+usd_per_mtok_input = 0.60
+usd_per_mtok_output = 2.20
+usd_per_mtok_cached = 0.11
+supports_tools = true
+supports_cache = true
