@@ -1,0 +1,8 @@
+OK    python-version  3.12
+OK    config          ./kestrel.toml
+OK    registry        2 models
+OK    default-model   glm-5.2
+OK    api-key         OPENROUTER_API_KEY
+SKIP  endpoint        pass --live
+SKIP  sandbox         sandboxed tool execution is not implemented
+SKIP  ollama          the Ollama backend is not implemented
