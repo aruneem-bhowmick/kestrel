@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import sys
 from importlib import metadata
 
 import pytest
@@ -28,11 +30,19 @@ def test_version_flag_prints_version_and_exits_zero(
     assert captured.out.strip() == __version__
 
 
-def test_no_arguments_returns_not_yet_implemented() -> None:
-    """With no subcommand, the REPL path is not yet implemented and exits 2."""
-    exit_code = main([])
+def test_no_arguments_starts_the_repl_and_exits_cleanly_on_eof(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With no subcommand, the REPL starts against the packaged default
+    configuration and registry, and returns exit code 0 as soon as stdin
+    is exhausted (mirroring a piped, non-interactive invocation)."""
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
 
-    assert exit_code == 2
+    exit_code = main([])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "kestrel" in captured.out
 
 
 def test_doctor_subcommand_returns_not_yet_implemented() -> None:
