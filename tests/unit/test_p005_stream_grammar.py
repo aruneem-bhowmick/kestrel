@@ -23,10 +23,14 @@ _SRC_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "kestrel"
 # (KES-PRV-002's "no call site names a vendor" applies to everything else).
 # The registry's own schema module legitimately enumerates the set of valid
 # backend identifiers -- declaring that set is not the same as a call site
-# choosing among them. Packaged TOML data ships concrete backend values by
-# design (and is out of scope for this guard regardless, since only *.py
-# files are scanned below).
+# choosing among them. The doctor module reports the diagnostic status of
+# each registry-declared backend identifier by name (e.g. an "ollama" check
+# reporting that integration is not implemented yet) -- a status label is
+# not routing logic either. Packaged TOML data ships concrete backend
+# values by design (and is out of scope for this guard regardless, since
+# only *.py files are scanned below).
 _EXCLUDED_PATHS = {
+    _SRC_ROOT / "doctor.py",
     _SRC_ROOT / "provider" / "litellm_client.py",
     _SRC_ROOT / "registry" / "model.py",
 }
