@@ -9,11 +9,15 @@ config, registry, or credentials.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
+import litellm
 import pytest
 
+import kestrel.doctor as doctor_module
 from kestrel.doctor import (
     CheckResult,
     CheckStatus,
@@ -189,6 +193,32 @@ def test_endpoint_skip_reason_is_blocked_by_when_both_apply(
 
     by_name = {result.name: result for result in results}
     assert by_name["endpoint"].detail == "blocked by: api-key"
+
+
+def test_live_probe_fails_cleanly_instead_of_hanging_on_a_stalled_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[..., Path],
+) -> None:
+    """Given a backend that never returns from the underlying completion
+    call, when the live probe runs, then it fails with a bounded timeout
+    detail instead of hanging `kestrel doctor --live` indefinitely."""
+    monkeypatch.setattr(doctor_module, "_LIVE_PROBE_TIMEOUT_S", 0.05)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
+    config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
+
+    async def _hang(**_kwargs: Any) -> Any:
+        """Stand in for litellm.acompletion, never returning on its own."""
+        await asyncio.sleep(10)
+        raise AssertionError("the wait_for wrapper should have cancelled this first")
+
+    monkeypatch.setattr(litellm, "acompletion", _hang)
+
+    results = run_doctor(config_path, live=True)
+
+    by_name = {result.name: result for result in results}
+    assert by_name["endpoint"].status is CheckStatus.FAIL
+    assert "0s" in by_name["endpoint"].detail
 
 
 def test_missing_config_file_fails_and_blocks_every_downstream_check(

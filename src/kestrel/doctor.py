@@ -40,6 +40,7 @@ from kestrel.repl import sanitize_terminal
 _MIN_PYTHON: tuple[int, int] = (3, 12)
 _LIVE_PROBE_MESSAGE = "ping"
 _LIVE_PROBE_MAX_TOKENS = 1
+_LIVE_PROBE_TIMEOUT_S = 30.0
 
 _CHECK_NAMES: tuple[str, ...] = (
     "python-version",
@@ -141,7 +142,7 @@ def _check_api_key(entry: ModelEntry) -> CheckResult:
     return CheckResult("api-key", CheckStatus.OK, entry.api_key_env or "")
 
 
-async def _probe_endpoint(registry: Registry, entry: ModelEntry) -> None:
+async def _drain_probe(registry: Registry, entry: ModelEntry) -> None:
     """Send one budget-capped completion to confirm the backend answers,
     discarding whatever it replies with."""
     client = LiteLLMClient(registry)
@@ -156,6 +157,20 @@ async def _probe_endpoint(registry: Registry, entry: ModelEntry) -> None:
         pass
 
 
+async def _probe_endpoint(registry: Registry, entry: ModelEntry) -> None:
+    """Run :func:`_drain_probe` under a hard wall-clock bound.
+
+    The client's own per-request timeout is tuned for a full REPL turn,
+    not a diagnostic that is supposed to answer in seconds -- and, for a
+    streaming call, a generic request timeout does not reliably bound the
+    time between individual chunks. Wrapping the whole probe in
+    :func:`asyncio.wait_for` guarantees ``kestrel doctor --live`` reports
+    a result instead of hanging the terminal on an unresponsive or
+    slow-drip backend.
+    """
+    await asyncio.wait_for(_drain_probe(registry, entry), timeout=_LIVE_PROBE_TIMEOUT_S)
+
+
 def _check_endpoint(registry: Registry, entry: ModelEntry) -> CheckResult:
     """Run the live reachability probe against the default model.
 
@@ -165,6 +180,12 @@ def _check_endpoint(registry: Registry, entry: ModelEntry) -> CheckResult:
     """
     try:
         asyncio.run(_probe_endpoint(registry, entry))
+    except TimeoutError:
+        return CheckResult(
+            "endpoint",
+            CheckStatus.FAIL,
+            f"no response within {_LIVE_PROBE_TIMEOUT_S:.0f}s",
+        )
     except ProviderError as exc:
         return CheckResult("endpoint", CheckStatus.FAIL, f"{type(exc).__name__}: {exc}")
     return CheckResult("endpoint", CheckStatus.OK, f"{entry.backend}/{entry.id}")
