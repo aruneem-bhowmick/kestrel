@@ -9,11 +9,11 @@ config, registry, or credentials.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from kestrel import config as kestrel_config
 from kestrel.doctor import (
     CheckResult,
     CheckStatus,
@@ -22,7 +22,6 @@ from kestrel.doctor import (
     render_report,
     run_doctor,
 )
-from kestrel.registry import loader as registry_loader
 
 pytestmark = [pytest.mark.p009, pytest.mark.unit]
 
@@ -61,57 +60,6 @@ supports_cache = false
 """
 
 
-@pytest.fixture
-def user_config_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A fresh, empty directory standing in for the real per-user config
-    directory, so tests never touch (or depend on) the real home directory.
-    """
-    return tmp_path_factory.mktemp("userconfig")
-
-
-@pytest.fixture(autouse=True)
-def _isolated_environment(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, user_config_dir: Path
-) -> None:
-    """Chdir into an empty directory, clear ``$KESTREL_CONFIG`` and every
-    known credential variable, and point both the config and registry
-    user-config-dir lookups at an empty temp directory."""
-    monkeypatch.delenv("KESTREL_CONFIG", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("ZAI_API_KEY", raising=False)
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        kestrel_config.platformdirs,
-        "user_config_dir",
-        lambda appname: str(user_config_dir),  # noqa: ARG005
-    )
-    monkeypatch.setattr(
-        registry_loader.platformdirs,
-        "user_config_dir",
-        lambda appname: str(user_config_dir),  # noqa: ARG005
-    )
-
-
-def _write_config(tmp_path: Path, models_toml: str, *, default_model: str) -> Path:
-    """Write a ``kestrel.toml`` + ``models.toml`` pair and return the
-    config path."""
-    models_file = tmp_path / "models.toml"
-    models_file.write_text(models_toml, encoding="utf-8")
-
-    kestrel_toml = tmp_path / "kestrel.toml"
-    kestrel_toml.write_text(
-        f"""\
-[general]
-default_model = "{default_model}"
-
-[paths]
-models_file = "{models_file.as_posix()}"
-""",
-        encoding="utf-8",
-    )
-    return kestrel_toml
-
-
 def _names(results: list[CheckResult]) -> list[str]:
     """Extract just the ordered check names from a result list."""
     return [result.name for result in results]
@@ -124,13 +72,15 @@ def _statuses(results: list[CheckResult]) -> dict[str, CheckStatus]:
 
 @pytest.mark.sanity
 def test_all_green_non_live_run_passes_five_and_skips_three(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[..., Path],
 ) -> None:
     """Given a valid config, a valid registry, the default model present,
     and its credential set, when run without ``--live``, then checks 1-5
     are OK, checks 6-8 are SKIP, and the run counts as passing."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
-    config_path = _write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
+    config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     results = run_doctor(config_path, live=False)
 
@@ -154,14 +104,16 @@ def test_all_green_non_live_run_passes_five_and_skips_three(
 
 @pytest.mark.sanity
 def test_broken_registry_fails_and_cascades_skips_naming_registry(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[..., Path],
 ) -> None:
     """Given a config that resolves fine but points at a models.toml with
     a zai entry missing its required endpoint, when run, then the
     registry check FAILs with the registry loader's own message, and
     every check after it SKIPs naming "registry" as the blocker."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
-    config_path = _write_config(tmp_path, _BROKEN_MODELS_TOML, default_model="glm-5.2")
+    config_path = write_config(tmp_path, _BROKEN_MODELS_TOML, default_model="glm-5.2")
 
     results = run_doctor(config_path, live=False)
 
@@ -177,14 +129,16 @@ def test_broken_registry_fails_and_cascades_skips_naming_registry(
 
 @pytest.mark.sanity
 def test_missing_api_key_env_fails_without_leaking_a_value(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[..., Path],
 ) -> None:
     """Given every check up through default-model resolution succeeds but
     OPENROUTER_API_KEY is unset, when run, then the api-key check FAILs
     naming the variable, its detail carries no credential-shaped value,
     and the endpoint check SKIPs blocked by it."""
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    config_path = _write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
+    config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     results = run_doctor(config_path, live=False)
 
@@ -198,14 +152,16 @@ def test_missing_api_key_env_fails_without_leaking_a_value(
 
 @pytest.mark.sanity
 def test_unknown_default_model_fails_listing_available_ids(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[..., Path],
 ) -> None:
     """Given a valid registry that simply does not contain the configured
     default model id, when run, then the default-model check FAILs
     listing every id that *is* available, and downstream checks SKIP
     naming it as the blocker."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
-    config_path = _write_config(tmp_path, _VALID_MODELS_TOML, default_model="nope")
+    config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="nope")
 
     results = run_doctor(config_path, live=False)
 
@@ -218,14 +174,16 @@ def test_unknown_default_model_fails_listing_available_ids(
 
 
 def test_endpoint_skip_reason_is_blocked_by_when_both_apply(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    write_config: Callable[..., Path],
 ) -> None:
     """Given both a missing credential and ``--live``, when run, then the
     endpoint check reports the blocking check rather than defaulting to
     the "pass --live" reason -- a real cause always outranks the generic
     opt-in hint."""
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    config_path = _write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
+    config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     results = run_doctor(config_path, live=True)
 
