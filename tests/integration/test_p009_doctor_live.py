@@ -10,37 +10,16 @@ at a mock server needs no environment-variable seam -- the same pattern
 from __future__ import annotations
 
 from collections.abc import Callable
-from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from kestrel.doctor import CheckStatus, run_doctor
-from kestrel.registry.model import ModelEntry, Registry
 
 pytestmark = [pytest.mark.p009, pytest.mark.integration]
 
 _CASSETTES = Path(__file__).resolve().parent.parent / "fixtures" / "cassettes"
 _HELLO_CASSETTE = _CASSETTES / "zai_glm52_hello.sse"
-
-
-def _zai_registry(*, endpoint: str) -> Registry:
-    """Build a single-entry Registry for a zai route pointed at ``endpoint``."""
-    entry = ModelEntry(
-        id="glm-5.2-zai",
-        backend="zai",
-        provider_model="glm-5.2",
-        endpoint=endpoint,
-        api_key_env="ZAI_API_KEY",
-        context_window=200_000,
-        max_output=16_384,
-        usd_per_mtok_input=Decimal("0.60"),
-        usd_per_mtok_output=Decimal("2.20"),
-        usd_per_mtok_cached=Decimal("0.11"),
-        supports_tools=True,
-        supports_cache=True,
-    )
-    return Registry(models={"glm-5.2-zai": entry}, source=None)
 
 
 def _write_config(tmp_path: Path, *, endpoint: str) -> Path:
