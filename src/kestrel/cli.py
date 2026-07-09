@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import sys
-from argparse import ArgumentParser
+from argparse import SUPPRESS, ArgumentParser
 from collections.abc import Sequence
 from pathlib import Path
 
 from kestrel import __version__
 from kestrel.config import ConfigError, load_config
+from kestrel.doctor import all_checks_passed, render_report, run_doctor
 from kestrel.provider.litellm_client import LiteLLMClient
 from kestrel.registry.loader import load_registry
 from kestrel.registry.model import RegistryError, UnknownModelError
@@ -45,17 +46,32 @@ def _build_parser() -> ArgumentParser:
         help="Model registry id to use as the active model.",
     )
     subparsers = parser.add_subparsers(dest="command")
-    subparsers.add_parser(
+    doctor_parser = subparsers.add_parser(
         "doctor", help="Run environment and configuration diagnostics."
+    )
+    doctor_parser.add_argument(
+        "--live",
+        action="store_true",
+        help=(
+            "Also probe the default model's endpoint with a real, "
+            "budget-capped completion."
+        ),
+    )
+    doctor_parser.add_argument(
+        "--config",
+        metavar="PATH",
+        default=SUPPRESS,
+        help="Path to a kestrel.toml configuration file.",
     )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point. Subcommands: (none)=repl, doctor. Flags: --version,
-    --config PATH, --model ID. ``doctor`` is not yet implemented and
-    returns 2; every other path either prints the version or starts the
-    REPL against the resolved configuration, registry, and starting model.
+    """Entry point. Subcommands: (none)=repl, doctor [--live]. Flags:
+    --version, --config PATH, --model ID. ``doctor`` prints one aligned
+    line per flight check and exits 0 unless any check FAILed; every
+    other path either prints the version or starts the REPL against the
+    resolved configuration, registry, and starting model.
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -65,8 +81,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "doctor":
-        print("kestrel doctor: not yet implemented", file=sys.stderr)
-        return 2
+        config_path = Path(args.config) if args.config else None
+        results = run_doctor(config_path, live=args.live)
+        print(render_report(results), end="")
+        return 0 if all_checks_passed(results) else 1
 
     explicit_config = Path(args.config) if args.config else None
     try:

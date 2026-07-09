@@ -1,0 +1,12 @@
+# Fixture configuration for the `kestrel doctor` system smoke test.
+#
+# Exercised via subprocess with the repo root as the working directory
+# (see tests/system/test_p009_doctor_cli.py), so `models_file` here is
+# relative to the repo root, matching how a real deployment would name a
+# registry file relative to wherever `kestrel` is invoked from.
+
+[general]
+default_model = "glm-5.2-system"
+
+[paths]
+models_file = "tests/fixtures/models.system.toml"

@@ -43,10 +43,3 @@ def test_no_arguments_starts_the_repl_and_exits_cleanly_on_eof(
 
     assert exit_code == 0
     assert "kestrel" in captured.out
-
-
-def test_doctor_subcommand_returns_not_yet_implemented() -> None:
-    """The ``doctor`` subcommand is accepted by the parser but not yet implemented."""
-    exit_code = main(["doctor"])
-
-    assert exit_code == 2

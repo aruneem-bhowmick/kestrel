@@ -64,6 +64,7 @@ class ProviderClient(Protocol):
         model_id: str,
         effort: Effort,
         stream: bool = True,
+        max_tokens: int | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Stream a completion for ``model_id`` given ``messages`` and optional ``tools``.
 
@@ -77,5 +78,11 @@ class ProviderClient(Protocol):
         than yielding incremental updates. Even with ``stream=False``, the return
         value remains an ``AsyncIterator[StreamEvent]`` and must satisfy the normal
         stream ordering grammar.
+
+        ``max_tokens``, when given, caps the completion tokens the backend is
+        asked to generate -- callers that need a call's spend bounded by
+        construction (e.g. a reachability probe) set it explicitly; ``None``
+        leaves the backend's own default in effect, which is every existing
+        call site's behavior.
         """
         ...

@@ -52,5 +52,8 @@ jobs:
 
       - name: Run test suite
         run: >-
-          uv run pytest -m "not live and not e2e"
+          uv run pytest -m "not live and not e2e and not smoke"
           --cov=kestrel --cov-fail-under=85
+
+      - name: Smoke check (kestrel doctor)
+        run: uv run pytest -m smoke

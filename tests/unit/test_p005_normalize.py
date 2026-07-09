@@ -557,6 +557,82 @@ async def test_complete_stream_false_uses_the_buffered_response_path(
     ]
 
 
+# --- complete(): the max_tokens cap ------------------------------------------
+
+
+@pytest.mark.p009
+async def test_complete_passes_max_tokens_through_when_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given max_tokens is passed to complete(), when it calls
+    litellm.acompletion, then max_tokens is forwarded unchanged -- the
+    doctor's live probe relies on this to cap a reachability check's
+    spend by construction."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
+    usage = SimpleNamespace(
+        prompt_tokens=1, completion_tokens=1, prompt_tokens_details=None
+    )
+    response = _buffered_response(content="p", usage=usage)
+
+    async def _fake_acompletion(**kwargs: Any) -> Any:
+        """Stand in for litellm.acompletion, asserting max_tokens was forwarded."""
+        assert kwargs["max_tokens"] == 1
+        return response
+
+    monkeypatch.setattr(litellm, "acompletion", _fake_acompletion)
+    client = LiteLLMClient(_registry(_entry()))
+
+    events = [
+        event
+        async for event in client.complete(
+            messages=[{"role": "user", "content": "ping"}],
+            tools=None,
+            model_id="glm-5.2",
+            effort="high",
+            stream=False,
+            max_tokens=1,
+        )
+    ]
+
+    assert events[0] == TextDelta(text="p")
+
+
+@pytest.mark.p009
+async def test_complete_omits_max_tokens_when_not_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given max_tokens is left at its default (None), when complete()
+    calls litellm.acompletion, then no max_tokens kwarg is passed at all
+    -- every existing call site's behavior (an uncapped completion) must
+    stay unchanged by this addition."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
+    usage = SimpleNamespace(
+        prompt_tokens=3, completion_tokens=2, prompt_tokens_details=None
+    )
+    response = _buffered_response(content="hi there", usage=usage)
+
+    async def _fake_acompletion(**kwargs: Any) -> Any:
+        """Stand in for litellm.acompletion, asserting max_tokens is absent."""
+        assert "max_tokens" not in kwargs
+        return response
+
+    monkeypatch.setattr(litellm, "acompletion", _fake_acompletion)
+    client = LiteLLMClient(_registry(_entry()))
+
+    events = [
+        event
+        async for event in client.complete(
+            messages=[{"role": "user", "content": "hi"}],
+            tools=None,
+            model_id="glm-5.2",
+            effort="high",
+            stream=False,
+        )
+    ]
+
+    assert events[0] == TextDelta(text="hi there")
+
+
 # --- _tool_schemas_to_litellm --------------------------------------------------
 
 

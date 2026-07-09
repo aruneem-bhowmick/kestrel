@@ -72,3 +72,42 @@ own cost, and the running session total, each rounded to four decimal
 places for display. A cache-hit count is only shown when nonzero, and a
 turn with no usage at all still prints `$0.0000` rather than nothing --
 a missing cost is meant to be noticed, not hidden.
+
+## Flight check
+
+`kestrel doctor` runs eight read-only checks and prints one aligned line
+per check, in order: the interpreter version, whether the configuration
+file loads, whether the model registry it points at loads, whether the
+configured default model exists in that registry, and whether its
+credential environment variable is set. Two more checks are placeholders
+for integrations that do not exist in this codebase yet (a sandboxed
+tool-execution environment, and an Ollama backend) and always report
+`SKIP`. A typical all-green run against a fresh checkout looks like:
+
+```text
+OK    python-version  3.12
+OK    config          ./kestrel.toml
+OK    registry        2 models
+OK    default-model   glm-5.2
+OK    api-key         OPENROUTER_API_KEY
+SKIP  endpoint        pass --live
+SKIP  sandbox         sandboxed tool execution is not implemented
+SKIP  ollama          the Ollama backend is not implemented
+```
+
+Each of the first five checks depends on the one before it; if one fails,
+every check after it reports `SKIP` naming that same original failure
+(`blocked by: <check>`) instead of re-deriving the same root cause under
+a different name. A `FAIL` line's detail is the remedy -- a missing
+config file names its path, a broken registry names the offending entry
+and field, an unset credential names the environment variable (never its
+value). `kestrel doctor` exits `0` unless at least one check `FAIL`s;
+`SKIP` never affects the exit code.
+
+Pass `--config PATH` (before or after `doctor`) to check a specific
+configuration instead of the one that would otherwise be resolved. Pass
+`--live` to also run the sixth check: a real, budget-capped (one output
+token) completion against the configured default model, confirming the
+backend actually answers. This is the only check that spends money or
+touches the network, so it never runs unless explicitly requested --
+never pass `--live` in an automated or CI context.

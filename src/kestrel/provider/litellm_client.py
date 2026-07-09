@@ -416,6 +416,7 @@ class LiteLLMClient(ProviderClient):
         model_id: str,
         effort: Effort,
         stream: bool = True,
+        max_tokens: int | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Stream (or buffer) a completion for ``model_id``, satisfying ``ProviderClient``.
 
@@ -423,6 +424,9 @@ class LiteLLMClient(ProviderClient):
         error-handling contract this must uphold. ``effort`` is accepted and
         logged, not yet acted on -- mapping it onto backend-specific
         reasoning parameters is out of scope until model tiering lands.
+        ``max_tokens`` is passed straight through to litellm's own parameter
+        of the same name when given, and omitted entirely (letting the
+        backend apply its own default) when ``None``.
         """
         entry = self._registry.get(model_id)
         api_key = _require_api_key(entry)
@@ -432,6 +436,8 @@ class LiteLLMClient(ProviderClient):
         logger.debug(
             "effort=%r accepted for model_id=%r (not yet acted on)", effort, model_id
         )
+        if max_tokens is not None:
+            litellm_params["max_tokens"] = max_tokens
 
         try:
             if stream:
