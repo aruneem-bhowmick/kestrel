@@ -54,3 +54,6 @@ jobs:
         run: >-
           uv run pytest -m "not live and not e2e"
           --cov=kestrel --cov-fail-under=85
+
+      - name: Smoke check (kestrel doctor)
+        run: uv run pytest -m smoke
