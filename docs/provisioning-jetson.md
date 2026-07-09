@@ -73,7 +73,10 @@ echo "UUID=$uuid  /mnt/nvme  ext4  defaults  0  2" | sudo tee -a /etc/fstab
 # storage.
 sudo mkdir -p /mnt/nvme/projects
 sudo chown "$USER:$USER" /mnt/nvme/projects
-mv "$HOME/projects" /mnt/nvme/projects 2>/dev/null || true
+if [ -d "$HOME/projects" ] && [ ! -L "$HOME/projects" ]; then
+  mv "$HOME/projects"/* /mnt/nvme/projects/ 2>/dev/null || true
+  rmdir "$HOME/projects" 2>/dev/null || true
+fi
 ln -s /mnt/nvme/projects "$HOME/projects"
 ```
 
