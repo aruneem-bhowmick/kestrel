@@ -34,6 +34,9 @@ jobs:
       - name: mypy
         run: uv run mypy src/
 
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+
   test-x86:
     runs-on: ubuntu-latest
     steps:

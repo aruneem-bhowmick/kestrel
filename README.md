@@ -111,3 +111,11 @@ token) completion against the configured default model, confirming the
 backend actually answers. This is the only check that spends money or
 touches the network, so it never runs unless explicitly requested --
 never pass `--live` in an automated or CI context.
+
+## Jetson quickstart
+
+Deploying to an NVIDIA Jetson Orin Nano? See
+[`docs/provisioning-jetson.md`](docs/provisioning-jetson.md) for the full
+flash-to-REPL walkthrough, and run `scripts/jetson-flightcheck.sh` (add
+`--ci-mode` off-device) to confirm the board's environment preconditions
+before installing Kestrel itself.
