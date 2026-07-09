@@ -84,7 +84,7 @@ for integrations that do not exist in this codebase yet (a sandboxed
 tool-execution environment, and an Ollama backend) and always report
 `SKIP`. A typical all-green run against a fresh checkout looks like:
 
-```
+```text
 OK    python-version  3.12
 OK    config          ./kestrel.toml
 OK    registry        2 models
