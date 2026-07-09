@@ -5,8 +5,14 @@ from __future__ import annotations
 import sys
 from argparse import ArgumentParser
 from collections.abc import Sequence
+from pathlib import Path
 
 from kestrel import __version__
+from kestrel.config import ConfigError, load_config
+from kestrel.provider.litellm_client import LiteLLMClient
+from kestrel.registry.loader import load_registry
+from kestrel.registry.model import RegistryError, UnknownModelError
+from kestrel.repl import run_repl
 
 
 def _build_parser() -> ArgumentParser:
@@ -47,8 +53,9 @@ def _build_parser() -> ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point. Subcommands: (none)=repl, doctor. Flags: --version,
-    --config PATH, --model ID. Only --version is implemented; every other
-    path prints a not-yet-implemented notice and returns 2.
+    --config PATH, --model ID. ``doctor`` is not yet implemented and
+    returns 2; every other path either prints the version or starts the
+    REPL against the resolved configuration, registry, and starting model.
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -57,8 +64,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(__version__)
         return 0
 
-    print("kestrel: not yet implemented", file=sys.stderr)
-    return 2
+    if args.command == "doctor":
+        print("kestrel doctor: not yet implemented", file=sys.stderr)
+        return 2
+
+    explicit_config = Path(args.config) if args.config else None
+    try:
+        config, _config_source = load_config(explicit_config)
+    except ConfigError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    try:
+        registry = load_registry(config.paths.models_file)
+    except RegistryError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    model_id = args.model or config.general.default_model
+    try:
+        registry.get(model_id)
+    except UnknownModelError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    client = LiteLLMClient(registry)
+    return run_repl(config, registry, client, model_id)
 
 
 if __name__ == "__main__":
