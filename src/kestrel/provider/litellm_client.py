@@ -49,6 +49,15 @@ from kestrel.registry.model import ModelEntry, Registry
 
 logger = logging.getLogger("kestrel.provider")
 
+# LiteLLM prints ANSI-colored diagnostic hints (e.g. a "Provider List" link)
+# straight to stdout of its own accord -- notably when a streamed chunk's
+# own self-reported ``model`` field doesn't match a provider it recognizes,
+# which is unrelated to whether the call itself is succeeding. A plain
+# terminal REPL must not have a vendored HTTP library's internal debug
+# output leak into the user's terminal, so this is disabled globally the
+# moment this adapter is imported.
+litellm.suppress_debug_info = True
+
 _OPENROUTER_BASE_URL_ENV = "KESTREL_OPENROUTER_BASE_URL"
 _DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 

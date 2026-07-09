@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import sys
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Protocol
@@ -71,3 +73,29 @@ def mock_openai_server() -> Iterator[MockOpenAIServerFactory]:
             # One server failing to shut down cleanly shouldn't leave the
             # rest of the test session's servers running.
             logger.exception("mock_openai_server: server.stop() failed")
+
+
+@pytest.fixture
+def kestrel_executable() -> str:
+    """Locate the installed ``kestrel`` console script for subprocess tests.
+
+    ``uv run pytest`` puts the environment's script directory on ``PATH``,
+    so :func:`shutil.which` finds it directly. As a fallback (e.g. a test
+    runner invoking pytest without going through ``uv run``), the script
+    lives alongside the interpreter currently running, since console
+    scripts install into the same directory as their environment's Python.
+    """
+    found = shutil.which("kestrel")
+    if found is not None:
+        return found
+
+    exe_dir = Path(sys.executable).parent
+    for candidate_name in ("kestrel", "kestrel.exe"):
+        candidate = exe_dir / candidate_name
+        if candidate.exists():
+            return str(candidate)
+
+    pytest.fail(
+        "kestrel console script not found on PATH or in the environment's "
+        "script directory"
+    )
