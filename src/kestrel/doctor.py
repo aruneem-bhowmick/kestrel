@@ -36,11 +36,17 @@ from kestrel.registry.model import (
     UnknownModelError,
 )
 from kestrel.repl import sanitize_terminal
+from kestrel.tools.sandbox import (
+    SandboxUnavailableError,
+    bwrap_available,
+    run_sandboxed,
+)
 
 _MIN_PYTHON: tuple[int, int] = (3, 12)
 _LIVE_PROBE_MESSAGE = "ping"
 _LIVE_PROBE_MAX_TOKENS = 1
 _LIVE_PROBE_TIMEOUT_S = 30.0
+_SANDBOX_SMOKE_TIMEOUT_S = 5.0
 
 _CHECK_NAMES: tuple[str, ...] = (
     "python-version",
@@ -191,6 +197,29 @@ def _check_endpoint(registry: Registry, entry: ModelEntry) -> CheckResult:
     return CheckResult("endpoint", CheckStatus.OK, f"{entry.backend}/{entry.id}")
 
 
+def _check_sandbox() -> CheckResult:
+    """Confirm `bwrap` is on `PATH` and a smoke invocation of it inside
+    a real sandbox exits `0`, exercising the exact code path `execute`
+    itself uses rather than merely checking the binary's presence.
+
+    Unconditional -- unlike checks 2 through 6, this never depends on
+    `config` or the registry resolving first, so it always runs and
+    never reports `SKIP`.
+    """
+    if not bwrap_available():
+        return CheckResult("sandbox", CheckStatus.FAIL, "bwrap not found on PATH")
+    try:
+        result = run_sandboxed(
+            ["true"], repo_root=Path.cwd(), timeout_s=_SANDBOX_SMOKE_TIMEOUT_S
+        )
+    except (SandboxUnavailableError, OSError) as exc:
+        return CheckResult("sandbox", CheckStatus.FAIL, str(exc))
+    if result.exit_code != 0:
+        detail = f"smoke invocation exited {result.exit_code}: {result.stderr.strip()}"
+        return CheckResult("sandbox", CheckStatus.FAIL, detail)
+    return CheckResult("sandbox", CheckStatus.OK, "bwrap")
+
+
 def run_doctor(config_path: Path | None, *, live: bool) -> list[CheckResult]:
     """Run every flight check, in order, and return all eight results.
 
@@ -209,8 +238,8 @@ def run_doctor(config_path: Path | None, *, live: bool) -> list[CheckResult]:
     6. ``endpoint`` -- only when ``live=True``: a one-token-capped
        completion against the default model confirms the backend
        answers. Skipped with ``"pass --live"`` when ``live=False``.
-    7. ``sandbox`` -- always skipped; sandboxed tool execution does not
-       exist in this codebase yet.
+    7. ``sandbox`` -- ``bwrap`` is on ``PATH`` and a smoke invocation of
+       it exits ``0``; ``FAIL`` names whichever of those two failed.
     8. ``ollama`` -- always skipped; the Ollama backend does not exist in
        this codebase yet.
 
@@ -278,11 +307,7 @@ def run_doctor(config_path: Path | None, *, live: bool) -> list[CheckResult]:
         assert entry is not None
         results.append(_check_endpoint(registry, entry))
 
-    results.append(
-        CheckResult(
-            "sandbox", CheckStatus.SKIP, "sandboxed tool execution is not implemented"
-        )
-    )
+    results.append(_check_sandbox())
     results.append(
         CheckResult("ollama", CheckStatus.SKIP, "the Ollama backend is not implemented")
     )

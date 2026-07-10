@@ -88,4 +88,5 @@ markers = [
     "p013: untrusted-data framing and the injection corpus loader",
     "p014: the read_file tool and its argument-parsing contract",
     "p015: the search tool's ripgrep invocation and argument-parsing contract",
+    "p016: the execute tool and its bubblewrap sandbox wrapper",
 ]

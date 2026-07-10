@@ -26,8 +26,10 @@ def test_doctor_cli_all_green_non_live_exits_zero_with_eight_lines(
 ) -> None:
     """Given the committed system-test fixture config and its credential
     env var set, when `kestrel doctor` runs against it (without --live),
-    then it prints exactly eight aligned lines, exits 0, and every check
-    reports the all-green non-live shape (five OK, three SKIP)."""
+    then it prints exactly eight aligned lines and every check reports
+    the all-green non-live shape -- five OK, `endpoint`/`ollama` SKIP,
+    and `sandbox` OK on a `bwrap`-equipped runner or FAIL naming the
+    reason otherwise, with the exit code following suit."""
     env = dict(os.environ)
     env["KESTREL_SYSTEM_TEST_API_KEY"] = "sk-test-system"
     env["PYTHONIOENCODING"] = "utf-8"
@@ -48,12 +50,26 @@ def test_doctor_cli_all_green_non_live_exits_zero_with_eight_lines(
         check=False,
     )
 
-    assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()
     assert len(lines) == 8
 
     statuses = [line.split(None, 1)[0] for line in lines]
-    assert statuses == ["OK", "OK", "OK", "OK", "OK", "SKIP", "SKIP", "SKIP"]
+    actual_sandbox_status = statuses[6]
+    assert actual_sandbox_status in ("OK", "FAIL")
+
+    expected_returncode = 0 if actual_sandbox_status == "OK" else 1
+    assert result.returncode == expected_returncode, result.stderr
+
+    assert statuses == [
+        "OK",
+        "OK",
+        "OK",
+        "OK",
+        "OK",
+        "SKIP",
+        actual_sandbox_status,
+        "SKIP",
+    ]
 
     names = [line.split(None, 2)[1] for line in lines]
     assert names == [
