@@ -21,9 +21,14 @@ place the framed string into a message's content themselves.
 
 from __future__ import annotations
 
-from typing import Final, Literal
+from typing import Final, Literal, get_args
 
 SourceKind = Literal["file", "tool_stdout", "tool_stderr", "search_result", "web"]
+
+# The Literal's own values, so this can never drift out of sync with
+# SourceKind: adding a new source kind to the type alone is enough to
+# widen what frame_untrusted accepts at runtime too.
+_VALID_SOURCE_KINDS: Final[frozenset[str]] = frozenset(get_args(SourceKind))
 
 _OPEN_TEMPLATE: Final[str] = "<<<UNTRUSTED:{source}:{origin}>>>"
 _CLOSE_MARKER: Final[str] = "<<<END_UNTRUSTED>>>"
@@ -93,7 +98,20 @@ def frame_untrusted(text: str, *, source: SourceKind, origin: str) -> str:
     literal marker inside `text` is itself escaped (prefixed with a
     zero-width marker-breaking character) so content cannot forge a
     fake closing delimiter and "escape" the frame.
+
+    Raises:
+        ValueError: `source` is not one of `SourceKind`'s literal
+            values. `SourceKind` only constrains callers under static
+            type checking; this rejects a bad value at the one place
+            every untrusted byte is required to pass through, rather
+            than silently emitting a header naming a source kind that
+            doesn't exist.
     """
+    if source not in _VALID_SOURCE_KINDS:
+        raise ValueError(
+            f"unknown SourceKind {source!r}; expected one of "
+            f"{sorted(_VALID_SOURCE_KINDS)}"
+        )
     header = _OPEN_TEMPLATE.format(source=source, origin=_escape_origin(origin))
     safe_text = _break_markers(text)
     return f"{header}\n{safe_text}\n{_CLOSE_MARKER}"
