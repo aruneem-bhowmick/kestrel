@@ -81,3 +81,105 @@ def test_hostile_command_stdout_still_carries_the_real_frame_markers(
     assert hostile_stdout_case.payload in framed
     for marker in hostile_stdout_case.forbidden_markers:
         assert framed.count(marker) == 1
+
+
+def test_execute_truncates_large_stdout_and_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a command producing stdout and stderr that exceed the 64KB cap,
+    when run, then the result contains truncated streams with truncation notes,
+    while exit_code and timed_out are correctly preserved."""
+    # 64KB + 10 bytes
+    large_size = 64 * 1024 + 10
+    large_stdout = "a" * large_size
+    large_stderr = "b" * large_size
+
+    monkeypatch.setattr(
+        _execute_module,
+        "run_sandboxed",
+        lambda *_args, **_kwargs: SandboxResult(
+            stdout=large_stdout,
+            stderr=large_stderr,
+            exit_code=42,
+            timed_out=True,
+        ),
+    )
+
+    framed = execute(
+        ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path
+    )
+
+    # We expect:
+    # exit_code: 42
+    # timed_out: True
+    # stdout:
+    # <64KB of 'a'>
+    # ... [truncated: 10 more bytes omitted]
+    # stderr:
+    # <64KB of 'b'>
+    # ... [truncated: 10 more bytes omitted]
+    assert "exit_code: 42" in framed
+    assert "timed_out: True" in framed
+    assert "stdout:\n" + ("a" * 65536) + "\n... [truncated: 10 more bytes omitted]" in framed
+    assert "stderr:\n" + ("b" * 65536) + "\n... [truncated: 10 more bytes omitted]" in framed
+
+
+def test_execute_does_not_truncate_small_stdout_and_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a command producing stdout and stderr within the 64KB cap,
+    when run, then the streams are returned exactly without truncation notes."""
+    small_stdout = "hello stdout"
+    small_stderr = "hello stderr"
+
+    monkeypatch.setattr(
+        _execute_module,
+        "run_sandboxed",
+        lambda *_args, **_kwargs: SandboxResult(
+            stdout=small_stdout,
+            stderr=small_stderr,
+            exit_code=0,
+            timed_out=False,
+        ),
+    )
+
+    framed = execute(
+        ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path
+    )
+
+    assert "exit_code: 0" in framed
+    assert "timed_out: False" in framed
+    assert "stdout:\nhello stdout" in framed
+    assert "stderr:\nhello stderr" in framed
+    assert "truncated" not in framed
+
+
+def test_execute_handles_multibyte_truncation_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a stream with a multibyte character split across the 64KB boundary,
+    when truncated, then it drops the partial character without crashing and
+    reports the correct number of omitted bytes."""
+    # 65535 'a' characters (1 byte each) + '𠜎' (4 bytes)
+    # Total UTF-8 encoded length: 65539 bytes
+    large_stdout = ("a" * 65535) + "𠜎"
+
+    monkeypatch.setattr(
+        _execute_module,
+        "run_sandboxed",
+        lambda *_args, **_kwargs: SandboxResult(
+            stdout=large_stdout,
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+        ),
+    )
+
+    framed = execute(
+        ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path
+    )
+
+    # The 4-byte character is omitted entirely because it was cut in half,
+    # so we should have 65535 'a's and 4 omitted bytes.
+    assert "stdout:\n" + ("a" * 65535) + "\n... [truncated: 4 more bytes omitted]" in framed
+

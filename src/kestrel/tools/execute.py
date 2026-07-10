@@ -80,14 +80,29 @@ class ExecuteError(Exception):
     """
 
 
+_MAX_STREAM_BYTES: Final[int] = 64 * 1024
+
+
+def _cap_stream(content: str) -> str:
+    """Cap a stream's content at _MAX_STREAM_BYTES and append a truncation note if it exceeds it."""
+    encoded = content.encode("utf-8")
+    if len(encoded) <= _MAX_STREAM_BYTES:
+        return content
+    truncated_str = encoded[:_MAX_STREAM_BYTES].decode("utf-8", errors="ignore")
+    omitted_bytes = len(encoded) - len(truncated_str.encode("utf-8"))
+    return f"{truncated_str}\n... [truncated: {omitted_bytes} more bytes omitted]"
+
+
 def _render_result(result: SandboxResult) -> str:
     """Render `result`'s exit code, timeout flag, stdout, and stderr as
     the single text block `execute` frames as its tool result."""
+    stdout_capped = _cap_stream(result.stdout)
+    stderr_capped = _cap_stream(result.stderr)
     return (
         f"exit_code: {result.exit_code}\n"
         f"timed_out: {result.timed_out}\n"
-        f"stdout:\n{result.stdout}\n"
-        f"stderr:\n{result.stderr}"
+        f"stdout:\n{stdout_capped}\n"
+        f"stderr:\n{stderr_capped}"
     )
 
 
