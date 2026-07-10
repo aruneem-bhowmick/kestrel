@@ -184,10 +184,12 @@ def read_file(args: ReadFileArgs, *, repo_root: Path) -> str:
 def _parse_line_number(value: Any, *, field: str) -> int | None:
     """Validate an optional 1-indexed line-number field, raising
     `ReadFileError` naming `field` when it is present but not an integer
-    greater than or equal to 1."""
+    greater than or equal to 1. `bool` is rejected even though it is a
+    subclass of `int` in Python -- `true`/`false` in the source JSON is
+    never a valid line number."""
     if value is None:
         return None
-    if not isinstance(value, int) or value < 1:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ReadFileError(f"arguments: '{field}' must be an integer >= 1")
     return value
 

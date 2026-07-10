@@ -230,12 +230,14 @@ def test_path_field_wrong_type_raises_via_parse_read_file_args() -> None:
         parse_read_file_args('{"path": 123}')
 
 
-@pytest.mark.parametrize("bad_value", ['"two"', "0", "-1"])
+@pytest.mark.parametrize("bad_value", ['"two"', "0", "-1", "true"])
 def test_line_number_field_invalid_raises_via_parse_read_file_args(
     bad_value: str,
 ) -> None:
     """Given a `start_line` that is neither an integer nor a positive
-    one, when parsed, then `ReadFileError` names the offending field."""
+    one -- including a JSON boolean, which is an `int` subclass in Python
+    but never a valid line number -- when parsed, then `ReadFileError`
+    names the offending field."""
     with pytest.raises(ReadFileError, match="'start_line' must be"):
         parse_read_file_args(f'{{"path": "a.py", "start_line": {bad_value}}}')
 
