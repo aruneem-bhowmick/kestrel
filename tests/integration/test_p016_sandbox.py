@@ -17,10 +17,33 @@ import pytest
 
 from kestrel.tools.sandbox import bwrap_available, run_sandboxed
 
+
+def _can_initialize_network_namespace() -> bool:
+    """Check if the environment can initialize network namespaces for bwrap.
+
+    This is a prerequisite for all bwrap tests. If bwrap cannot set up the
+    loopback interface, all sandboxed commands will fail immediately.
+    """
+    if shutil.which("bwrap") is None:
+        return False
+    try:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_sandboxed(["true"], repo_root=Path(tmpdir), timeout_s=5.0)
+            return result.exit_code == 0 and not result.timed_out
+    except Exception:
+        return False
+
+
 pytestmark = [
     pytest.mark.p016,
     pytest.mark.integration,
     pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap not found on PATH"),
+    pytest.mark.skipif(
+        not _can_initialize_network_namespace(),
+        reason="bwrap cannot initialize network namespace (missing capabilities or AppArmor restrictions)",
+    ),
 ]
 
 
