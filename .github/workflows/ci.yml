@@ -86,6 +86,7 @@ jobs:
         run: uv run pytest -m smoke
 
       - name: Jetson flight-check script (CI mode)
+        timeout-minutes: 5
         env:
           OPENROUTER_API_KEY: sk-test-openrouter
         run: bash scripts/jetson-flightcheck.sh --ci-mode
