@@ -63,6 +63,23 @@ the same client's OpenAI-compatible path against the entry's own
 `endpoint` directly -- no environment-variable redirection, since the
 registry itself already names where to call.
 
+## Tools
+
+Kestrel offers a model a small, fixed set of capabilities -- read,
+search, edit, and execute -- rather than an open-ended plugin surface.
+Every tool declares its own `ToolSchema` and returns its result already
+wrapped by `kestrel.security.frame_untrusted`, so a model never has to
+guess whether a byte it receives back is data or an instruction.
+
+- **`read_file`** -- reads a UTF-8 text file, or a 1-indexed inclusive
+  line range within it, from a repo-relative path. Refuses a path that
+  escapes the repository root (including by following a symlink out of
+  it), a missing file, a directory, and binary content; a whole-file read
+  with no line range given is capped at 64 KiB, truncated with a note
+  naming how much was cut.
+
+More tools land here as they're implemented.
+
 ## Cost
 
 Every completed turn is priced from the active model's own registry rates
