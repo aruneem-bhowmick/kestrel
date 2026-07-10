@@ -65,14 +65,16 @@ def test_scope_escaping_repo_root_raises(tmp_path: Path) -> None:
 
 def test_invalid_regex_raises_naming_rgs_own_message(tmp_path: Path) -> None:
     """Given a pattern that is not a well-formed regex, when searched,
-    then `SearchError` is raised carrying `rg`'s own non-empty diagnostic
-    rather than a generic message."""
+    then `SearchError` is raised carrying `rg`'s own regex-parse
+    diagnostic rather than the generic "exited with status N" fallback."""
     _write(tmp_path, "a.py", "content\n")
 
     with pytest.raises(SearchError) as exc_info:
         search(SearchArgs(pattern="("), repo_root=tmp_path)
 
-    assert str(exc_info.value)
+    message = str(exc_info.value)
+    assert "regex parse error" in message
+    assert "exited with status" not in message
 
 
 def test_zero_matches_returns_a_framed_no_matches_result(tmp_path: Path) -> None:
