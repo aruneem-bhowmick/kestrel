@@ -10,8 +10,11 @@ real file or tool content by accident. Any occurrence of the three-byte
 run ``<<<`` inside the wrapped text or its origin -- the shared prefix of
 both markers -- is itself broken by an interposed zero-width character,
 so hostile content can neither forge a fake closing delimiter nor spoof a
-second, differently-sourced block that only looks well-formed. This
-module is pure and synchronous; it knows nothing about
+second, differently-sourced block that only looks well-formed. Origin
+gets one more escaping pass on top of that, breaking ``>>>`` runs too,
+since it is embedded inside the header's own opening/closing pair and an
+unescaped ``>>>`` there could make the header appear to close early.
+This module is pure and synchronous; it knows nothing about
 :class:`~kestrel.provider.base.ProviderClient` or ``Message`` -- callers
 place the framed string into a message's content themselves.
 """
@@ -45,19 +48,37 @@ def _break_markers(value: str) -> str:
     return value.replace("<<<", f"<<{_MARKER_BREAK}<")
 
 
+def _break_closing_run(value: str) -> str:
+    """Interpose a zero-width character inside every ``>>>`` run in ``value``.
+
+    Only :func:`_escape_origin` needs this on top of :func:`_break_markers`:
+    origin sits between the header's own ``<<<UNTRUSTED:`` prefix and its
+    closing ``>>>``, so an unescaped ``>>>`` inside it would make the
+    header appear -- to a naive parser or a pattern-matching reader -- to
+    close earlier than it actually does, stranding the rest of origin as
+    unframed trailing text on the same line. Body text never needs this
+    independently: every marker that matters there, the real closing
+    delimiter and a forged nested block alike, begins with ``<<<``, which
+    :func:`_break_markers` already catches.
+    """
+    return value.replace(">>>", f">>{_MARKER_BREAK}>")
+
+
 def _escape_origin(origin: str) -> str:
     """Escape ``origin`` for safe embedding inside the opening marker's line.
 
     ``origin`` is rendered verbatim otherwise (callers are responsible
-    for not passing secrets as ``origin``); this only collapses newlines
-    to a visible backslash escape, so a hostile origin cannot split the
-    single-line header into extra lines, and breaks any delimiter-forming
-    run exactly as the body text is escaped.
+    for not passing secrets as ``origin``); this collapses newlines to a
+    visible backslash escape, so a hostile origin cannot split the
+    single-line header into extra lines, and breaks both delimiter-forming
+    runs -- ``<<<`` exactly as the body text is escaped, and ``>>>`` so
+    origin cannot forge the header's own early close (see
+    :func:`_break_closing_run`).
     """
     collapsed = (
         origin.replace("\r\n", "\\r\\n").replace("\n", "\\n").replace("\r", "\\r")
     )
-    return _break_markers(collapsed)
+    return _break_closing_run(_break_markers(collapsed))
 
 
 def frame_untrusted(text: str, *, source: SourceKind, origin: str) -> str:
