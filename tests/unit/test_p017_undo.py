@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from kestrel.managers.undo import UndoConflictError, UndoEntry, UndoManager
+from kestrel.security.corpus import load_corpus
 
 pytestmark = [pytest.mark.p017, pytest.mark.unit]
 
@@ -301,3 +302,38 @@ def test_conflict_also_applies_when_a_deletion_is_reverted_over_a_recreated_file
         manager.revert_last()
 
     assert _read(tmp_path, "a.txt") == "recreated out of band"
+
+
+@pytest.mark.parametrize(
+    "case_id",
+    ["zero_width_smuggled_instruction", "readme_ignore_previous_instructions"],
+)
+def test_unicode_content_round_trips_byte_exact(tmp_path: Path, case_id: str) -> None:
+    """Given a file whose content is one of the injection corpus's
+    Unicode-laden payloads -- proving this manager's journaling and
+    reversion has no interaction with `frame_untrusted`'s own escaping,
+    since nothing here ever frames anything -- when recorded and then
+    reverted, then the exact original bytes come back, unchanged
+    down to every zero-width and multi-byte character."""
+    payload = next(case.payload for case in load_corpus() if case.id == case_id)
+    manager = UndoManager(repo_root=tmp_path)
+    _write(tmp_path, "payload.txt", payload)
+    manager.record(
+        UndoEntry(
+            turn_id=1, task_id="t", path="payload.txt", before=None, after=payload
+        )
+    )
+    _write(tmp_path, "payload.txt", "replaced")
+    manager.record(
+        UndoEntry(
+            turn_id=1,
+            task_id="t",
+            path="payload.txt",
+            before=payload,
+            after="replaced",
+        )
+    )
+
+    manager.revert_last()
+
+    assert (tmp_path / "payload.txt").read_bytes() == payload.encode("utf-8")
