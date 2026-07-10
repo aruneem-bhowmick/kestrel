@@ -217,6 +217,25 @@ def test_check_sandbox_fails_naming_a_sandbox_unavailable_error(
     assert result.detail == "bwrap disappeared mid-check"
 
 
+def test_check_sandbox_fails_naming_an_os_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given ``bwrap`` reported present but the smoke invocation itself
+    raising ``OSError``, when the sandbox check runs, then it
+    FAILs naming that error rather than letting it escape."""
+    monkeypatch.setattr(doctor_module, "bwrap_available", lambda: True)
+
+    def _raise(*_args: object, **_kwargs: object) -> SandboxResult:
+        raise OSError("Permission denied or missing binary")
+
+    monkeypatch.setattr(doctor_module, "run_sandboxed", _raise)
+
+    result = doctor_module._check_sandbox()
+
+    assert result.status is CheckStatus.FAIL
+    assert result.detail == "Permission denied or missing binary"
+
+
 def test_check_sandbox_ok_when_bwrap_available_and_smoke_succeeds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

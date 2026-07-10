@@ -212,7 +212,7 @@ def _check_sandbox() -> CheckResult:
         result = run_sandboxed(
             ["true"], repo_root=Path.cwd(), timeout_s=_SANDBOX_SMOKE_TIMEOUT_S
         )
-    except SandboxUnavailableError as exc:
+    except (SandboxUnavailableError, OSError) as exc:
         return CheckResult("sandbox", CheckStatus.FAIL, str(exc))
     if result.exit_code != 0:
         detail = f"smoke invocation exited {result.exit_code}: {result.stderr.strip()}"
