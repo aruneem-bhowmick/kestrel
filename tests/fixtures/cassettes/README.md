@@ -26,6 +26,17 @@ carries one `choices[0].delta` fragment and (on the last content chunk) a
   "hello" cassette: a four-chunk "Hello from Z.ai GLM" reply with `usage`
   (`prompt_tokens=40`, `completion_tokens=6`, `cached_tokens=0`) and
   `finish_reason="stop"`.
+- `toolcall_read_file.sse` -- a single `read_file` tool call: the id and
+  name arrive in the first chunk, `arguments` (`{"path": "src/greet.py"}`)
+  is split across the next two chunks, then `finish_reason="tool_calls"`
+  and the usage chunk.
+- `toolcall_execute_pytest.sse` -- the same shape as
+  `toolcall_read_file.sse`, naming an `execute` tool call with
+  `arguments` `{"cmd": ["pytest", "-q"], "timeout_s": 30}` split across
+  two chunks.
+- `done_no_more_tools.sse` -- an ordinary text-only "Task complete."
+  reply with `finish_reason="stop"`, standing in for a model declaring a
+  multi-turn task finished with no further tool calls.
 
 ## Re-recording the zai cassette
 
@@ -61,3 +72,20 @@ diffable text file. A quick way to generate a cassette correctly is to
 build the chunk dicts in a short Python script and write
 `"data: " + json.dumps(chunk)` per line -- `json.dumps` escapes control
 characters for you.
+
+### Tool-call chunks
+
+A chunk that carries a tool call instead of (or alongside) text uses
+`delta.tool_calls` in place of, or next to, `delta.content`:
+
+```json
+{"index": 0, "id": "call_...", "type": "function", "function": {"name": "...", "arguments": "..."}}
+```
+
+`id`, `type`, and `function.name` only need to appear once, typically on
+the first chunk that introduces the call; every chunk contributes its
+`function.arguments` string, concatenated in arrival order, so the full
+JSON arguments payload can be split across as many chunks as you like --
+including a single whole-JSON chunk, since the normalizer handles both.
+Follow the tool-call chunks with the usual `finish_reason: "tool_calls"`
+chunk and the closing usage chunk, exactly as for a text completion.
