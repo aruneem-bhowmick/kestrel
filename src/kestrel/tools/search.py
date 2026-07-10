@@ -12,11 +12,12 @@ and JSON-argument parsing; no shared tool dispatcher exists yet, so it
 is usable standalone.
 
 Every failure this tool can hit -- a scope escaping the repo root, an
-`rg` invocation that cannot run at all, or a pattern `rg` rejects as
-invalid regex -- raises `SearchError` with a message meant to be handed
-straight back to the model, never a raw traceback or subprocess exit
-code. `rg` exiting 1 (its documented "no matches" exit code) is not a
-failure: it is a normal, framed empty-results response.
+`rg` invocation that cannot run at all or does not finish in time, or a
+pattern `rg` rejects as invalid regex -- raises `SearchError` with a
+message meant to be handed straight back to the model, never a raw
+traceback or subprocess exit code. `rg` exiting 1 (its documented "no
+matches" exit code) is not a failure: it is a normal, framed
+empty-results response.
 """
 
 from __future__ import annotations
@@ -40,6 +41,11 @@ _RG_EXIT_NO_MATCHES: Final[int] = 1
 # rendered, so one abnormally long line (a minified bundle, a data file)
 # can never dominate the tool's response on its own.
 _MAX_LINE_CHARS: Final[int] = 300
+
+# A pathological pattern (catastrophic regex backtracking) or a very large
+# scope should not be able to hang the tool call indefinitely; this bounds
+# a single rg invocation the same way the doctor's live probe is bounded.
+_RG_TIMEOUT_S: Final[float] = 30.0
 
 _DEFAULT_MAX_RESULTS: Final[int] = 50
 _MIN_MAX_RESULTS: Final[int] = 1
@@ -171,10 +177,12 @@ def search(args: SearchArgs, *, repo_root: Path) -> str:
         SearchError: `args.scope` resolves outside `repo_root` (whether
             by `..` traversal or by following a symlink that points
             outside it); `rg` cannot be started at all (e.g. it is not
-            on `PATH`); or `rg` exits with a status other than 0 (matches
-            found) or 1 (no matches, not an error) -- most commonly
-            because `args.pattern` is not a regex `rg` accepts, in which
-            case the message is `rg`'s own diagnostic.
+            on `PATH`); `rg` does not finish within `_RG_TIMEOUT_S`
+            seconds (e.g. a pattern triggering catastrophic regex
+            backtracking); or `rg` exits with a status other than 0
+            (matches found) or 1 (no matches, not an error) -- most
+            commonly because `args.pattern` is not a regex `rg` accepts,
+            in which case the message is `rg`'s own diagnostic.
 
     `rg` exiting 1 is not an error: it returns a framed message stating
     no matches were found, exactly like a search that matched nothing for
@@ -192,7 +200,10 @@ def search(args: SearchArgs, *, repo_root: Path) -> str:
             capture_output=True,
             encoding="utf-8",
             errors="replace",
+            timeout=_RG_TIMEOUT_S,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise SearchError(f"rg did not finish within {_RG_TIMEOUT_S:.0f}s") from exc
     except OSError as exc:
         raise SearchError(f"rg could not be run ({exc})") from exc
 
