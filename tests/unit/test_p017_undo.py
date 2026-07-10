@@ -212,3 +212,52 @@ def test_revert_task_with_no_matching_entries_returns_empty_list(
     )
 
     assert manager.revert_task("no-such-task") == []
+
+
+def test_journal_persists_across_manager_instances(tmp_path: Path) -> None:
+    """Given entries recorded through one `UndoManager` instance, when
+    a second instance is constructed pointed at the same
+    `journal_path`, then it can revert those entries too -- the
+    journal, not the in-process list, is the source of truth."""
+    first = UndoManager(repo_root=tmp_path)
+    _write(tmp_path, "a.txt", "a1")
+    first.record(
+        UndoEntry(turn_id=1, task_id="t", path="a.txt", before=None, after="a1")
+    )
+
+    second = UndoManager(repo_root=tmp_path, journal_path=first.journal_path)
+    reverted = second.revert_last()
+
+    assert reverted.after == "a1"
+    assert not (tmp_path / "a.txt").exists()
+
+
+def test_record_creates_the_journal_directory_and_file_lazily(tmp_path: Path) -> None:
+    """Given a fresh repo with no `.kestrel` directory yet, when a
+    manager is constructed, then nothing is created on disk; only the
+    first `record` call creates the directory and the journal file."""
+    manager = UndoManager(repo_root=tmp_path)
+    assert not manager.journal_path.exists()
+    assert not manager.journal_path.parent.exists()
+
+    manager.record(
+        UndoEntry(turn_id=1, task_id="t", path="a.txt", before=None, after="a1")
+    )
+
+    assert manager.journal_path == tmp_path / ".kestrel" / "undo.jsonl"
+    assert manager.journal_path.exists()
+
+
+def test_explicit_journal_path_overrides_the_default(tmp_path: Path) -> None:
+    """Given an explicit `journal_path`, when a manager is
+    constructed, then it uses that path instead of the default
+    `.kestrel/undo.jsonl` location."""
+    custom = tmp_path / "custom" / "journal.jsonl"
+    manager = UndoManager(repo_root=tmp_path, journal_path=custom)
+
+    manager.record(
+        UndoEntry(turn_id=1, task_id="t", path="a.txt", before=None, after="a1")
+    )
+
+    assert custom.exists()
+    assert not (tmp_path / ".kestrel").exists()
