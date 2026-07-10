@@ -38,6 +38,21 @@ _COST_LINE_RE = re.compile(
     r"· \$(?P<turn_usd>\d+\.\d{4}) turn · \$(?P<session_usd>\d+\.\d{4}) session"
 )
 
+_PROVISIONING_DOC_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "docs" / "provisioning-jetson.md"
+)
+_EXPECTED_PROVISIONING_SECTIONS = [
+    "Prerequisites",
+    "Flash JetPack 6.2",
+    "NVMe setup",
+    "Power mode",
+    "Python & uv",
+    "Kestrel install",
+    "Flight check",
+    "Ollama (deferred)",
+]
+_SECTION_HEADING_RE = re.compile(r"^## (.+)$", re.MULTILINE)
+
 
 def _write_system_config(tmp_path: Path, *, zai_endpoint: str) -> Path:
     """Write a temp ``kestrel.toml`` + ``models.toml`` pair naming one
@@ -259,3 +274,17 @@ def test_dod_model_hotswap(
         "Hello from GLM-5.2",
         "hello again",
     ]
+
+
+def test_dod_provisioning_doc_complete() -> None:
+    """Given the committed Jetson provisioning guide, when checked against
+    the "provisioning doc" clause of the exit criteria, then it still has
+    every required section in order -- re-asserting the guide's own
+    structural contract -- and explicitly walks the reader through both
+    ``uv run kestrel doctor`` and ``uv run kestrel``, the two commands a
+    fresh install is supposed to end at.
+    """
+    text = _PROVISIONING_DOC_PATH.read_text(encoding="utf-8")
+    assert _SECTION_HEADING_RE.findall(text) == _EXPECTED_PROVISIONING_SECTIONS
+    assert "uv run kestrel doctor" in text
+    assert "uv run kestrel" in text
