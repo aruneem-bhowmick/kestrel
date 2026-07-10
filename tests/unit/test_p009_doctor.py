@@ -159,6 +159,7 @@ def test_check_sandbox_fails_naming_bwrap_absent(
     monkeypatch.setattr(doctor_module, "bwrap_available", lambda: False)
 
     def _unexpected_call(*_args: object, **_kwargs: object) -> SandboxResult:
+        """Stand in for `run_sandboxed`, failing the test if reached."""
         raise AssertionError("run_sandboxed should not be called when bwrap is absent")
 
     monkeypatch.setattr(doctor_module, "run_sandboxed", _unexpected_call)
@@ -204,6 +205,8 @@ def test_check_sandbox_fails_naming_a_sandbox_unavailable_error(
     monkeypatch.setattr(doctor_module, "bwrap_available", lambda: True)
 
     def _raise(*_args: object, **_kwargs: object) -> SandboxResult:
+        """Stand in for `run_sandboxed`, raising as if `bwrap` vanished
+        between the presence check and this call."""
         raise SandboxUnavailableError("bwrap disappeared mid-check")
 
     monkeypatch.setattr(doctor_module, "run_sandboxed", _raise)

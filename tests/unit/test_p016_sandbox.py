@@ -50,6 +50,7 @@ def test_run_sandboxed_raises_when_bwrap_unavailable(
     monkeypatch.setattr(_sandbox_module, "bwrap_available", lambda: False)
 
     def _unexpected_call(*_args: object, **_kwargs: object) -> None:
+        """Stand in for `subprocess.run`, failing the test if reached."""
         raise AssertionError("subprocess.run should not be called when bwrap is absent")
 
     monkeypatch.setattr(subprocess, "run", _unexpected_call)
@@ -69,6 +70,8 @@ def test_run_sandboxed_timeout_returns_timed_out_result_instead_of_raising(
     monkeypatch.setattr(_sandbox_module, "bwrap_available", lambda: True)
 
     def _timeout(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Stand in for `subprocess.run`, raising a timeout with partial
+        `str` output attached, as `Popen.communicate` can produce."""
         raise subprocess.TimeoutExpired(
             cmd=["bwrap"], timeout=5.0, output="partial out", stderr="partial err"
         )
@@ -93,6 +96,8 @@ def test_run_sandboxed_timeout_with_no_partial_output_returns_empty_strings(
     monkeypatch.setattr(_sandbox_module, "bwrap_available", lambda: True)
 
     def _timeout(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Stand in for `subprocess.run`, raising a timeout with no
+        captured output attached at all."""
         raise subprocess.TimeoutExpired(cmd=["bwrap"], timeout=5.0)
 
     monkeypatch.setattr(subprocess, "run", _timeout)
@@ -115,6 +120,8 @@ def test_run_sandboxed_timeout_with_raw_bytes_output_decodes_it(
     monkeypatch.setattr(_sandbox_module, "bwrap_available", lambda: True)
 
     def _timeout(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Stand in for `subprocess.run`, raising a timeout with partial
+        raw `bytes` output attached instead of already-decoded `str`."""
         raise subprocess.TimeoutExpired(
             cmd=["bwrap"], timeout=5.0, output=b"raw out", stderr=b"raw err"
         )
@@ -138,6 +145,9 @@ def test_run_sandboxed_success_returns_the_completed_process_shape(
     def _fake_run(
         argv: list[str], **_kwargs: object
     ) -> subprocess.CompletedProcess[str]:
+        """Stand in for `subprocess.run`, returning a canned successful
+        `echo` result after checking the sandboxed argv starts with
+        `bwrap`."""
         assert argv[0] == "bwrap"
         return subprocess.CompletedProcess(
             args=argv, returncode=0, stdout="hello\n", stderr=""
@@ -164,6 +174,8 @@ def _capture_argv(
     calls: list[list[str]] = []
 
     def _record(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Stand in for `subprocess.run`, recording `argv` and returning
+        a trivial successful result."""
         calls.append(argv)
         return subprocess.CompletedProcess(
             args=argv, returncode=0, stdout="", stderr=""
