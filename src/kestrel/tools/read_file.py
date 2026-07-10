@@ -29,13 +29,10 @@ from kestrel.security.framing import frame_untrusted
 
 # Returned content is capped at 64 KiB when no explicit line range is
 # given; an explicit range is never truncated this way (the caller asked
-# for exactly that slice).
+# for exactly that slice). This is also the most this tool ever reads off
+# disk for that case, so a huge file is never loaded just to discard most
+# of it.
 _MAX_RETURNED_BYTES: Final[int] = 64 * 1024
-
-# Only this much of a file is decoded to decide whether it is binary,
-# so a large non-text file (an image, a binary blob) is rejected without
-# paying to decode all of it.
-_BINARY_GUARD_WINDOW: Final[int] = 8 * 1024
 
 _ALLOWED_ARG_FIELDS: Final[frozenset[str]] = frozenset(
     {"path", "start_line", "end_line"}
@@ -116,17 +113,63 @@ def _slice_lines(
     return "".join(lines[first - 1 : last])
 
 
-def _cap_to_max_bytes(text: str) -> str:
-    """Truncate `text` to at most `_MAX_RETURNED_BYTES` UTF-8-encoded
-    bytes, appending a trailing note naming how many bytes were cut when
-    it does."""
-    encoded = text.encode("utf-8")
-    if len(encoded) <= _MAX_RETURNED_BYTES:
-        return text
+def _read_and_decode(
+    candidate: Path, *, path: str, max_bytes: int | None
+) -> tuple[str, int]:
+    """Read `candidate` -- fully when `max_bytes` is `None`, or at most
+    `max_bytes` bytes otherwise -- and decode it as UTF-8. Returns the
+    decoded text alongside the file's total size on disk, so a caller
+    that only read a bounded prefix can tell whether it was truncated.
 
-    kept = encoded[:_MAX_RETURNED_BYTES].decode("utf-8", errors="ignore")
-    cut = len(encoded) - len(kept.encode("utf-8"))
-    return f"{kept}\n... [truncated: {cut} more bytes omitted]"
+    Reading a bounded prefix rather than the whole file lets a large
+    whole-file read (no line range given, so the result is capped at
+    `_MAX_RETURNED_BYTES` regardless) skip loading and decoding the part
+    that would only be discarded.
+
+    Raises:
+        ReadFileError: the read fails at the OS level, or the bytes
+            actually read are not valid UTF-8 (the binary guard) --
+            never a raw `OSError` or `UnicodeDecodeError`. A prefix cut
+            off mid-character by `max_bytes` is not itself a
+            binary-guard failure: only the complete characters before
+            the cut are decoded and returned.
+    """
+    try:
+        total_size = candidate.stat().st_size
+        if max_bytes is None:
+            raw = candidate.read_bytes()
+        else:
+            with candidate.open("rb") as handle:
+                raw = handle.read(max_bytes)
+    except OSError as exc:
+        raise ReadFileError(f"{path}: could not be read ({exc})") from exc
+
+    truncated = total_size > len(raw)
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        if truncated and exc.start >= len(raw) - 3:
+            # The error is a dangling, incomplete multi-byte sequence
+            # (at most 3 bytes) right at the end of a prefix we chose to
+            # cut short -- an artifact of where the read stopped, not of
+            # the file's own content -- so only the complete characters
+            # before it are kept.
+            text = raw[: exc.start].decode("utf-8")
+        else:
+            raise ReadFileError(f"{path}: not valid UTF-8 text (binary guard)") from exc
+
+    return text, total_size
+
+
+def _append_truncation_note(text: str, *, total_size: int) -> str:
+    """Append a trailing note naming how many bytes were cut when
+    `total_size` (the file's real size on disk) exceeds `text`'s own
+    UTF-8-encoded length -- i.e. when `text` came from a bounded prefix
+    read rather than the whole file."""
+    kept_size = len(text.encode("utf-8"))
+    if total_size <= kept_size:
+        return text
+    return f"{text}\n... [truncated: {total_size - kept_size} more bytes omitted]"
 
 
 def read_file(args: ReadFileArgs, *, repo_root: Path) -> str:
@@ -139,14 +182,15 @@ def read_file(args: ReadFileArgs, *, repo_root: Path) -> str:
             outside it); it does not exist or names a directory; the
             underlying OS-level read fails (e.g. a permissions error, or
             the file disappearing between the existence check above and
-            the read itself); its content is not valid UTF-8 text
-            (checked against the file's first 8 KiB, so binary content
-            is rejected without decoding the whole file); or
-            `args.start_line` is greater than `args.end_line`.
+            the read itself); its content is not valid UTF-8 text (the
+            binary guard); or `args.start_line` is greater than
+            `args.end_line`.
 
-    When no line range is given, the returned content is capped at
-    64 KiB, truncated with a trailing note naming how much was cut; an
-    explicit line range is never truncated this way.
+    When no line range is given, at most 64 KiB is ever read off disk,
+    and the returned content is capped at that same size, truncated with
+    a trailing note naming how much was cut; an explicit line range
+    reads (and returns) the whole file instead, never truncated this
+    way.
     """
     candidate = _resolve_within_repo_root(args.path, repo_root=repo_root)
 
@@ -164,25 +208,16 @@ def read_file(args: ReadFileArgs, *, repo_root: Path) -> str:
             f"end_line {args.end_line}"
         )
 
-    try:
-        raw = candidate.read_bytes()
-    except OSError as exc:
-        raise ReadFileError(f"{args.path}: could not be read ({exc})") from exc
-
-    try:
-        raw[:_BINARY_GUARD_WINDOW].decode("utf-8")
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ReadFileError(
-            f"{args.path}: not valid UTF-8 text (binary guard)"
-        ) from exc
-
     if args.start_line is not None or args.end_line is not None:
+        text, _ = _read_and_decode(candidate, path=args.path, max_bytes=None)
         body = _slice_lines(
             text, start_line=args.start_line, end_line=args.end_line, path=args.path
         )
     else:
-        body = _cap_to_max_bytes(text)
+        text, total_size = _read_and_decode(
+            candidate, path=args.path, max_bytes=_MAX_RETURNED_BYTES
+        )
+        body = _append_truncation_note(text, total_size=total_size)
 
     return frame_untrusted(body, source="file", origin=args.path)
 

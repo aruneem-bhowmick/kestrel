@@ -128,13 +128,20 @@ def test_os_level_read_failure_raises_read_file_error(
     to read at the OS level (e.g. a permissions error, or the file
     disappearing between the check and the read), when read, then
     `ReadFileError` names the path instead of a raw `OSError` escaping to
-    the caller."""
+    the caller. `read_bytes` calls `open` internally, so patching `open`
+    covers both the whole-file and bounded-prefix read paths; the patch
+    only targets the file under test, so anything else opened during the
+    test (e.g. coverage instrumentation reading source files) is
+    unaffected."""
     _write(tmp_path, "flaky.txt", "content\n")
+    original_open = Path.open
 
-    def _raise_os_error(self: Path) -> bytes:
-        raise OSError("simulated read failure")
+    def _raise_os_error(self: Path, *args: object, **kwargs: object) -> object:
+        if self.name == "flaky.txt":
+            raise OSError("simulated read failure")
+        return original_open(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_bytes", _raise_os_error)
+    monkeypatch.setattr(Path, "open", _raise_os_error)
 
     with pytest.raises(ReadFileError, match="flaky.txt"):
         read_file(ReadFileArgs(path="flaky.txt"), repo_root=tmp_path)
@@ -152,6 +159,41 @@ def test_content_over_cap_truncates_with_a_note(tmp_path: Path) -> None:
     assert "truncated" in framed
     assert len(framed) < len(oversized)
     assert framed.endswith("<<<END_UNTRUSTED>>>")
+
+
+def test_truncation_boundary_splitting_a_multibyte_character_is_handled_cleanly(
+    tmp_path: Path,
+) -> None:
+    """Given a file whose size exceeds the 64 KiB cap by just enough that
+    the cut lands in the middle of a multi-byte UTF-8 character, when
+    read, then the incomplete character is dropped cleanly instead of
+    raising the binary guard, and the truncation note still reports the
+    correct byte count."""
+    prefix = "a" * 65535
+    content = prefix + "€" + "tail beyond the cap"
+    _write(tmp_path, "boundary.txt", content)
+
+    framed = read_file(ReadFileArgs(path="boundary.txt"), repo_root=tmp_path)
+
+    assert prefix in framed
+    assert "€" not in framed
+    assert "truncated" in framed
+    assert framed.endswith("<<<END_UNTRUSTED>>>")
+
+
+def test_invalid_byte_well_before_the_truncation_boundary_still_raises(
+    tmp_path: Path,
+) -> None:
+    """Given a file larger than the 64 KiB cap whose very first byte is
+    invalid UTF-8, when read, then `ReadFileError` still names the
+    binary guard -- the truncation boundary's tolerance only forgives an
+    incomplete character exactly at the cut, not a genuinely invalid
+    byte anywhere else in the truncated prefix."""
+    content = b"\xff" + (b"a" * (70 * 1024))
+    (tmp_path / "invalid_then_big.bin").write_bytes(content)
+
+    with pytest.raises(ReadFileError, match="binary guard"):
+        read_file(ReadFileArgs(path="invalid_then_big.bin"), repo_root=tmp_path)
 
 
 def test_start_line_after_end_line_raises(tmp_path: Path) -> None:
