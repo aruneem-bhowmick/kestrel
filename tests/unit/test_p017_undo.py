@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from kestrel.managers.undo import UndoEntry, UndoManager
+from kestrel.managers.undo import UndoConflictError, UndoEntry, UndoManager
 
 pytestmark = [pytest.mark.p017, pytest.mark.unit]
 
@@ -261,3 +261,43 @@ def test_explicit_journal_path_overrides_the_default(tmp_path: Path) -> None:
 
     assert custom.exists()
     assert not (tmp_path / ".kestrel").exists()
+
+
+def test_out_of_band_change_raises_conflict_and_leaves_the_file_untouched(
+    tmp_path: Path,
+) -> None:
+    """Given a file whose content has changed since the entry being
+    reverted was recorded, when reverted, then `UndoConflictError`
+    names the path and the file's (tampered) content is left exactly
+    as it was, not overwritten."""
+    manager = UndoManager(repo_root=tmp_path)
+    _write(tmp_path, "a.txt", "a1")
+    manager.record(
+        UndoEntry(turn_id=1, task_id="t", path="a.txt", before=None, after="a1")
+    )
+    _write(tmp_path, "a.txt", "tampered out of band")
+
+    with pytest.raises(UndoConflictError, match="a.txt"):
+        manager.revert_last()
+
+    assert _read(tmp_path, "a.txt") == "tampered out of band"
+
+
+def test_conflict_also_applies_when_a_deletion_is_reverted_over_a_recreated_file(
+    tmp_path: Path,
+) -> None:
+    """Given an entry recording a deletion (`after=None`), when the
+    file has since been recreated out of band before the revert runs,
+    then `UndoConflictError` is raised rather than deleting the
+    recreated file."""
+    manager = UndoManager(repo_root=tmp_path)
+    _write(tmp_path, "a.txt", "a1")
+    manager.record(
+        UndoEntry(turn_id=1, task_id="t", path="a.txt", before="a1", after=None)
+    )
+    _write(tmp_path, "a.txt", "recreated out of band")
+
+    with pytest.raises(UndoConflictError, match="a.txt"):
+        manager.revert_last()
+
+    assert _read(tmp_path, "a.txt") == "recreated out of band"
