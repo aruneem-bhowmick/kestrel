@@ -77,6 +77,12 @@ guess whether a byte it receives back is data or an instruction.
   it), a missing file, a directory, and binary content; a whole-file read
   with no line range given is capped at 64 KiB, truncated with a note
   naming how much was cut.
+- **`search`** -- runs a regex pattern against file contents under the
+  repo (or a repo-relative subdirectory scope) via `rg`, and returns
+  matched lines in deterministic file order, capped at a caller-supplied
+  result count. Requires `rg` (ripgrep) on `PATH`; refuses a scope that
+  escapes the repository root and a pattern `rg` rejects as invalid
+  regex. A search that matches nothing is a normal result, not an error.
 
 More tools land here as they're implemented.
 

@@ -1,5 +1,5 @@
-"""Tools a model can call: bounded, framed reads and (eventually) search,
-edit, and execute capabilities.
+"""Tools a model can call: bounded, framed reads and searches, and
+(eventually) edit and execute capabilities.
 
 Every tool in this package returns its result already wrapped by
 `kestrel.security.framing.frame_untrusted`, so nothing downstream needs
@@ -13,6 +13,14 @@ from kestrel.tools.read_file import (
     parse_read_file_args,
     read_file,
 )
+from kestrel.tools.search import (
+    SEARCH_SCHEMA,
+    SearchArgs,
+    SearchError,
+    SearchHit,
+    parse_search_args,
+    search,
+)
 
 __all__ = [
     "READ_FILE_SCHEMA",
@@ -20,4 +28,10 @@ __all__ = [
     "ReadFileError",
     "parse_read_file_args",
     "read_file",
+    "SEARCH_SCHEMA",
+    "SearchArgs",
+    "SearchError",
+    "SearchHit",
+    "parse_search_args",
+    "search",
 ]

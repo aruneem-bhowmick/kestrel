@@ -53,6 +53,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - name: Run test suite
         run: >-
           uv run pytest -m "not live and not e2e and not smoke"
@@ -76,6 +79,9 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --frozen
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Run test suite
         run: >-
