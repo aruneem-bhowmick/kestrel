@@ -286,5 +286,10 @@ def test_dod_provisioning_doc_complete() -> None:
     """
     text = _PROVISIONING_DOC_PATH.read_text(encoding="utf-8")
     assert _SECTION_HEADING_RE.findall(text) == _EXPECTED_PROVISIONING_SECTIONS
-    assert "uv run kestrel doctor" in text
-    assert "uv run kestrel" in text
+
+    lines = text.splitlines()
+    assert "uv run kestrel doctor" in lines
+    # A plain substring check would pass on "uv run kestrel doctor" alone;
+    # this must be its own line to prove the guide separately walks the
+    # reader to the bare REPL command, not just the doctor subcommand.
+    assert "uv run kestrel" in lines
