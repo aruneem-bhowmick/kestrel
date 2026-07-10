@@ -47,11 +47,21 @@ class MockOpenAIServer:
         cassette_path: Path | None,
         status_code: int,
         extra_headers: Mapping[str, str] | None,
+        capture: list[bytes] | None = None,
     ) -> None:
-        """Configure (without starting) a server for one canned behavior."""
+        """Configure (without starting) a server for one canned behavior.
+
+        When ``capture`` is given, every request's raw body is appended to
+        it in arrival order -- letting a caller inspect what a client
+        actually sent (e.g. to confirm conversation history round-tripped
+        across a model swap) without turning this server into a
+        request-aware simulator for every other test that has no need to
+        look.
+        """
         self._cassette_path = cassette_path
         self._status_code = status_code
         self._extra_headers = dict(extra_headers or {})
+        self._capture = capture
         self._server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
         self.base_url = ""
@@ -93,8 +103,11 @@ class MockOpenAIServer:
             self._thread.join(timeout=5)
 
     async def _handle(self, request: Request) -> Response:
-        """Reply with the configured cassette or error, ignoring the request itself."""
-        del request
+        """Record the request body (if configured to), then reply with the
+        configured cassette or error -- the request otherwise plays no
+        role in what gets replayed."""
+        if self._capture is not None:
+            self._capture.append(await request.body())
         if self._cassette_path is None:
             return PlainTextResponse(
                 '{"error": {"message": "mock provider error", "type": "mock_error"}}',

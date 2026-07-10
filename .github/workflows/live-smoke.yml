@@ -1,0 +1,36 @@
+name: "[CI] live-smoke"
+
+# Manual-only: exercises the opt-in `live` marker against real provider
+# endpoints and spends real money. Never triggered by push or pull_request
+# -- workflow_dispatch is the only way to run it, so a live call is always
+# a deliberate, one-off decision, not something a routine commit can incur.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run live suite
+        timeout-minutes: 10
+        env:
+          KESTREL_LIVE_TESTS: "1"
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+        run: uv run pytest -m live

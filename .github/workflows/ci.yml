@@ -60,3 +60,33 @@ jobs:
 
       - name: Smoke check (kestrel doctor)
         run: uv run pytest -m smoke
+
+  test-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run test suite
+        run: >-
+          uv run pytest -m "not live and not e2e and not smoke"
+          --cov=kestrel --cov-fail-under=85
+
+      - name: Smoke check (kestrel doctor)
+        run: uv run pytest -m smoke
+
+      - name: Jetson flight-check script (CI mode)
+        timeout-minutes: 5
+        env:
+          OPENROUTER_API_KEY: sk-test-openrouter
+        run: bash scripts/jetson-flightcheck.sh --ci-mode
