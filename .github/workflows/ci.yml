@@ -54,7 +54,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep bubblewrap
 
       - name: Run test suite
         run: >-
@@ -81,7 +81,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep bubblewrap
 
       - name: Run test suite
         run: >-
