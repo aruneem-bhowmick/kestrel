@@ -15,6 +15,10 @@ from kestrel.security.corpus import load_corpus
 
 pytestmark = [pytest.mark.p017, pytest.mark.unit]
 
+_GOLDEN_FILE = (
+    Path(__file__).resolve().parent.parent / "golden" / "p017_undo_entry.golden"
+)
+
 
 def _write(root: Path, relative: str, content: str) -> None:
     """Write `content` as UTF-8 bytes to `relative` under `root`,
@@ -337,3 +341,25 @@ def test_unicode_content_round_trips_byte_exact(tmp_path: Path, case_id: str) ->
     manager.revert_last()
 
     assert (tmp_path / "payload.txt").read_bytes() == payload.encode("utf-8")
+
+
+@pytest.mark.regression
+def test_journal_entry_wire_format_matches_golden_snapshot(tmp_path: Path) -> None:
+    """One canonical `UndoEntry`, recorded and read back as raw bytes,
+    matches a pinned snapshot byte-for-byte -- the journal's line
+    format is a durable contract once anything else starts reading it
+    (a `/undo` command, a future session-log reader), not an
+    implementation detail free to drift."""
+    manager = UndoManager(repo_root=tmp_path)
+
+    manager.record(
+        UndoEntry(
+            turn_id=7,
+            task_id="task-42",
+            path="src/example.py",
+            before="def old():\n    pass\n",
+            after="def new():\n    return 1\n",
+        )
+    )
+
+    assert manager.journal_path.read_bytes() == _GOLDEN_FILE.read_bytes()
