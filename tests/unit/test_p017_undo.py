@@ -122,3 +122,93 @@ def test_reverting_twice_in_a_row_does_not_raise(tmp_path: Path) -> None:
 
     manager.revert_last()
     assert _read(tmp_path, "a.txt") == "after"
+
+
+def test_revert_turn_only_touches_its_own_turn_in_reverse_order(
+    tmp_path: Path,
+) -> None:
+    """Given a journal with entries from two turns interleaved -- turn
+    1 editing `a.txt` twice and turn 2 editing `b.txt` once in between
+    -- when `revert_turn(1)` is called, then only turn 1's entries are
+    reverted, most-recent-first, restoring `a.txt` to nonexistence,
+    while `b.txt` (turn 2) is left untouched."""
+    manager = UndoManager(repo_root=tmp_path)
+
+    _write(tmp_path, "a.txt", "a1")
+    manager.record(
+        UndoEntry(turn_id=1, task_id="t", path="a.txt", before=None, after="a1")
+    )
+    _write(tmp_path, "b.txt", "b1")
+    manager.record(
+        UndoEntry(turn_id=2, task_id="t", path="b.txt", before=None, after="b1")
+    )
+    _write(tmp_path, "a.txt", "a2")
+    manager.record(
+        UndoEntry(turn_id=1, task_id="t", path="a.txt", before="a1", after="a2")
+    )
+
+    reverted = manager.revert_turn(1)
+
+    assert [entry.after for entry in reverted] == ["a2", "a1"]
+    assert not (tmp_path / "a.txt").exists()
+    assert _read(tmp_path, "b.txt") == "b1"
+
+
+def test_revert_turn_with_no_matching_entries_returns_empty_list(
+    tmp_path: Path,
+) -> None:
+    """Given a journal with entries but none carrying the requested
+    `turn_id`, when reverted, then an empty list is returned rather
+    than an error."""
+    manager = UndoManager(repo_root=tmp_path)
+    _write(tmp_path, "a.txt", "a1")
+    manager.record(
+        UndoEntry(turn_id=1, task_id="t", path="a.txt", before=None, after="a1")
+    )
+
+    assert manager.revert_turn(99) == []
+    assert _read(tmp_path, "a.txt") == "a1"
+
+
+def test_revert_task_only_touches_its_own_task_in_reverse_order(
+    tmp_path: Path,
+) -> None:
+    """Given a journal with entries from two tasks interleaved, when
+    `revert_task` is called for one of them, then only that task's
+    entries are reverted, most-recent-first, mirroring
+    `revert_turn`'s scoping at task granularity."""
+    manager = UndoManager(repo_root=tmp_path)
+
+    _write(tmp_path, "a.txt", "a1")
+    manager.record(
+        UndoEntry(turn_id=1, task_id="task-a", path="a.txt", before=None, after="a1")
+    )
+    _write(tmp_path, "b.txt", "b1")
+    manager.record(
+        UndoEntry(turn_id=1, task_id="task-b", path="b.txt", before=None, after="b1")
+    )
+    _write(tmp_path, "a.txt", "a2")
+    manager.record(
+        UndoEntry(turn_id=1, task_id="task-a", path="a.txt", before="a1", after="a2")
+    )
+
+    reverted = manager.revert_task("task-a")
+
+    assert [entry.after for entry in reverted] == ["a2", "a1"]
+    assert not (tmp_path / "a.txt").exists()
+    assert _read(tmp_path, "b.txt") == "b1"
+
+
+def test_revert_task_with_no_matching_entries_returns_empty_list(
+    tmp_path: Path,
+) -> None:
+    """Given a journal with entries but none carrying the requested
+    `task_id`, when reverted, then an empty list is returned rather
+    than an error."""
+    manager = UndoManager(repo_root=tmp_path)
+    _write(tmp_path, "a.txt", "a1")
+    manager.record(
+        UndoEntry(turn_id=1, task_id="t", path="a.txt", before=None, after="a1")
+    )
+
+    assert manager.revert_task("no-such-task") == []
