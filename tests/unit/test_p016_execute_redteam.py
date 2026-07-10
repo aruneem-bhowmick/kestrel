@@ -105,9 +105,7 @@ def test_execute_truncates_large_stdout_and_stderr(
         ),
     )
 
-    framed = execute(
-        ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path
-    )
+    framed = execute(ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path)
 
     # We expect:
     # exit_code: 42
@@ -120,8 +118,14 @@ def test_execute_truncates_large_stdout_and_stderr(
     # ... [truncated: 10 more bytes omitted]
     assert "exit_code: 42" in framed
     assert "timed_out: True" in framed
-    assert "stdout:\n" + ("a" * 65536) + "\n... [truncated: 10 more bytes omitted]" in framed
-    assert "stderr:\n" + ("b" * 65536) + "\n... [truncated: 10 more bytes omitted]" in framed
+    assert (
+        "stdout:\n" + ("a" * 65536) + "\n... [truncated: 10 more bytes omitted]"
+        in framed
+    )
+    assert (
+        "stderr:\n" + ("b" * 65536) + "\n... [truncated: 10 more bytes omitted]"
+        in framed
+    )
 
 
 def test_execute_does_not_truncate_small_stdout_and_stderr(
@@ -143,9 +147,7 @@ def test_execute_does_not_truncate_small_stdout_and_stderr(
         ),
     )
 
-    framed = execute(
-        ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path
-    )
+    framed = execute(ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path)
 
     assert "exit_code: 0" in framed
     assert "timed_out: False" in framed
@@ -175,11 +177,11 @@ def test_execute_handles_multibyte_truncation_boundary(
         ),
     )
 
-    framed = execute(
-        ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path
-    )
+    framed = execute(ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path)
 
     # The 4-byte character is omitted entirely because it was cut in half,
     # so we should have 65535 'a's and 4 omitted bytes.
-    assert "stdout:\n" + ("a" * 65535) + "\n... [truncated: 4 more bytes omitted]" in framed
-
+    assert (
+        "stdout:\n" + ("a" * 65535) + "\n... [truncated: 4 more bytes omitted]"
+        in framed
+    )
