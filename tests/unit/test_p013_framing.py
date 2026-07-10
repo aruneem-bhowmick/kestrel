@@ -91,6 +91,22 @@ def test_every_source_kind_renders_a_distinct_tag() -> None:
     assert len(headers) == len(_ALL_SOURCE_KINDS)
 
 
+def test_unknown_source_kind_raises_value_error() -> None:
+    """Given a `source` value outside `SourceKind`'s literal values, when
+    framed, then `frame_untrusted` raises `ValueError` naming the bad
+    value, rather than silently emitting a header for a source kind
+    nothing else in the codebase recognizes. `SourceKind` only
+    constrains this under static type checking, so a caller with a
+    loosely typed `source` needs the same guarantee enforced at
+    runtime."""
+    with pytest.raises(ValueError, match="unknown SourceKind"):
+        frame_untrusted(
+            "x",
+            source="not_a_real_source_kind",  # type: ignore[arg-type]
+            origin="o",
+        )
+
+
 def test_empty_text_still_produces_a_well_formed_frame() -> None:
     """Given empty text, when framed, then the result is still a
     well-formed frame carrying both delimiters, not a degenerate string
