@@ -26,6 +26,7 @@ from kestrel.doctor import (
     render_report,
     run_doctor,
 )
+from kestrel.tools.sandbox import SandboxResult, SandboxUnavailableError
 
 pytestmark = [pytest.mark.p009, pytest.mark.unit]
 
@@ -74,16 +75,33 @@ def _statuses(results: list[CheckResult]) -> dict[str, CheckStatus]:
     return {result.name: result.status for result in results}
 
 
+def _patch_sandbox_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the ``sandbox`` check deterministically ``OK``, standing in
+    for a real ``bwrap``-equipped runner without depending on one being
+    available wherever this test suite happens to run."""
+    monkeypatch.setattr(doctor_module, "bwrap_available", lambda: True)
+    monkeypatch.setattr(
+        doctor_module,
+        "run_sandboxed",
+        lambda *_args, **_kwargs: SandboxResult(
+            stdout="", stderr="", exit_code=0, timed_out=False
+        ),
+    )
+
+
 @pytest.mark.sanity
-def test_all_green_non_live_run_passes_five_and_skips_three(
+def test_all_green_non_live_run_passes_six_and_skips_two(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[..., Path],
 ) -> None:
     """Given a valid config, a valid registry, the default model present,
-    and its credential set, when run without ``--live``, then checks 1-5
-    are OK, checks 6-8 are SKIP, and the run counts as passing."""
+    its credential set, and a sandbox-capable environment, when run
+    without ``--live``, then checks 1-5 and ``sandbox`` are OK, the
+    remaining two (``endpoint``, ``ollama``) are SKIP, and the run
+    counts as passing."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
+    _patch_sandbox_ok(monkeypatch)
     config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     results = run_doctor(config_path, live=False)
@@ -99,11 +117,113 @@ def test_all_green_non_live_run_passes_five_and_skips_three(
         "ollama",
     ]
     statuses = _statuses(results)
-    for name in ("python-version", "config", "registry", "default-model", "api-key"):
+    for name in (
+        "python-version",
+        "config",
+        "registry",
+        "default-model",
+        "api-key",
+        "sandbox",
+    ):
         assert statuses[name] is CheckStatus.OK
-    for name in ("endpoint", "sandbox", "ollama"):
+    for name in ("endpoint", "ollama"):
         assert statuses[name] is CheckStatus.SKIP
     assert all_checks_passed(results) is True
+
+
+def test_sandbox_check_is_unconditional_even_when_config_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a config that fails to load, when run, then the ``sandbox``
+    check still runs and reports its own real outcome rather than
+    joining the ``config``-rooted chain of ``SKIP``s -- it depends on
+    nothing upstream."""
+    _patch_sandbox_ok(monkeypatch)
+    missing = tmp_path / "missing.toml"
+
+    results = run_doctor(missing, live=False)
+
+    by_name = {result.name: result for result in results}
+    assert by_name["config"].status is CheckStatus.FAIL
+    assert by_name["sandbox"].status is CheckStatus.OK
+
+
+# --- pure helper coverage: the sandbox check ---------------------------------
+
+
+def test_check_sandbox_fails_naming_bwrap_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given no ``bwrap`` on ``PATH``, when the sandbox check runs, then
+    it FAILs naming that absence, without attempting to run anything."""
+    monkeypatch.setattr(doctor_module, "bwrap_available", lambda: False)
+
+    def _unexpected_call(*_args: object, **_kwargs: object) -> SandboxResult:
+        raise AssertionError("run_sandboxed should not be called when bwrap is absent")
+
+    monkeypatch.setattr(doctor_module, "run_sandboxed", _unexpected_call)
+
+    result = doctor_module._check_sandbox()
+
+    assert result.status is CheckStatus.FAIL
+    assert result.detail == "bwrap not found on PATH"
+
+
+def test_check_sandbox_fails_naming_a_nonzero_smoke_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given ``bwrap`` present but the smoke invocation exiting non-zero,
+    when the sandbox check runs, then it FAILs naming the exit code and
+    the invocation's stderr."""
+    monkeypatch.setattr(doctor_module, "bwrap_available", lambda: True)
+    monkeypatch.setattr(
+        doctor_module,
+        "run_sandboxed",
+        lambda *_args, **_kwargs: SandboxResult(
+            stdout="",
+            stderr="bwrap: setting up uid map: Permission denied",
+            exit_code=1,
+            timed_out=False,
+        ),
+    )
+
+    result = doctor_module._check_sandbox()
+
+    assert result.status is CheckStatus.FAIL
+    assert "1" in result.detail
+    assert "Permission denied" in result.detail
+
+
+def test_check_sandbox_fails_naming_a_sandbox_unavailable_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given ``bwrap`` reported present but the smoke invocation itself
+    raising ``SandboxUnavailableError`` (e.g. a race between the presence
+    check and the real invocation), when the sandbox check runs, then it
+    FAILs naming that error rather than letting it escape."""
+    monkeypatch.setattr(doctor_module, "bwrap_available", lambda: True)
+
+    def _raise(*_args: object, **_kwargs: object) -> SandboxResult:
+        raise SandboxUnavailableError("bwrap disappeared mid-check")
+
+    monkeypatch.setattr(doctor_module, "run_sandboxed", _raise)
+
+    result = doctor_module._check_sandbox()
+
+    assert result.status is CheckStatus.FAIL
+    assert result.detail == "bwrap disappeared mid-check"
+
+
+def test_check_sandbox_ok_when_bwrap_available_and_smoke_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given ``bwrap`` present and a zero-exit smoke invocation, when the
+    sandbox check runs, then it reports OK naming ``bwrap``."""
+    _patch_sandbox_ok(monkeypatch)
+
+    result = doctor_module._check_sandbox()
+
+    assert result == CheckResult("sandbox", CheckStatus.OK, "bwrap")
 
 
 @pytest.mark.sanity
@@ -273,11 +393,7 @@ def test_render_report_matches_golden_snapshot() -> None:
         CheckResult("default-model", CheckStatus.OK, "glm-5.2"),
         CheckResult("api-key", CheckStatus.OK, "OPENROUTER_API_KEY"),
         CheckResult("endpoint", CheckStatus.SKIP, "pass --live"),
-        CheckResult(
-            "sandbox",
-            CheckStatus.SKIP,
-            "sandboxed tool execution is not implemented",
-        ),
+        CheckResult("sandbox", CheckStatus.OK, "bwrap"),
         CheckResult(
             "ollama", CheckStatus.SKIP, "the Ollama backend is not implemented"
         ),

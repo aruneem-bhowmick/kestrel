@@ -11,7 +11,9 @@ from pathlib import Path
 
 import pytest
 
+import kestrel.doctor as doctor_module
 from kestrel.cli import main
+from kestrel.tools.sandbox import SandboxResult
 
 pytestmark = [pytest.mark.p009, pytest.mark.unit, pytest.mark.sanity]
 
@@ -31,6 +33,20 @@ supports_cache = true
 """
 
 
+def _patch_sandbox_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the ``sandbox`` check deterministically ``OK``, so a test
+    asserting an all-green exit code does not depend on ``bwrap`` being
+    installed wherever this suite happens to run."""
+    monkeypatch.setattr(doctor_module, "bwrap_available", lambda: True)
+    monkeypatch.setattr(
+        doctor_module,
+        "run_sandboxed",
+        lambda *_args, **_kwargs: SandboxResult(
+            stdout="", stderr="", exit_code=0, timed_out=False
+        ),
+    )
+
+
 def test_doctor_prints_eight_lines_and_exits_zero_when_all_pass(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -41,6 +57,7 @@ def test_doctor_prints_eight_lines_and_exits_zero_when_all_pass(
     through the real CLI entry point, then it prints eight lines to
     stdout and returns exit code 0."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
+    _patch_sandbox_ok(monkeypatch)
     config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     exit_code = main(["doctor", "--config", str(config_path)])
@@ -77,6 +94,7 @@ def test_doctor_config_flag_works_before_the_subcommand(
     top-level flag position), when parsed, then doctor still resolves
     against the named config rather than falling back to defaults."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
+    _patch_sandbox_ok(monkeypatch)
     config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     exit_code = main(["--config", str(config_path), "doctor"])
@@ -97,6 +115,7 @@ def test_doctor_config_flag_works_after_the_subcommand(
     position used throughout this project's own CI and docs), when
     parsed, then it resolves identically to the flag preceding it."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
+    _patch_sandbox_ok(monkeypatch)
     config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     exit_code = main(["doctor", "--config", str(config_path)])
@@ -117,6 +136,7 @@ def test_doctor_without_live_flag_skips_the_endpoint_check(
     the endpoint line reports SKIP with the "pass --live" hint rather
     than attempting a network call."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
+    _patch_sandbox_ok(monkeypatch)
     config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     exit_code = main(["doctor", "--config", str(config_path)])

@@ -10,6 +10,7 @@ command rather than only from a full test run.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -26,8 +27,10 @@ def test_doctor_cli_all_green_non_live_exits_zero_with_eight_lines(
 ) -> None:
     """Given the committed system-test fixture config and its credential
     env var set, when `kestrel doctor` runs against it (without --live),
-    then it prints exactly eight aligned lines, exits 0, and every check
-    reports the all-green non-live shape (five OK, three SKIP)."""
+    then it prints exactly eight aligned lines and every check reports
+    the all-green non-live shape -- five OK, `endpoint`/`ollama` SKIP,
+    and `sandbox` OK on a `bwrap`-equipped runner or FAIL naming the
+    reason otherwise, with the exit code following suit."""
     env = dict(os.environ)
     env["KESTREL_SYSTEM_TEST_API_KEY"] = "sk-test-system"
     env["PYTHONIOENCODING"] = "utf-8"
@@ -48,12 +51,24 @@ def test_doctor_cli_all_green_non_live_exits_zero_with_eight_lines(
         check=False,
     )
 
-    assert result.returncode == 0, result.stderr
+    bwrap_equipped = shutil.which("bwrap") is not None
+    expected_sandbox_status = "OK" if bwrap_equipped else "FAIL"
+    assert result.returncode == (0 if bwrap_equipped else 1), result.stderr
+
     lines = result.stdout.splitlines()
     assert len(lines) == 8
 
     statuses = [line.split(None, 1)[0] for line in lines]
-    assert statuses == ["OK", "OK", "OK", "OK", "OK", "SKIP", "SKIP", "SKIP"]
+    assert statuses == [
+        "OK",
+        "OK",
+        "OK",
+        "OK",
+        "OK",
+        "SKIP",
+        expected_sandbox_status,
+        "SKIP",
+    ]
 
     names = [line.split(None, 2)[1] for line in lines]
     assert names == [
