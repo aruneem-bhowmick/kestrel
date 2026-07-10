@@ -1,0 +1,3 @@
+<<<UNTRUSTED:file:src/greet.py>>>
+print('hello')
+<<<END_UNTRUSTED>>>
