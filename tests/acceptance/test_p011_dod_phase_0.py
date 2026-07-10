@@ -208,6 +208,7 @@ def test_dod_prints_usage_cost_per_turn(
 
     meter = CostMeter()
     entry = _rate_matched_entry(id="glm-5.2", backend="openrouter", endpoint=None)
+    # Token counts per openrouter_glm52_hello.sse's own usage chunk.
     turn = meter.record(UsageEvent(42, 7, 0), entry)
     expected_line = format_cost_line(turn, meter.session_usd)
     assert expected_line in result.stdout
@@ -258,8 +259,10 @@ def test_dod_model_hotswap(
         id="glm-5.2", backend="openrouter", endpoint=None
     )
     zai_entry = _rate_matched_entry(id="glm-5.2-zai", backend="zai", endpoint=zai_base)
+    # Token counts per openrouter_glm52_hello.sse's own usage chunk.
     first_turn = meter.record(UsageEvent(42, 7, 0), openrouter_entry)
     first_line = format_cost_line(first_turn, meter.session_usd)
+    # Token counts per zai_glm52_hello.sse's own usage chunk.
     second_turn = meter.record(UsageEvent(40, 6, 0), zai_entry)
     second_line = format_cost_line(second_turn, meter.session_usd)
     assert first_line in result.stdout
