@@ -67,6 +67,16 @@ def test_cassette_path_and_sequence_are_mutually_exclusive(
         )
 
 
+def test_empty_cassette_sequence_is_rejected(
+    mock_openai_server: Callable[..., str],
+) -> None:
+    """Given an empty cassette_sequence, when the server is constructed,
+    then it raises ValueError before ever starting, rather than
+    constructing successfully and only failing on the first request."""
+    with pytest.raises(ValueError):
+        mock_openai_server(cassette_sequence=[])
+
+
 def _toolcall_registry() -> Registry:
     """Build a single-entry Registry for an OpenRouter route with tools enabled."""
     entry = ModelEntry(
