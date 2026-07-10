@@ -86,9 +86,9 @@ guess whether a byte it receives back is data or an instruction.
 - **`execute`** -- runs a command (an argv list, never a shell string)
   in a `bwrap` sandbox scoped to the repo: the rest of the filesystem is
   mounted read-only, the repo and a fresh scratch directory are
-  read-write, and the network namespace is unshared by default, so the
-  command has no network access unless a future caller explicitly
-  escalates that. Returns the command's stdout, stderr, and exit code;
+  read-write, and the network namespace is unshared, so the command
+  always runs with networking disabled. Returns the command's stdout,
+  stderr, and exit code;
   a command that runs past its timeout is reported back as timed out
   rather than left to hang. Requires `bwrap` (bubblewrap) on `PATH`.
 
@@ -109,16 +109,18 @@ a missing cost is meant to be noticed, not hidden.
 
 ## Flight check
 
-`kestrel doctor` runs eight read-only checks and prints one aligned line
-per check, in order: the interpreter version, whether the configuration
-file loads, whether the model registry it points at loads, whether the
-configured default model exists in that registry, whether its
-credential environment variable is set, and whether the `execute` tool's
-`bwrap` sandbox is usable (`bwrap` on `PATH` and a real smoke invocation
-succeeding). One more check is a placeholder for an integration that
-does not exist in this codebase yet (an Ollama backend) and always
-reports `SKIP`. A typical all-green run against a fresh checkout looks
-like:
+`kestrel doctor` runs eight checks and prints one aligned line per check,
+in order: (1) `python-version` checking the interpreter version, (2) `config`
+checking whether the configuration file loads, (3) `registry` checking
+whether the model registry loads, (4) `default-model` checking whether the
+default model exists in the registry, (5) `api-key` checking whether its
+credential environment variable is set, (6) `endpoint` probing the default
+model's live completion API, (7) `sandbox` checking whether the `execute`
+tool's `bwrap` sandbox is usable, and (8) `ollama` as a placeholder for the
+unimplemented Ollama backend. By default, the run is read-only and skips
+the `endpoint` check; passing `--live` runs the endpoint check, which performs
+a networked, potentially billable completion. A typical all-green run against
+a fresh checkout looks like:
 
 ```text
 OK    python-version  3.12
