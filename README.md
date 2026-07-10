@@ -83,6 +83,14 @@ guess whether a byte it receives back is data or an instruction.
   result count. Requires `rg` (ripgrep) on `PATH`; refuses a scope that
   escapes the repository root and a pattern `rg` rejects as invalid
   regex. A search that matches nothing is a normal result, not an error.
+- **`execute`** -- runs a command (an argv list, never a shell string)
+  in a `bwrap` sandbox scoped to the repo: the rest of the filesystem is
+  mounted read-only, the repo and a fresh scratch directory are
+  read-write, and the network namespace is unshared by default, so the
+  command has no network access unless a future caller explicitly
+  escalates that. Returns the command's stdout, stderr, and exit code;
+  a command that runs past its timeout is reported back as timed out
+  rather than left to hang. Requires `bwrap` (bubblewrap) on `PATH`.
 
 More tools land here as they're implemented.
 
@@ -104,11 +112,13 @@ a missing cost is meant to be noticed, not hidden.
 `kestrel doctor` runs eight read-only checks and prints one aligned line
 per check, in order: the interpreter version, whether the configuration
 file loads, whether the model registry it points at loads, whether the
-configured default model exists in that registry, and whether its
-credential environment variable is set. Two more checks are placeholders
-for integrations that do not exist in this codebase yet (a sandboxed
-tool-execution environment, and an Ollama backend) and always report
-`SKIP`. A typical all-green run against a fresh checkout looks like:
+configured default model exists in that registry, whether its
+credential environment variable is set, and whether the `execute` tool's
+`bwrap` sandbox is usable (`bwrap` on `PATH` and a real smoke invocation
+succeeding). One more check is a placeholder for an integration that
+does not exist in this codebase yet (an Ollama backend) and always
+reports `SKIP`. A typical all-green run against a fresh checkout looks
+like:
 
 ```text
 OK    python-version  3.12
@@ -117,7 +127,7 @@ OK    registry        2 models
 OK    default-model   glm-5.2
 OK    api-key         OPENROUTER_API_KEY
 SKIP  endpoint        pass --live
-SKIP  sandbox         sandboxed tool execution is not implemented
+OK    sandbox         bwrap
 SKIP  ollama          the Ollama backend is not implemented
 ```
 
