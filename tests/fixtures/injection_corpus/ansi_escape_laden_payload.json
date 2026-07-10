@@ -1,0 +1,9 @@
+{
+  "forbidden_markers": [
+    "<<<UNTRUSTED:",
+    "<<<END_UNTRUSTED>>>"
+  ],
+  "id": "ansi_escape_laden_payload",
+  "payload": "before \u001b[2J\u001b]0;evil title\u0007 after",
+  "source": "tool_stdout"
+}
