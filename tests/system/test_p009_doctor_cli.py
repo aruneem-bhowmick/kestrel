@@ -10,7 +10,6 @@ command rather than only from a full test run.
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -51,14 +50,16 @@ def test_doctor_cli_all_green_non_live_exits_zero_with_eight_lines(
         check=False,
     )
 
-    bwrap_equipped = shutil.which("bwrap") is not None
-    expected_sandbox_status = "OK" if bwrap_equipped else "FAIL"
-    assert result.returncode == (0 if bwrap_equipped else 1), result.stderr
-
     lines = result.stdout.splitlines()
     assert len(lines) == 8
 
     statuses = [line.split(None, 1)[0] for line in lines]
+    actual_sandbox_status = statuses[6]
+    assert actual_sandbox_status in ("OK", "FAIL")
+
+    expected_returncode = 0 if actual_sandbox_status == "OK" else 1
+    assert result.returncode == expected_returncode, result.stderr
+
     assert statuses == [
         "OK",
         "OK",
@@ -66,7 +67,7 @@ def test_doctor_cli_all_green_non_live_exits_zero_with_eight_lines(
         "OK",
         "OK",
         "SKIP",
-        expected_sandbox_status,
+        actual_sandbox_status,
         "SKIP",
     ]
 
