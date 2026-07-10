@@ -32,8 +32,15 @@ class MockOpenAIServerFactory(Protocol):
         *,
         status_code: int = 200,
         extra_headers: Mapping[str, str] | None = None,
+        capture: list[bytes] | None = None,
     ) -> str:
-        """Start a mock server for one canned behavior; return its base_url."""
+        """Start a mock server for one canned behavior; return its base_url.
+
+        Pass ``capture`` to also record every request's raw body into that
+        list, in arrival order -- useful for asserting what a client
+        actually sent (e.g. that conversation history survived a model
+        swap) without reaching into the server's internals.
+        """
         ...
 
 
@@ -53,12 +60,14 @@ def mock_openai_server() -> Iterator[MockOpenAIServerFactory]:
         *,
         status_code: int = 200,
         extra_headers: Mapping[str, str] | None = None,
+        capture: list[bytes] | None = None,
     ) -> str:
         """Start one server for this test and return its base_url."""
         server = MockOpenAIServer(
             cassette_path=cassette_path,
             status_code=status_code,
             extra_headers=extra_headers,
+            capture=capture,
         )
         server.start()
         servers.append(server)
