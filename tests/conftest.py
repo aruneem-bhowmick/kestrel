@@ -6,7 +6,7 @@ import logging
 import os
 import shutil
 import sys
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 
@@ -30,11 +30,17 @@ class MockOpenAIServerFactory(Protocol):
         self,
         cassette_path: Path | None = None,
         *,
+        cassette_sequence: Sequence[Path] | None = None,
         status_code: int = 200,
         extra_headers: Mapping[str, str] | None = None,
         capture: list[bytes] | None = None,
     ) -> str:
         """Start a mock server for one canned behavior; return its base_url.
+
+        Pass ``cassette_sequence`` instead of ``cassette_path`` to script
+        a different reply per request (the Nth request gets the Nth
+        cassette, clamped once the sequence runs out); passing both is a
+        ``ValueError``, raised before the server starts.
 
         Pass ``capture`` to also record every request's raw body into that
         list, in arrival order -- useful for asserting what a client
@@ -58,6 +64,7 @@ def mock_openai_server() -> Iterator[MockOpenAIServerFactory]:
     def _start(
         cassette_path: Path | None = None,
         *,
+        cassette_sequence: Sequence[Path] | None = None,
         status_code: int = 200,
         extra_headers: Mapping[str, str] | None = None,
         capture: list[bytes] | None = None,
@@ -65,6 +72,7 @@ def mock_openai_server() -> Iterator[MockOpenAIServerFactory]:
         """Start one server for this test and return its base_url."""
         server = MockOpenAIServer(
             cassette_path=cassette_path,
+            cassette_sequence=cassette_sequence,
             status_code=status_code,
             extra_headers=extra_headers,
             capture=capture,

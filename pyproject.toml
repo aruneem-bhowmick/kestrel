@@ -84,4 +84,5 @@ markers = [
     "p009: `kestrel doctor` diagnostics milestone",
     "p010: Jetson provisioning documentation milestone",
     "p011: aarch64 CI and initial-milestone acceptance",
+    "p012: scripted multi-turn mock-server replay and tool-call cassettes",
 ]

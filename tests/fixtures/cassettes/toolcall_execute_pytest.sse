@@ -1,0 +1,12 @@
+data: {"id": "chatcmpl-toolcall-execute-pytest", "object": "chat.completion.chunk", "created": 1700000002, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [{"index": 0, "id": "call_execute_pytest_1", "type": "function", "function": {"name": "execute", "arguments": ""}}]}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-toolcall-execute-pytest", "object": "chat.completion.chunk", "created": 1700000002, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "{\"cmd\": [\"pytest\", \"-q\"], \"timeo"}}]}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-toolcall-execute-pytest", "object": "chat.completion.chunk", "created": 1700000002, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "ut_s\": 30}"}}]}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-toolcall-execute-pytest", "object": "chat.completion.chunk", "created": 1700000002, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+
+data: {"id": "chatcmpl-toolcall-execute-pytest", "object": "chat.completion.chunk", "created": 1700000002, "model": "z-ai/glm-5.2", "choices": [], "usage": {"prompt_tokens": 60, "completion_tokens": 15, "total_tokens": 75, "prompt_tokens_details": {"cached_tokens": 0}}}
+
+data: [DONE]
+
