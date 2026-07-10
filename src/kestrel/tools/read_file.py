@@ -136,11 +136,13 @@ def read_file(args: ReadFileArgs, *, repo_root: Path) -> str:
     Raises:
         ReadFileError: `args.path` resolves outside `repo_root` (whether
             by `..` traversal or by following a symlink that points
-            outside it); it does not exist or names a directory; its
-            content is not valid UTF-8 text (checked against the file's
-            first 8 KiB, so binary content is rejected without decoding
-            the whole file); or `args.start_line` is greater than
-            `args.end_line`.
+            outside it); it does not exist or names a directory; the
+            underlying OS-level read fails (e.g. a permissions error, or
+            the file disappearing between the existence check above and
+            the read itself); its content is not valid UTF-8 text
+            (checked against the file's first 8 KiB, so binary content
+            is rejected without decoding the whole file); or
+            `args.start_line` is greater than `args.end_line`.
 
     When no line range is given, the returned content is capped at
     64 KiB, truncated with a trailing note naming how much was cut; an
@@ -162,7 +164,11 @@ def read_file(args: ReadFileArgs, *, repo_root: Path) -> str:
             f"end_line {args.end_line}"
         )
 
-    raw = candidate.read_bytes()
+    try:
+        raw = candidate.read_bytes()
+    except OSError as exc:
+        raise ReadFileError(f"{args.path}: could not be read ({exc})") from exc
+
     try:
         raw[:_BINARY_GUARD_WINDOW].decode("utf-8")
         text = raw.decode("utf-8")

@@ -121,6 +121,25 @@ def test_binary_content_raises_naming_the_binary_guard(tmp_path: Path) -> None:
         read_file(ReadFileArgs(path="image.png"), repo_root=tmp_path)
 
 
+def test_os_level_read_failure_raises_read_file_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a file that exists and passes the directory check but fails
+    to read at the OS level (e.g. a permissions error, or the file
+    disappearing between the check and the read), when read, then
+    `ReadFileError` names the path instead of a raw `OSError` escaping to
+    the caller."""
+    _write(tmp_path, "flaky.txt", "content\n")
+
+    def _raise_os_error(self: Path) -> bytes:
+        raise OSError("simulated read failure")
+
+    monkeypatch.setattr(Path, "read_bytes", _raise_os_error)
+
+    with pytest.raises(ReadFileError, match="flaky.txt"):
+        read_file(ReadFileArgs(path="flaky.txt"), repo_root=tmp_path)
+
+
 def test_content_over_cap_truncates_with_a_note(tmp_path: Path) -> None:
     """Given a file larger than the 64 KiB return cap, when read with no
     line range, then the framed output is truncated and carries a
