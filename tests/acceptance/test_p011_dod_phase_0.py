@@ -13,6 +13,7 @@ provider call has its own opt-in twin in ``tests/e2e/test_p011_dod_live.py``.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -25,6 +26,7 @@ import pytest
 from kestrel.cost.meter import CostMeter, format_cost_line
 from kestrel.provider.events import UsageEvent
 from kestrel.registry.model import ModelEntry
+from kestrel.repl import SYSTEM_PROMPT
 
 pytestmark = [pytest.mark.p011, pytest.mark.acceptance, pytest.mark.dod_phase_0]
 
@@ -194,3 +196,66 @@ def test_dod_prints_usage_cost_per_turn(
     turn = meter.record(UsageEvent(42, 7, 0), entry)
     expected_line = format_cost_line(turn, meter.session_usd)
     assert expected_line in result.stdout
+
+
+def test_dod_model_hotswap(
+    tmp_path: Path,
+    mock_openai_server: Callable[..., str],
+    kestrel_executable: str,
+) -> None:
+    """Given a REPL script that sends one turn, hot-swaps to the zai route
+    via ``/model``, sends a second turn, and quits, when run against two
+    hermetic mock backends, then the second turn's reply comes from the
+    zai-endpoint mock, both turns are priced under their own model's
+    rates with the session total carried across the swap, and the second
+    request's captured body shows the first exchange was sent along with
+    it -- proving history survives the hot-swap, not just that both calls
+    happened.
+    """
+    zai_requests: list[bytes] = []
+    openrouter_base = mock_openai_server(_CASSETTES / "openrouter_glm52_hello.sse")
+    zai_base = mock_openai_server(
+        _CASSETTES / "zai_glm52_hello.sse", capture=zai_requests
+    )
+    config_path = _write_system_config(tmp_path, zai_endpoint=zai_base)
+
+    script = "hello\n/model glm-5.2-zai\nhello again\n/quit\n"
+    result = subprocess.run(
+        [kestrel_executable, "--config", str(config_path)],
+        input=script,
+        capture_output=True,
+        encoding="utf-8",
+        env=_repl_env(openrouter_base),
+        cwd=tmp_path,
+        timeout=_TIMEOUT_S,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Hello from GLM-5.2" in result.stdout
+    assert "Hello from Z.ai GLM" in result.stdout
+    assert result.stdout.index("Hello from GLM-5.2") < result.stdout.index(
+        "Hello from Z.ai GLM"
+    )
+
+    meter = CostMeter()
+    openrouter_entry = _rate_matched_entry(
+        id="glm-5.2", backend="openrouter", endpoint=None
+    )
+    zai_entry = _rate_matched_entry(id="glm-5.2-zai", backend="zai", endpoint=zai_base)
+    first_turn = meter.record(UsageEvent(42, 7, 0), openrouter_entry)
+    first_line = format_cost_line(first_turn, meter.session_usd)
+    second_turn = meter.record(UsageEvent(40, 6, 0), zai_entry)
+    second_line = format_cost_line(second_turn, meter.session_usd)
+    assert first_line in result.stdout
+    assert second_line in result.stdout
+
+    assert len(zai_requests) == 1
+    second_request_messages = json.loads(zai_requests[0])["messages"]
+    sent_texts = [message.get("content", "") for message in second_request_messages]
+    assert sent_texts == [
+        SYSTEM_PROMPT,
+        "hello",
+        "Hello from GLM-5.2",
+        "hello again",
+    ]
