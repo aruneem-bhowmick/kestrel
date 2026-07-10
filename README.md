@@ -1,5 +1,8 @@
 # kestrel
 
+[![CI (x86)](https://github.com/aruneem-bhowmick/kestrel/actions/workflows/ci.yml/badge.svg?branch=main&job=test-x86)](https://github.com/aruneem-bhowmick/kestrel/actions/workflows/ci.yml)
+[![CI (arm64)](https://github.com/aruneem-bhowmick/kestrel/actions/workflows/ci.yml/badge.svg?branch=main&job=test-arm64)](https://github.com/aruneem-bhowmick/kestrel/actions/workflows/ci.yml)
+
 ## Install (dev)
 
 ```sh
