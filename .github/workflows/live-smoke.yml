@@ -28,6 +28,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Run live suite
+        timeout-minutes: 10
         env:
           KESTREL_LIVE_TESTS: "1"
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
