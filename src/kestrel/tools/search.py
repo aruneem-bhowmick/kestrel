@@ -138,18 +138,31 @@ def _parse_hits(rg_stdout: str) -> list[SearchHit]:
     """Parse `rg --line-number --no-heading` output into `SearchHit`s, in
     the order `rg` printed them. Each line is split into at most three
     parts (`path`, `line_number`, `text`) so a matched line's own text
-    may freely contain colons without corrupting the split."""
+    may freely contain colons without corrupting the split.
+
+    Raises:
+        SearchError: a line's `line_number` segment is not a plain
+            integer -- output shaped differently than the
+            `--line-number --no-heading` contract this tool relies on
+            (e.g. a future `rg` version, or an unexpected line kind)
+            surfaces as `SearchError` naming the offending line, never a
+            raw `ValueError` escaping to the caller.
+    """
     hits: list[SearchHit] = []
     for line in rg_stdout.splitlines():
         if not line:
             continue
         path, _, remainder = line.partition(":")
         line_number_str, _, text = remainder.partition(":")
+        try:
+            line_number = int(line_number_str)
+        except ValueError as exc:
+            raise SearchError(
+                f"rg produced a line this tool could not parse: {line!r}"
+            ) from exc
         hits.append(
             SearchHit(
-                path=path,
-                line_number=int(line_number_str),
-                line_text=_truncate_line(text),
+                path=path, line_number=line_number, line_text=_truncate_line(text)
             )
         )
     return hits
@@ -179,10 +192,11 @@ def search(args: SearchArgs, *, repo_root: Path) -> str:
             outside it); `rg` cannot be started at all (e.g. it is not
             on `PATH`); `rg` does not finish within `_RG_TIMEOUT_S`
             seconds (e.g. a pattern triggering catastrophic regex
-            backtracking); or `rg` exits with a status other than 0
-            (matches found) or 1 (no matches, not an error) -- most
-            commonly because `args.pattern` is not a regex `rg` accepts,
-            in which case the message is `rg`'s own diagnostic.
+            backtracking); `rg` exits with a status other than 0 (matches
+            found) or 1 (no matches, not an error) -- most commonly
+            because `args.pattern` is not a regex `rg` accepts, in which
+            case the message is `rg`'s own diagnostic; or `rg` printed
+            output this tool could not parse as `path:line:text`.
 
     `rg` exiting 1 is not an error: it returns a framed message stating
     no matches were found, exactly like a search that matched nothing for
