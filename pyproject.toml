@@ -87,4 +87,5 @@ markers = [
     "p012: scripted multi-turn mock-server replay and tool-call cassettes",
     "p013: untrusted-data framing and the injection corpus loader",
     "p014: the read_file tool and its argument-parsing contract",
+    "p015: the search tool's ripgrep invocation and argument-parsing contract",
 ]
