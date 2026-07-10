@@ -58,7 +58,11 @@ class MockOpenAIServer:
         ``cassette_path`` and ``cassette_sequence`` are mutually
         exclusive: passing both raises ``ValueError`` immediately, before
         any socket is opened, since the two modes disagree about what the
-        Nth request should receive.
+        Nth request should receive. ``cassette_sequence`` must also be
+        non-empty -- an empty sequence has no entry for any request to
+        clamp to, which would otherwise surface as an ``IndexError`` out
+        of ``_next_cassette_path`` on the first request instead of a
+        clear error at construction time.
 
         When ``capture`` is given, every request's raw body is appended to
         it in arrival order -- letting a caller inspect what a client
@@ -72,6 +76,8 @@ class MockOpenAIServer:
                 "cassette_path and cassette_sequence are mutually "
                 "exclusive; pass at most one"
             )
+        if cassette_sequence is not None and len(cassette_sequence) == 0:
+            raise ValueError("cassette_sequence must not be empty")
         self._cassette_path = cassette_path
         self._cassette_sequence = (
             tuple(cassette_sequence) if cassette_sequence is not None else None
