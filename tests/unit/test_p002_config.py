@@ -202,3 +202,69 @@ def test_missing_env_var_path_raises_config_error(
 
     with pytest.raises(config.ConfigError, match="not found"):
         config.load_config()
+
+
+def test_managers_approval_allowlist_defaults_to_empty() -> None:
+    """Given a kestrel.toml with no [managers.approval] table at all,
+    when load_config runs, then the allowlist defaults to an empty
+    tuple rather than requiring the table to be spelled out."""
+    loaded, _source = config.load_config()
+
+    assert loaded.managers.approval.allowlist == ()
+
+
+def test_managers_approval_allowlist_round_trips(tmp_path: Path) -> None:
+    """Given a kestrel.toml naming a [managers.approval] allowlist, when
+    load_config runs, then every listed kind survives intact and in
+    order."""
+    (tmp_path / "kestrel.toml").write_text(
+        '[managers.approval]\nallowlist = ["delete", "chmod"]\n'
+    )
+
+    loaded, _source = config.load_config()
+
+    assert loaded.managers.approval.allowlist == ("delete", "chmod")
+
+
+def test_managers_approval_rejects_an_unrecognized_kind(tmp_path: Path) -> None:
+    """Given an allowlist entry that is not one of the five recognized
+    DestructiveKinds, when load_config runs, then it raises ConfigError
+    naming the offending field and the accepted values, rather than
+    silently accepting it."""
+    (tmp_path / "kestrel.toml").write_text(
+        '[managers.approval]\nallowlist = ["not_a_real_kind"]\n'
+    )
+
+    with pytest.raises(
+        config.ConfigError, match="managers.approval.allowlist"
+    ) as exc_info:
+        config.load_config()
+
+    assert "'delete'" in str(exc_info.value)
+
+
+def test_managers_approval_unknown_key_raises_config_error(tmp_path: Path) -> None:
+    """Given a [managers.approval] table carrying a key outside its
+    schema, when load_config runs, then it raises ConfigError naming
+    that key -- the same extra="forbid" guard every other config table
+    enforces applies here too."""
+    (tmp_path / "kestrel.toml").write_text('[managers.approval]\nbogus_key = "x"\n')
+
+    with pytest.raises(config.ConfigError, match="bogus_key"):
+        config.load_config()
+
+
+@pytest.mark.regression
+def test_managers_approval_secret_shaped_key_is_rejected(tmp_path: Path) -> None:
+    """Given a secret-shaped key nested under [managers.approval], when
+    load_config runs, then the secret scan still catches it before
+    schema validation runs -- the new table doesn't create a blind spot
+    in the no-secrets-on-disk guard."""
+    (tmp_path / "kestrel.toml").write_text(
+        '[managers.approval]\napi_key = "sk-do-not-put-me-here"\n'
+    )
+
+    with pytest.raises(
+        config.ConfigError, match="Secrets belong in environment variables"
+    ):
+        config.load_config()
