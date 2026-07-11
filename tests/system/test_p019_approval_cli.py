@@ -12,6 +12,7 @@ actual file survives or disappears on disk, not a mocked
 from __future__ import annotations
 
 import functools
+import os
 import shutil
 from pathlib import Path
 
@@ -23,7 +24,10 @@ from kestrel.tools.execute import ExecuteArgs, execute
 pytestmark = [
     pytest.mark.p019,
     pytest.mark.system,
-    pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap not found on PATH"),
+    pytest.mark.skipif(
+        shutil.which("bwrap") is None or os.getenv("GITHUB_ACTIONS") == "true",
+        reason="bwrap not available or insufficient sandbox permissions in CI",
+    ),
 ]
 
 
