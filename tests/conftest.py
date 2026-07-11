@@ -30,7 +30,7 @@ class MockOpenAIServerFactory(Protocol):
         self,
         cassette_path: Path | None = None,
         *,
-        cassette_sequence: Sequence[Path] | None = None,
+        cassette_sequence: Sequence[Path | int] | None = None,
         status_code: int = 200,
         extra_headers: Mapping[str, str] | None = None,
         capture: list[bytes] | None = None,
@@ -39,8 +39,10 @@ class MockOpenAIServerFactory(Protocol):
 
         Pass ``cassette_sequence`` instead of ``cassette_path`` to script
         a different reply per request (the Nth request gets the Nth
-        cassette, clamped once the sequence runs out); passing both is a
-        ``ValueError``, raised before the server starts.
+        entry, clamped once the sequence runs out); passing both is a
+        ``ValueError``, raised before the server starts. An entry may be
+        a cassette ``Path`` or a bare ``int`` status code, so a sequence
+        can script a transient failure (e.g. ``[429, some_cassette]``).
 
         Pass ``capture`` to also record every request's raw body into that
         list, in arrival order -- useful for asserting what a client
@@ -64,7 +66,7 @@ def mock_openai_server() -> Iterator[MockOpenAIServerFactory]:
     def _start(
         cassette_path: Path | None = None,
         *,
-        cassette_sequence: Sequence[Path] | None = None,
+        cassette_sequence: Sequence[Path | int] | None = None,
         status_code: int = 200,
         extra_headers: Mapping[str, str] | None = None,
         capture: list[bytes] | None = None,

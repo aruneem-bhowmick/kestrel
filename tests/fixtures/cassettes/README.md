@@ -13,6 +13,13 @@ when a request sets `stream_options.include_usage`. Every other chunk
 carries one `choices[0].delta` fragment and (on the last content chunk) a
 `finish_reason`.
 
+A `cassette_sequence` passed to `MockOpenAIServer` may mix cassette paths
+with bare `int` status codes: an `int` entry fails that one request with
+a fixed error body at that status code instead of replaying a cassette,
+letting a script express "fail with 429, then succeed" as
+`[429, some_cassette]` without a second server or a code change to this
+module.
+
 ## Current cassettes
 
 - `openrouter_glm52_hello.sse` -- a three-chunk "Hello from GLM-5.2" reply

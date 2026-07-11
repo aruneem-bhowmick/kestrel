@@ -10,9 +10,11 @@ only a real listening socket looks like a real backend to it.
 
 A server started here replays one of three things on every request: a
 single checked-in SSE cassette file (the same reply for every call), an
-ordered sequence of cassette files (a different reply per call, for
-tests that script a multi-turn conversation), or a JSON error body at a
-given status code (a provider failure). See
+ordered sequence of replies (a different reply per call, for tests that
+script a multi-turn conversation), or a JSON error body at a given
+status code (a provider failure). The ordered-sequence mode itself can
+mix cassette files with bare status codes, so a script can express
+"fail with 429, then succeed" as a single sequence. See
 ``tests/fixtures/cassettes/README.md`` for how the cassette files
 themselves are structured and re-recorded.
 """
@@ -38,17 +40,19 @@ class MockOpenAIServer:
     """A single running mock chat-completions server.
 
     Replays a fixed SSE cassette (``cassette_path`` set), an ordered
-    sequence of SSE cassettes (``cassette_sequence`` set, one per request
-    in arrival order), or a fixed JSON error body (neither set) for every
-    request it receives, regardless of the request's path or contents --
-    this suite only ever needs one canned script per server instance.
+    sequence of replies (``cassette_sequence`` set, one entry per request
+    in arrival order -- each entry either a cassette file or a bare
+    status code to fail that one request with), or a fixed JSON error
+    body (neither set) for every request it receives, regardless of the
+    request's path or contents -- this suite only ever needs one canned
+    script per server instance.
     """
 
     def __init__(
         self,
         *,
         cassette_path: Path | None,
-        cassette_sequence: Sequence[Path] | None = None,
+        cassette_sequence: Sequence[Path | int] | None = None,
         status_code: int,
         extra_headers: Mapping[str, str] | None,
         capture: list[bytes] | None = None,
@@ -61,8 +65,15 @@ class MockOpenAIServer:
         Nth request should receive. ``cassette_sequence`` must also be
         non-empty -- an empty sequence has no entry for any request to
         clamp to, which would otherwise surface as an ``IndexError`` out
-        of ``_next_cassette_path`` on the first request instead of a
-        clear error at construction time.
+        of ``_next_reply`` on the first request instead of a clear error
+        at construction time.
+
+        Each entry in ``cassette_sequence`` is either a ``Path`` (that
+        request replays the named cassette at ``status_code``, normally
+        200) or an ``int`` (that request replays the fixed error body,
+        described below, at that status code instead) -- letting one
+        sequence script a transient failure followed by a successful
+        reply, e.g. ``[429, some_cassette]``.
 
         When ``capture`` is given, every request's raw body is appended to
         it in arrival order -- letting a caller inspect what a client
@@ -129,18 +140,28 @@ class MockOpenAIServer:
 
     async def _handle(self, request: Request) -> Response:
         """Record the request body (if configured to), then reply with the
-        cassette selected for this call (or an error) -- the request
+        cassette or status code selected for this call -- the request
         otherwise plays no role in what gets replayed."""
         if self._capture is not None:
             self._capture.append(await request.body())
-        cassette_path = self._next_cassette_path()
-        if cassette_path is None:
-            return PlainTextResponse(
-                '{"error": {"message": "mock provider error", "type": "mock_error"}}',
-                status_code=self._status_code,
-                media_type="application/json",
-                headers=self._extra_headers,
-            )
+        reply = self._next_reply()
+        if isinstance(reply, int):
+            return self._error_response(reply)
+        if reply is None:
+            return self._error_response(self._status_code)
+        return self._cassette_response(reply)
+
+    def _error_response(self, status_code: int) -> Response:
+        """Render the fixed mock-provider-error JSON body at ``status_code``."""
+        return PlainTextResponse(
+            '{"error": {"message": "mock provider error", "type": "mock_error"}}',
+            status_code=status_code,
+            media_type="application/json",
+            headers=self._extra_headers,
+        )
+
+    def _cassette_response(self, cassette_path: Path) -> Response:
+        """Render ``cassette_path``'s raw bytes as an SSE response."""
         body = cassette_path.read_text(encoding="utf-8")
         return PlainTextResponse(
             body,
@@ -149,8 +170,8 @@ class MockOpenAIServer:
             headers=self._extra_headers,
         )
 
-    def _next_cassette_path(self) -> Path | None:
-        """Pick the cassette to serve for the request that just arrived.
+    def _next_reply(self) -> Path | int | None:
+        """Pick the cassette or status code to serve for the request that just arrived.
 
         A fixed ``cassette_path`` (or ``None``, for the error-only mode)
         never changes across calls. A ``cassette_sequence`` instead
@@ -158,8 +179,10 @@ class MockOpenAIServer:
         lock since uvicorn serves requests from its own event-loop thread
         -- and clamps to the final entry once every scripted reply has
         been served, so a caller that keeps sending requests past the end
-        of the script replays the last scripted turn rather than this
-        server raising.
+        of the script replays the last scripted entry rather than this
+        server raising. A clamped-to or in-sequence ``int`` entry is
+        returned as-is, letting the caller fail that one request with the
+        named status code without disturbing the entries around it.
         """
         if self._cassette_sequence is None:
             return self._cassette_path
