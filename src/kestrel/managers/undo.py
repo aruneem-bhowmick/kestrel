@@ -138,7 +138,16 @@ class UndoManager:
         if not self._journal_path.exists():
             return []
         text = self._journal_path.read_bytes().decode("utf-8")
-        return [_entry_from_json(line) for line in text.splitlines() if line]
+        lines = [line for line in text.splitlines() if line]
+        entries: list[UndoEntry] = []
+        for i, line in enumerate(lines):
+            try:
+                entries.append(_entry_from_json(line))
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                if i == len(lines) - 1:
+                    break
+                raise exc
+        return entries
 
     def record(self, entry: UndoEntry) -> None:
         """Append `entry` to the journal, creating its parent

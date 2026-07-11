@@ -6,6 +6,7 @@ persistence, and the pinned JSONL wire format.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -405,3 +406,41 @@ def test_path_validation_symlink_escape(tmp_path: Path) -> None:
     # Reverting/reading the symlink should fail because its resolved path escapes the repo root
     with pytest.raises(ValueError, match="escapes the repository root"):
         manager._current_content("unsafe_link")
+
+
+def test_load_existing_entries_tolerates_malformed_trailing_line(
+    tmp_path: Path,
+) -> None:
+    """Verify that a malformed trailing journal line is tolerated and skipped,
+    while valid entries before it are successfully loaded."""
+    journal = tmp_path / "undo.jsonl"
+    entry1 = UndoEntry(1, "t", "a.txt", None, "content")
+
+    # Write one valid entry and one trailing malformed entry
+    journal.write_bytes(
+        (
+            f"{json.dumps({'turn_id': 1, 'task_id': 't', 'path': 'a.txt', 'before': None, 'after': 'content'})}\n"
+            '{"turn_id": 2, "task_id": "t", "path": "b.txt", "before": "content"\n'  # incomplete/malformed
+        ).encode("utf-8")
+    )
+
+    manager = UndoManager(repo_root=tmp_path, journal_path=journal)
+    assert len(manager._entries) == 1
+    assert manager._entries[0] == entry1
+
+
+def test_load_existing_entries_raises_on_malformed_middle_line(tmp_path: Path) -> None:
+    """Verify that a malformed line in the middle of the journal raises an exception."""
+    journal = tmp_path / "undo.jsonl"
+
+    # Write a valid entry, a malformed entry, and another valid entry
+    journal.write_bytes(
+        (
+            f"{json.dumps({'turn_id': 1, 'task_id': 't', 'path': 'a.txt', 'before': None, 'after': 'content'})}\n"
+            '{"turn_id": 2, "task_id": "t", "path": "b.txt", "before": "content"\n'  # incomplete/malformed
+            f"{json.dumps({'turn_id': 3, 'task_id': 't', 'path': 'c.txt', 'before': None, 'after': 'content'})}\n"
+        ).encode("utf-8")
+    )
+
+    with pytest.raises((json.JSONDecodeError, KeyError, TypeError, ValueError)):
+        UndoManager(repo_root=tmp_path, journal_path=journal)
