@@ -18,6 +18,7 @@ from kestrel.provider.events import (
     validate_stream_order,
 )
 from kestrel.provider.litellm_client import LiteLLMClient
+from kestrel.provider.retry import RetryPolicy, complete_with_retry
 
 __all__ = [
     "AuthError",
@@ -28,6 +29,7 @@ __all__ = [
     "ProviderClient",
     "ProviderError",
     "RateLimitError",
+    "RetryPolicy",
     "ServerError",
     "StopEvent",
     "StopReason",
@@ -36,5 +38,6 @@ __all__ = [
     "ToolCallEvent",
     "ToolSchema",
     "UsageEvent",
+    "complete_with_retry",
     "validate_stream_order",
 ]
