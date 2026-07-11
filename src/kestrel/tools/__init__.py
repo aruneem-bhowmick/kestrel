@@ -4,7 +4,10 @@ command runner.
 
 Every tool in this package returns its result already wrapped by
 `kestrel.security.framing.frame_untrusted`, so nothing downstream needs
-to remember to frame tool output itself.
+to remember to frame tool output itself. `kestrel.tools.registry` is
+where all of them come together: `all_schemas()` for a provider call's
+`tools=` argument, and `dispatch()` to route one `ToolCallEvent` back to
+its bound tool.
 """
 
 from kestrel.tools.edit_file import (
@@ -28,6 +31,7 @@ from kestrel.tools.read_file import (
     parse_read_file_args,
     read_file,
 )
+from kestrel.tools.registry import ToolResult, all_schemas, dispatch
 from kestrel.tools.search import (
     SEARCH_SCHEMA,
     SearchArgs,
@@ -59,4 +63,7 @@ __all__ = [
     "EditFileError",
     "edit_file",
     "parse_edit_file_args",
+    "ToolResult",
+    "all_schemas",
+    "dispatch",
 ]
