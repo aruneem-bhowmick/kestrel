@@ -116,7 +116,9 @@ def _render_result(result: SandboxResult) -> str:
 
 
 _DELETE_COMMANDS: Final[frozenset[str]] = frozenset({"rm", "rmdir"})
-_FORCE_PUSH_FLAGS: Final[frozenset[str]] = frozenset({"--force", "-f"})
+_FORCE_PUSH_FLAGS: Final[frozenset[str]] = frozenset(
+    {"--force", "-f", "--force-with-lease"}
+)
 
 
 def classify_destructive_action(cmd: Sequence[str]) -> ApprovalRequest | None:
@@ -146,7 +148,10 @@ def classify_destructive_action(cmd: Sequence[str]) -> ApprovalRequest | None:
         head == "git"
         and len(cmd) > 1
         and cmd[1] == "push"
-        and any(flag in _FORCE_PUSH_FLAGS for flag in cmd[2:])
+        and any(
+            flag in _FORCE_PUSH_FLAGS or flag.startswith("--force-with-lease=")
+            for flag in cmd[2:]
+        )
     ):
         return ApprovalRequest(
             kind="force_push", summary=f"Force-push: {joined}", detail=joined
