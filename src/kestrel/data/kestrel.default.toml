@@ -29,3 +29,11 @@
 # Explicit override for the model registry file. Leave unset to use the
 # registry loader's own default search.
 # models_file = "/path/to/models.toml"
+
+[managers.approval]
+# Destructive-action kinds pre-approved for every request this session,
+# skipping the interactive prompt entirely. One or more of: "delete",
+# "force_push", "chmod", "network_on", "out_of_repo_write" (the latter
+# two are recognized but have no live call path yet). Leave unset to
+# require interactive approval for every destructive action.
+# allowlist = ["delete"]

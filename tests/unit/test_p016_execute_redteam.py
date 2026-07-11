@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from kestrel.managers.approval import ApprovalManager
 from kestrel.security.corpus import InjectionCase, load_corpus
 from kestrel.tools.execute import ExecuteArgs, execute
 from kestrel.tools.sandbox import SandboxResult
@@ -73,7 +74,9 @@ def test_hostile_command_stdout_still_carries_the_real_frame_markers(
     )
 
     framed = execute(
-        ExecuteArgs(cmd=("cat", "malicious-output.txt")), repo_root=tmp_path
+        ExecuteArgs(cmd=("cat", "malicious-output.txt")),
+        repo_root=tmp_path,
+        approval=ApprovalManager(),
     )
 
     assert framed.startswith("<<<UNTRUSTED:tool_stdout:")
@@ -105,7 +108,9 @@ def test_execute_truncates_large_stdout_and_stderr(
         ),
     )
 
-    framed = execute(ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path)
+    framed = execute(
+        ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path, approval=ApprovalManager()
+    )
 
     # We expect:
     # exit_code: 42
@@ -147,7 +152,9 @@ def test_execute_does_not_truncate_small_stdout_and_stderr(
         ),
     )
 
-    framed = execute(ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path)
+    framed = execute(
+        ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path, approval=ApprovalManager()
+    )
 
     assert "exit_code: 0" in framed
     assert "timed_out: False" in framed
@@ -177,7 +184,9 @@ def test_execute_handles_multibyte_truncation_boundary(
         ),
     )
 
-    framed = execute(ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path)
+    framed = execute(
+        ExecuteArgs(cmd=("dummy",)), repo_root=tmp_path, approval=ApprovalManager()
+    )
 
     # The 4-byte character is omitted entirely because it was cut in half,
     # so we should have 65535 'a's and 4 omitted bytes.
