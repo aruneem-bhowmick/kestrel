@@ -256,6 +256,9 @@ def parse_edit_file_args(arguments_json: str) -> EditFileArgs:
         if not isinstance(raw[field], str):
             raise EditFileError(f"arguments: '{field}' must be a string")
 
+    if raw["old"] == "":
+        raise EditFileError("arguments: 'old' must not be empty")
+
     return EditFileArgs(
         path=raw["path"],
         old=raw["old"],

@@ -369,6 +369,24 @@ def test_string_field_wrong_type_raises_via_parse_edit_file_args(field: str) -> 
         parse_edit_file_args(json.dumps(fields))
 
 
+def test_empty_old_field_raises_via_parse_edit_file_args() -> None:
+    """Given an `old` field that is an empty string, when parsed, then
+    `EditFileError` rejects it rather than accepting an anchor that
+    would match every position in a file's content."""
+    with pytest.raises(EditFileError, match="'old' must not be empty"):
+        parse_edit_file_args('{"path": "a.py", "old": "", "new": "y"}')
+
+
+def test_empty_new_field_is_not_rejected_as_an_empty_anchor() -> None:
+    """Given a `new` field that is an empty string, when parsed, then
+    parsing succeeds -- the empty-string rejection is specific to
+    `old`, since only `old` is used as a match anchor. An empty `new`
+    is a legitimate deletion: it replaces the anchor with nothing."""
+    args = parse_edit_file_args('{"path": "a.py", "old": "x", "new": ""}')
+
+    assert args.new == ""
+
+
 def test_dry_run_field_wrong_type_raises_via_parse_edit_file_args() -> None:
     """Given a `dry_run` field that is not a boolean, when parsed, then
     `EditFileError` names the expected type."""
