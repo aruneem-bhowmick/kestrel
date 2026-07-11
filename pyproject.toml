@@ -91,4 +91,5 @@ markers = [
     "p016: the execute tool and its bubblewrap sandbox wrapper",
     "p017: the journaled undo manager and its reversion granularities",
     "p018: the edit_file tool's unique-anchor replacement and its write-through undo journal",
+    "p019: the destructive-action approval gate and execute's classification hook",
 ]
