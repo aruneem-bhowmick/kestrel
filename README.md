@@ -92,6 +92,16 @@ guess whether a byte it receives back is data or an instruction.
   stderr, and exit code;
   a command that runs past its timeout is reported back as timed out
   rather than left to hang. Requires `bwrap` (bubblewrap) on `PATH`.
+- **`edit_file`** -- replaces one exact, unique occurrence of an anchor
+  string in a UTF-8 text file with new text. An anchor that is absent,
+  or that occurs more than once, is refused rather than guessed at, and
+  the file is left untouched either way. Every real edit is written to
+  disk and then recorded to the undo journal (see [State](#state))
+  before the call returns; passing `dry_run: true` instead returns a
+  unified diff of the change without writing anything or touching the
+  journal. Does not create new files -- an anchor checked against a
+  path with no file on disk is refused the same way a missing anchor
+  is, never treated as a request to create that file.
 
 More tools land here as they're implemented.
 
