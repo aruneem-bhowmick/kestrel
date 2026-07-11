@@ -64,6 +64,17 @@ the same client's OpenAI-compatible path against the entry's own
 `endpoint` directly -- no environment-variable redirection, since the
 registry itself already names where to call.
 
+`kestrel.provider.complete_with_retry()` wraps any `ProviderClient.complete()`
+call with bounded exponential backoff and full jitter, retrying only
+`RateLimitError` and `ServerError` -- never `AuthError` or
+`ContextOverflowError`, since neither improves on a later attempt with the
+same inputs -- and only when the failure occurs before any event has
+reached the caller, so a partially-consumed stream is never replayed.
+A `RateLimitError` carrying an explicit `retry_after_s` is honored
+verbatim in place of the computed delay. `RetryPolicy` controls the
+attempt count and backoff bounds; retrying across multiple models or
+backends is out of scope for this wrapper.
+
 ## Tools
 
 Kestrel offers a model a small, fixed set of capabilities -- read,
