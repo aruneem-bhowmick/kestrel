@@ -37,6 +37,7 @@ an oversight:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -330,24 +331,33 @@ async def run_task(
             proposal = _proposal_summary(assistant_text, tool_calls)
 
             if not deps.self_critique_fn(proposal, list(history)):
-                history.append({"role": "assistant", "content": assistant_text})
-                history.append({"role": "tool", "content": _SELF_CRITIQUE_SKIP_CONTENT})
+                if tool_calls:
+                    history.append({"role": "assistant", "content": assistant_text, "tool_calls": tool_calls})
+                    for call in tool_calls:
+                        history.append({"role": "tool", "content": _SELF_CRITIQUE_SKIP_CONTENT, "tool_call_id": call.id})
+                else:
+                    history.append({"role": "assistant", "content": assistant_text})
+                    history.append({"role": "tool", "content": _SELF_CRITIQUE_SKIP_CONTENT})
                 deps.meter.record(usage_event, entry)
                 if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
                     return finish(TerminationReason.TOKEN_CAP)
                 continue
 
-            history.append({"role": "assistant", "content": assistant_text})
+            if tool_calls:
+                history.append({"role": "assistant", "content": assistant_text, "tool_calls": tool_calls})
+            else:
+                history.append({"role": "assistant", "content": assistant_text})
 
             if not tool_calls:
                 deps.meter.record(usage_event, entry)
                 return finish(TerminationReason.TASK_COMPLETE)
 
             for call in tool_calls:
-                result = _dispatch_tool_call(
+                result = await asyncio.to_thread(
+                    _dispatch_tool_call,
                     call, deps=deps, turn_id=turns_used, task_id=task_id
                 )
-                history.append({"role": "tool", "content": result.content})
+                history.append({"role": "tool", "content": result.content, "tool_call_id": call.id})
 
             deps.meter.record(usage_event, entry)
             if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
