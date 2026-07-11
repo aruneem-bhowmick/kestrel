@@ -234,6 +234,41 @@ def test_missing_file_raises_naming_no_such_file_rather_than_creating_it(
     assert not (tmp_path / "new-file.txt").exists()
 
 
+def test_directory_path_raises(tmp_path: Path) -> None:
+    """Given a path naming a directory, when edited, then
+    `EditFileError` is raised instead of an `IsADirectoryError`
+    escaping to the caller -- mirroring `read_file`'s own refusal."""
+    (tmp_path / "a_dir").mkdir()
+    undo = UndoManager(repo_root=tmp_path)
+
+    with pytest.raises(EditFileError, match="is a directory"):
+        _edit(tmp_path, undo, path="a_dir", old="x", new="y")
+
+
+def test_os_level_read_failure_raises_edit_file_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a file that exists and passes the directory check but
+    fails to read at the OS level, when edited, then `EditFileError`
+    names the path instead of a raw `OSError` escaping to the caller.
+    The patch only targets the file under test, so anything else read
+    during the test (e.g. coverage instrumentation reading source
+    files) is unaffected."""
+    _write(tmp_path, "flaky.txt", "content\n")
+    undo = UndoManager(repo_root=tmp_path)
+    original_read_bytes = Path.read_bytes
+
+    def _raise_os_error(self: Path, *args: object, **kwargs: object) -> object:
+        if self.name == "flaky.txt":
+            raise OSError("simulated read failure")
+        return original_read_bytes(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", _raise_os_error)
+
+    with pytest.raises(EditFileError, match="flaky.txt"):
+        _edit(tmp_path, undo, path="flaky.txt", old="content", new="replaced")
+
+
 def test_write_then_record_ordering_leaves_the_file_written_when_record_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
