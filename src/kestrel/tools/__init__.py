@@ -1,11 +1,19 @@
-"""Tools a model can call: bounded, framed reads and searches, a
-sandboxed command runner, and (eventually) an edit capability.
+"""Tools a model can call: bounded, framed reads and searches, an
+anchor-based file editor with a journaled undo trail, and a sandboxed
+command runner.
 
 Every tool in this package returns its result already wrapped by
 `kestrel.security.framing.frame_untrusted`, so nothing downstream needs
 to remember to frame tool output itself.
 """
 
+from kestrel.tools.edit_file import (
+    EDIT_FILE_SCHEMA,
+    EditFileArgs,
+    EditFileError,
+    edit_file,
+    parse_edit_file_args,
+)
 from kestrel.tools.execute import (
     EXECUTE_SCHEMA,
     ExecuteArgs,
@@ -46,4 +54,9 @@ __all__ = [
     "ExecuteError",
     "execute",
     "parse_execute_args",
+    "EDIT_FILE_SCHEMA",
+    "EditFileArgs",
+    "EditFileError",
+    "edit_file",
+    "parse_edit_file_args",
 ]
