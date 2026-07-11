@@ -7,13 +7,19 @@ guards, write-then-record ordering, and argument parsing.
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
 
 import pytest
 
 from kestrel.managers.undo import UndoManager
 from kestrel.tools._paths import resolve_repo_path as _real_resolve_repo_path
-from kestrel.tools.edit_file import EditFileArgs, EditFileError, edit_file
+from kestrel.tools.edit_file import (
+    EditFileArgs,
+    EditFileError,
+    edit_file,
+    parse_edit_file_args,
+)
 
 pytestmark = [pytest.mark.p018, pytest.mark.unit]
 
@@ -243,3 +249,81 @@ def test_write_then_record_ordering_leaves_the_file_written_when_record_raises(
         _edit(tmp_path, undo, path="greet.py", old="world", new="there")
 
     assert _read(tmp_path, "greet.py") == "print('hello there')\n"
+
+
+def test_malformed_json_raises_via_parse_edit_file_args() -> None:
+    """Given a syntactically invalid JSON string, when parsed, then
+    `EditFileError` is raised instead of a raw `json.JSONDecodeError`
+    escaping to the caller."""
+    with pytest.raises(EditFileError, match="invalid JSON"):
+        parse_edit_file_args("{not json")
+
+
+def test_arguments_json_not_an_object_raises() -> None:
+    """Given valid JSON that is not an object, when parsed, then
+    `EditFileError` names the shape mismatch."""
+    with pytest.raises(EditFileError, match="expected a JSON object"):
+        parse_edit_file_args("[1, 2, 3]")
+
+
+@pytest.mark.parametrize("missing_field", ["path", "old", "new"])
+def test_missing_required_field_raises_via_parse_edit_file_args(
+    missing_field: str,
+) -> None:
+    """Given arguments missing one of `path`/`old`/`new`, when parsed,
+    then `EditFileError` names exactly that missing field."""
+    fields = {"path": "a.py", "old": "x", "new": "y"}
+    del fields[missing_field]
+
+    with pytest.raises(
+        EditFileError, match=f"missing required field '{missing_field}'"
+    ):
+        parse_edit_file_args(json.dumps(fields))
+
+
+def test_unexpected_extra_field_raises_via_parse_edit_file_args() -> None:
+    """Given arguments carrying a field the schema does not declare,
+    when parsed, then `EditFileError` names the offending field."""
+    with pytest.raises(EditFileError, match="unexpected field"):
+        parse_edit_file_args(
+            '{"path": "a.py", "old": "x", "new": "y", "recursive": true}'
+        )
+
+
+@pytest.mark.parametrize("field", ["path", "old", "new"])
+def test_string_field_wrong_type_raises_via_parse_edit_file_args(field: str) -> None:
+    """Given `path`, `old`, or `new` given a non-string value, when
+    parsed, then `EditFileError` names that field as needing to be a
+    string."""
+    fields: dict[str, object] = {"path": "a.py", "old": "x", "new": "y"}
+    fields[field] = 123
+
+    with pytest.raises(EditFileError, match=f"'{field}' must be a string"):
+        parse_edit_file_args(json.dumps(fields))
+
+
+def test_dry_run_field_wrong_type_raises_via_parse_edit_file_args() -> None:
+    """Given a `dry_run` field that is not a boolean, when parsed, then
+    `EditFileError` names the expected type."""
+    with pytest.raises(EditFileError, match="'dry_run' must be a boolean"):
+        parse_edit_file_args(
+            '{"path": "a.py", "old": "x", "new": "y", "dry_run": "yes"}'
+        )
+
+
+def test_parse_edit_file_args_builds_the_expected_dataclass() -> None:
+    """Given well-formed arguments carrying every field, when parsed,
+    then the resulting `EditFileArgs` carries each value exactly."""
+    args = parse_edit_file_args(
+        '{"path": "a.py", "old": "x", "new": "y", "dry_run": true}'
+    )
+
+    assert args == EditFileArgs(path="a.py", old="x", new="y", dry_run=True)
+
+
+def test_parse_edit_file_args_defaults_dry_run_to_false() -> None:
+    """Given well-formed arguments omitting `dry_run`, when parsed,
+    then the resulting `EditFileArgs.dry_run` defaults to `False`."""
+    args = parse_edit_file_args('{"path": "a.py", "old": "x", "new": "y"}')
+
+    assert args.dry_run is False
