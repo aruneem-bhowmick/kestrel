@@ -17,6 +17,13 @@ through the sandbox with `allow_network=False`; there is no argument
 here that can turn it on. Escalating to network access is a separate,
 approval-mediated decision with no call path from this function.
 
+Before a command ever reaches the sandbox, `classify_destructive_action`
+checks it against a small, fixed pattern table -- `rm`/`rmdir`, `chmod`,
+and a force-flagged `git push` -- and a match is handed to an injected
+`ApprovalManager` for a real approval decision; a command outside that
+table runs unchecked. This is the spec's named-category gate, not a
+general shell-command allowlist system.
+
 Like `read_file` and `search`, this module owns its own schema,
 argument dataclass, and JSON-argument parsing, and raises `ExecuteError`
 -- never a raw exception -- for any argument this tool refuses.
@@ -25,10 +32,12 @@ argument dataclass, and JSON-argument parsing, and raises `ExecuteError`
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from kestrel.managers.approval import ApprovalManager, ApprovalRequest
 from kestrel.provider.base import ToolSchema
 from kestrel.security.framing import frame_untrusted
 from kestrel.tools.sandbox import SandboxResult, run_sandboxed
@@ -106,16 +115,62 @@ def _render_result(result: SandboxResult) -> str:
     )
 
 
-def execute(args: ExecuteArgs, *, repo_root: Path) -> str:
+_DELETE_COMMANDS: Final[frozenset[str]] = frozenset({"rm", "rmdir"})
+_FORCE_PUSH_FLAGS: Final[frozenset[str]] = frozenset({"--force", "-f"})
+
+
+def classify_destructive_action(cmd: Sequence[str]) -> ApprovalRequest | None:
+    """Classify `cmd` against the fixed pattern table `execute` gates on.
+
+    Recognizes exactly three shapes: `rm` or `rmdir` as `"delete"`,
+    `chmod` as `"chmod"`, and a `git push` carrying `--force` or `-f`
+    anywhere among its remaining arguments as `"force_push"`. Every
+    other command -- including an empty `cmd` or a bare `git push` with
+    no force flag -- returns `None`, meaning `execute` runs it
+    unchecked; this table covers only the spec's named categories, not
+    a general shell-command allowlist system.
+    """
+    if not cmd:
+        return None
+    head = cmd[0]
+    joined = " ".join(cmd)
+    if head in _DELETE_COMMANDS:
+        return ApprovalRequest(
+            kind="delete", summary=f"Delete: {joined}", detail=joined
+        )
+    if head == "chmod":
+        return ApprovalRequest(
+            kind="chmod", summary=f"Change permissions: {joined}", detail=joined
+        )
+    if (
+        head == "git"
+        and len(cmd) > 1
+        and cmd[1] == "push"
+        and any(flag in _FORCE_PUSH_FLAGS for flag in cmd[2:])
+    ):
+        return ApprovalRequest(
+            kind="force_push", summary=f"Force-push: {joined}", detail=joined
+        )
+    return None
+
+
+def execute(args: ExecuteArgs, *, repo_root: Path, approval: ApprovalManager) -> str:
     """Run `args.cmd` under `repo_root`'s sandbox and return its
     outcome framed as untrusted tool output.
 
-    Always calls `run_sandboxed` with `allow_network=False` -- this
-    function has no way to request network access for the command it
-    runs; that is a separate, approval-mediated escalation with no call
-    path from here.
+    Before anything runs, `args.cmd` is classified via
+    `classify_destructive_action`; a match is handed to
+    `approval.check` for a real approval decision, and a command
+    outside the pattern table runs unchecked. Always calls
+    `run_sandboxed` with `allow_network=False` -- this function has no
+    way to request network access for the command it runs; that is a
+    separate, approval-mediated escalation with no call path from here.
 
     Raises:
+        ApprovalDenied: `args.cmd` classified as a destructive action
+            that `approval` denied. Propagated unchanged -- this
+            function does not catch it on a caller's behalf, the same
+            contract `ApprovalManager.check` documents.
         SandboxUnavailableError: `bwrap` is not on `PATH` -- propagated
             from `run_sandboxed` unchanged, since it names a real
             infrastructure precondition this tool cannot satisfy on its
@@ -125,6 +180,10 @@ def execute(args: ExecuteArgs, *, repo_root: Path) -> str:
     both render into the returned frame like any other outcome, so the
     model can see and react to them.
     """
+    request = classify_destructive_action(args.cmd)
+    if request is not None:
+        approval.check(request)
+
     result = run_sandboxed(
         list(args.cmd),
         repo_root=repo_root,
