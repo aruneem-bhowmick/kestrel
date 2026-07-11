@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, TypedDict
+from typing import Any, Literal, NotRequired, Protocol, TypedDict
 
-from kestrel.provider.events import StreamEvent
+from kestrel.provider.events import StreamEvent, ToolCallEvent
 
 
 class Message(TypedDict):
@@ -20,6 +20,8 @@ class Message(TypedDict):
 
     role: Literal["system", "user", "assistant", "tool"]
     content: str
+    tool_calls: NotRequired[list[ToolCallEvent]]
+    tool_call_id: NotRequired[str]
 
 
 @dataclass(frozen=True, slots=True)

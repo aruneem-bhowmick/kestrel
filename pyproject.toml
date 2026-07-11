@@ -94,4 +94,5 @@ markers = [
     "p019: the destructive-action approval gate and execute's classification hook",
     "p020: provider-call retry with exponential backoff and full jitter",
     "p021: the tool schema registry and dispatcher",
+    "p022: the tool-calling agent loop and its termination predicates",
 ]
