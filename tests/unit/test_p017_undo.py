@@ -363,3 +363,45 @@ def test_journal_entry_wire_format_matches_golden_snapshot(tmp_path: Path) -> No
     )
 
     assert manager.journal_path.read_bytes() == _GOLDEN_FILE.read_bytes()
+
+
+def test_path_validation_rejects_unsafe_paths(tmp_path: Path) -> None:
+    """Validate that directory traversal, absolute paths, and escaping symlinks raise ValueError."""
+    manager = UndoManager(repo_root=tmp_path)
+
+    # 1. Absolute paths
+    with pytest.raises(ValueError, match="absolute path not allowed"):
+        manager._current_content("/etc/passwd")
+
+    # 2. Directory traversal escaping repo root
+    with pytest.raises(ValueError, match="escapes the repository root"):
+        manager._current_content("../outside.txt")
+
+    # 3. Restoring an absolute path entry raises ValueError
+    entry_abs = UndoEntry(1, "t", "/etc/passwd", None, "after")
+    with pytest.raises(ValueError, match="absolute path not allowed"):
+        manager._restore(entry_abs)
+
+    # 4. Restoring an escaping path entry raises ValueError
+    entry_escape = UndoEntry(1, "t", "../outside.txt", None, "after")
+    with pytest.raises(ValueError, match="escapes the repository root"):
+        manager._restore(entry_escape)
+
+
+def test_path_validation_symlink_escape(tmp_path: Path) -> None:
+    """Verify that a symlink pointing outside the repo root is rejected."""
+    manager = UndoManager(repo_root=tmp_path)
+    outside = tmp_path / "outside_dir"
+    outside.mkdir()
+    outside_file = outside / "secret.txt"
+    outside_file.write_text("secret")
+
+    inside_symlink = tmp_path / "unsafe_link"
+    try:
+        inside_symlink.symlink_to(outside_file)
+    except OSError:
+        pytest.skip("Symlinks are not supported on this platform/configuration")
+
+    # Reverting/reading the symlink should fail because its resolved path escapes the repo root
+    with pytest.raises(ValueError, match="escapes the repository root"):
+        manager._current_content("unsafe_link")

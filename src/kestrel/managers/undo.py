@@ -162,6 +162,18 @@ class UndoManager:
             handle.write(line)
         self._entries.append(entry)
 
+    def _resolve_within_repo_root(self, path: str) -> Path:
+        """Resolve `path` against `_repo_root`, following any symlink, and
+        raise ValueError if the resolved location falls outside `_repo_root`
+        or if `path` is absolute."""
+        if path.startswith(("/", "\\")) or Path(path).is_absolute():
+            raise ValueError(f"{path}: absolute path not allowed")
+        resolved_root = self._repo_root.resolve()
+        candidate = (self._repo_root / path).resolve()
+        if not candidate.is_relative_to(resolved_root):
+            raise ValueError(f"{path}: escapes the repository root")
+        return candidate
+
     def _current_content(self, path: str) -> str | None:
         """The current on-disk content at `path` (resolved under
         `repo_root`), or `None` if no file exists there.
@@ -172,7 +184,7 @@ class UndoManager:
         the equality check against `entry.after` spuriously fail (or
         spuriously pass) depending on the OS this happens to run on.
         """
-        resolved = self._repo_root / path
+        resolved = self._resolve_within_repo_root(path)
         if not resolved.exists():
             return None
         return resolved.read_bytes().decode("utf-8")
@@ -187,13 +199,13 @@ class UndoManager:
                 `entry.after` -- naming `entry.path`, and leaving the
                 file untouched.
         """
+        resolved = self._resolve_within_repo_root(entry.path)
         current = self._current_content(entry.path)
         if current != entry.after:
             raise UndoConflictError(
                 f"{entry.path}: current content does not match the journal's "
                 "recorded state; refusing to revert over an out-of-band change"
             )
-        resolved = self._repo_root / entry.path
         if entry.before is None:
             resolved.unlink(missing_ok=True)
         else:
