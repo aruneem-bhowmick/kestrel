@@ -397,8 +397,8 @@ def test_path_validation_rejects_unsafe_paths(tmp_path: Path) -> None:
 def test_path_validation_symlink_escape(tmp_path: Path) -> None:
     """Verify that a symlink pointing outside the repo root is rejected."""
     manager = UndoManager(repo_root=tmp_path)
-    outside = tmp_path / "outside_dir"
-    outside.mkdir()
+    outside = tmp_path.parent / "outside_dir"
+    outside.mkdir(parents=True, exist_ok=True)
     outside_file = outside / "secret.txt"
     outside_file.write_text("secret")
 

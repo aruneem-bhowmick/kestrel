@@ -34,6 +34,7 @@ empty) than the caller expects.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -183,11 +184,17 @@ class UndoManager:
         or if `path` is absolute."""
         if path.startswith(("/", "\\")) or Path(path).is_absolute():
             raise ValueError(f"{path}: absolute path not allowed")
-        resolved_root = self._repo_root.resolve()
-        candidate = (self._repo_root / path).resolve()
-        if not candidate.is_relative_to(resolved_root):
+        repo_root = self._repo_root.resolve()
+        candidate = self._repo_root / path
+        if candidate.is_symlink():
+            resolved = (candidate.parent / os.readlink(candidate)).resolve(strict=False)
+        else:
+            resolved = candidate.resolve(strict=False)
+        try:
+            resolved.relative_to(repo_root)
+        except ValueError:
             raise ValueError(f"{path}: escapes the repository root")
-        return candidate
+        return resolved
 
     def _current_content(self, path: str) -> str | None:
         """The current on-disk content at `path` (resolved under
