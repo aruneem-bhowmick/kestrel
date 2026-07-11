@@ -26,6 +26,7 @@ from typing import Any, Final
 
 from kestrel.provider.base import ToolSchema
 from kestrel.security.framing import frame_untrusted
+from kestrel.tools._paths import resolve_repo_path
 
 # Returned content is capped at 64 KiB when no explicit line range is
 # given; an explicit range is never truncated this way (the caller asked
@@ -83,15 +84,16 @@ class ReadFileError(Exception):
 
 
 def _resolve_within_repo_root(path: str, *, repo_root: Path) -> Path:
-    """Resolve `path` against `repo_root`, following any symlink, and
-    raise `ReadFileError` if the resolved location falls outside
-    `repo_root` -- so neither a `..` climb nor a symlink pointing outside
-    the root can read a file the caller does not own."""
-    resolved_root = repo_root.resolve()
-    candidate = (repo_root / path).resolve()
-    if not candidate.is_relative_to(resolved_root):
-        raise ReadFileError(f"{path}: escapes the repository root")
-    return candidate
+    """Resolve `path` against `repo_root` through the shared
+    `resolve_repo_path` containment guard, raising `ReadFileError`
+    (rather than that helper's own `ValueError`) if the resolved
+    location falls outside `repo_root` -- so neither a `..` climb nor a
+    symlink pointing outside the root can read a file the caller does
+    not own."""
+    try:
+        return resolve_repo_path(path, repo_root=repo_root)
+    except ValueError as exc:
+        raise ReadFileError(str(exc)) from exc
 
 
 def _slice_lines(
