@@ -82,8 +82,10 @@ async def test_429_then_success_recovers_on_second_attempt(
     ]
 
     assert len(delays) == 1
+    assert delays[0] == 0.1
     assert validate_stream_order(events)
     text = "".join(event.text for event in events if hasattr(event, "text"))
     assert text == "Hello from GLM-5.2"
-    usage = next(event for event in events if isinstance(event, UsageEvent))
+    usage = next((event for event in events if isinstance(event, UsageEvent)), None)
+    assert usage is not None, "Missing usage chunk in response"
     assert usage == UsageEvent(input_tokens=42, output_tokens=7, cached_tokens=0)
