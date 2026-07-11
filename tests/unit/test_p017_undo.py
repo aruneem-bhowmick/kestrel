@@ -444,3 +444,52 @@ def test_load_existing_entries_raises_on_malformed_middle_line(tmp_path: Path) -
 
     with pytest.raises((json.JSONDecodeError, KeyError, TypeError, ValueError)):
         UndoManager(repo_root=tmp_path, journal_path=journal)
+
+
+def test_revert_turn_and_task_re_raises_conflict_with_reverted_context(
+    tmp_path: Path,
+) -> None:
+    """Verify that revert_turn/revert_task collect successfully reverted entries
+    and raise UndoConflictError with partial progress if a conflict occurs."""
+    _write(tmp_path, "a.txt", "original")
+    _write(tmp_path, "b.txt", "original")
+
+    manager = UndoManager(repo_root=tmp_path)
+
+    # Record mutations in turn 1
+    manager.record(UndoEntry(1, "task1", "a.txt", None, "original"))
+    manager.record(UndoEntry(1, "task1", "b.txt", None, "original"))
+
+    # Tamper with a.txt so it conflicts during revert (since we revert in reverse order,
+    # b.txt is reverted first, then a.txt conflicts)
+    _write(tmp_path, "a.txt", "tampered")
+
+    # Reverting turn 1 should fail with UndoConflictError carrying the successfully reverted b.txt
+    with pytest.raises(UndoConflictError) as exc_info:
+        manager.revert_turn(1)
+
+    assert "a.txt" in str(exc_info.value)
+    # b.txt should have reverted successfully, so its entry is in exc_info.value.reverted
+    assert len(exc_info.value.reverted) == 1
+    assert exc_info.value.reverted[0].path == "b.txt"
+    # b.txt should be deleted (since before was None)
+    assert not (tmp_path / "b.txt").exists()
+    assert _read(tmp_path, "a.txt") == "tampered"
+
+    # Reset files for task test
+    _write(tmp_path, "a.txt", "original")
+    _write(tmp_path, "b.txt", "original")
+
+    # We must construct a new UndoManager instance because the previous one's self._entries
+    # has the compensating entries appended during the partial revert.
+    manager2 = UndoManager(repo_root=tmp_path)
+    manager2.record(UndoEntry(1, "task1", "a.txt", None, "original"))
+    manager2.record(UndoEntry(1, "task1", "b.txt", None, "original"))
+    _write(tmp_path, "a.txt", "tampered")
+
+    with pytest.raises(UndoConflictError) as exc_info:
+        manager2.revert_task("task1")
+
+    assert "a.txt" in str(exc_info.value)
+    assert len(exc_info.value.reverted) == 1
+    assert exc_info.value.reverted[0].path == "b.txt"

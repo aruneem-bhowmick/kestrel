@@ -71,6 +71,12 @@ class UndoConflictError(Exception):
     current content) since the entry being reverted was recorded.
     """
 
+    def __init__(
+        self, message: str, *, reverted: list[UndoEntry] | None = None
+    ) -> None:
+        super().__init__(message)
+        self.reverted = reverted if reverted is not None else []
+
 
 def _entry_to_json(entry: UndoEntry) -> str:
     """Serialize `entry` to a single JSONL line, with no trailing
@@ -261,7 +267,13 @@ class UndoManager:
         on whichever entry hits it, exactly as `revert_last` would.
         """
         matching = [entry for entry in self._entries if entry.turn_id == turn_id]
-        return [self._revert_one(entry) for entry in reversed(matching)]
+        reverted: list[UndoEntry] = []
+        try:
+            for entry in reversed(matching):
+                reverted.append(self._revert_one(entry))
+        except UndoConflictError as exc:
+            raise UndoConflictError(str(exc), reverted=reverted) from exc
+        return reverted
 
     def revert_task(self, task_id: str) -> list[UndoEntry]:
         """Undo every entry recorded with this `task_id`, most-recent-
@@ -270,4 +282,10 @@ class UndoManager:
         Mirrors `revert_turn` at task granularity.
         """
         matching = [entry for entry in self._entries if entry.task_id == task_id]
-        return [self._revert_one(entry) for entry in reversed(matching)]
+        reverted: list[UndoEntry] = []
+        try:
+            for entry in reversed(matching):
+                reverted.append(self._revert_one(entry))
+        except UndoConflictError as exc:
+            raise UndoConflictError(str(exc), reverted=reverted) from exc
+        return reverted
