@@ -4,9 +4,9 @@
 file mutation a caller tells it about is appended to a journal under
 the target repo before anything else touches it, so a mutation can
 always be traced and reversed even across separate process runs.
-Nothing calls it yet -- a future file-editing tool is its first real
-caller, recording through it on every write rather than mutating a
-file and hoping nothing goes wrong.
+`kestrel.tools.edit_file` is its first real caller, recording through
+it on every write rather than mutating a file and hoping nothing goes
+wrong.
 
 The journal is JSONL (JSON Lines): one `UndoEntry` per line, appended
 in the order it was recorded, never rewritten or truncated in place.
