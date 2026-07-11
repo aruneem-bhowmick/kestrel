@@ -51,7 +51,13 @@ def _read(root: Path, relative: str) -> str:
 
 
 def _edit(
-    root: Path, undo: UndoManager, *, path: str, old: str, new: str, dry_run: bool = False
+    root: Path,
+    undo: UndoManager,
+    *,
+    path: str,
+    old: str,
+    new: str,
+    dry_run: bool = False,
 ) -> str:
     """Call `edit_file` with `_TURN_ID`/`_TASK_ID` filled in, so
     individual test bodies only need to name what actually varies."""
