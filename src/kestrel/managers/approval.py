@@ -84,7 +84,7 @@ def _prompt_stdin(
     reply = input_fn("Approve? [y]es / [a]lways / [N]o: ").strip().lower()
     if reply in ("y", "yes"):
         return "once"
-    if reply == "always":
+    if reply in ("a", "always"):
         return "always"
     return "deny"
 
