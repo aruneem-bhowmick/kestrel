@@ -269,6 +269,32 @@ def test_os_level_read_failure_raises_edit_file_error(
         _edit(tmp_path, undo, path="flaky.txt", old="content", new="replaced")
 
 
+def test_os_level_write_failure_raises_edit_file_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a unique anchor match whose write fails at the OS level,
+    when edited, then `EditFileError` names the path instead of a raw
+    `OSError` escaping to the caller, no undo entry is recorded, and
+    the file on disk is left exactly as it was -- the write never
+    actually landed, so there is nothing for `record` to describe."""
+    _write(tmp_path, "flaky.txt", "content\n")
+    undo = UndoManager(repo_root=tmp_path)
+    original_write_bytes = Path.write_bytes
+
+    def _raise_os_error(self: Path, *args: object, **kwargs: object) -> object:
+        if self.name == "flaky.txt":
+            raise OSError("simulated write failure")
+        return original_write_bytes(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_bytes", _raise_os_error)
+
+    with pytest.raises(EditFileError, match="flaky.txt"):
+        _edit(tmp_path, undo, path="flaky.txt", old="content", new="replaced")
+
+    assert undo._entries == []
+    assert _read(tmp_path, "flaky.txt") == "content\n"
+
+
 def test_write_then_record_ordering_leaves_the_file_written_when_record_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -175,9 +175,10 @@ def edit_file(
         EditFileError: `args.path` escapes `repo_root` (by a `..`
             climb or a symlink pointing outside it); it does not exist
             or names a directory; its content is not valid UTF-8 (the
-            binary guard); or `args.old` occurs zero times or more than
-            once in the file's current content. The file is left
-            untouched in every one of these cases.
+            binary guard); `args.old` occurs zero times or more than
+            once in the file's current content; or the OS-level write
+            fails once a unique anchor has been found. The file is
+            left untouched in every one of these cases.
     """
     candidate = _resolve_within_repo_root(args.path, repo_root=repo_root)
     content = _read_existing_text(candidate, path=args.path)
@@ -196,7 +197,10 @@ def edit_file(
         diff = _render_diff(path=args.path, before=content, after=new_content)
         return frame_untrusted(diff, source="tool_stdout", origin=args.path)
 
-    candidate.write_bytes(new_content.encode("utf-8"))
+    try:
+        candidate.write_bytes(new_content.encode("utf-8"))
+    except OSError as exc:
+        raise EditFileError(f"{args.path}: could not be written ({exc})") from exc
     undo.record(
         UndoEntry(
             turn_id=turn_id,
