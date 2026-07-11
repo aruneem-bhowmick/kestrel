@@ -90,4 +90,5 @@ markers = [
     "p015: the search tool's ripgrep invocation and argument-parsing contract",
     "p016: the execute tool and its bubblewrap sandbox wrapper",
     "p017: the journaled undo manager and its reversion granularities",
+    "p018: the edit_file tool's unique-anchor replacement and its write-through undo journal",
 ]
