@@ -49,7 +49,7 @@ def test_piped_no_answer_denies_the_delete_and_the_file_survives(
 
     with pytest.raises(ApprovalDenied):
         execute(
-            ExecuteArgs(cmd=("rm", target.name)),
+            ExecuteArgs(cmd=("rm", str(target))),
             repo_root=tmp_path,
             approval=_approval_with_piped_reply("n"),
         )
@@ -67,7 +67,7 @@ def test_piped_yes_answer_allows_the_delete_and_the_file_is_gone(
     target.write_text("delete me")
 
     execute(
-        ExecuteArgs(cmd=("rm", target.name)),
+        ExecuteArgs(cmd=("rm", str(target))),
         repo_root=tmp_path,
         approval=_approval_with_piped_reply("y"),
     )
