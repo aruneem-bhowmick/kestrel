@@ -91,7 +91,10 @@ guess whether a byte it receives back is data or an instruction.
   always runs with networking disabled. Returns the command's stdout,
   stderr, and exit code;
   a command that runs past its timeout is reported back as timed out
-  rather than left to hang. Requires `bwrap` (bubblewrap) on `PATH`.
+  rather than left to hang. Requires `bwrap` (bubblewrap) on `PATH`. A
+  command recognized as `delete`, `chmod`, or a force-flagged
+  `git push` is gated behind interactive approval before it runs (see
+  [Approval](#approval)).
 - **`edit_file`** -- replaces one exact, unique occurrence of an anchor
   string in a UTF-8 text file with new text. An anchor that is absent,
   or that occurs more than once, is refused rather than guessed at, and
@@ -111,6 +114,37 @@ Kestrel writes its own runtime state under `<target-repo>/.kestrel/`: an
 append-only undo journal today (`kestrel.managers.UndoManager`), with
 artifacts and session logs joining it later. Target repos should
 gitignore that path.
+
+## Approval
+
+`kestrel.managers.ApprovalManager` gates five kinds of destructive
+action -- `delete`, `force_push`, `chmod`, `network_on`, and
+`out_of_repo_write` -- behind interactive approval. The last two are
+recognized but dormant this release: `execute`'s sandbox always runs
+with networking disabled, and `edit_file` refuses an out-of-repo write
+outright rather than offering it as an approvable escalation, so
+neither has a live call path into the manager yet. `execute` is the
+first live caller, classifying its command against a small pattern
+table (`rm`/`rmdir`, `chmod`, and a force-flagged `git push`) and
+calling `ApprovalManager.check()` for any match before the command
+reaches the sandbox; a command outside that table runs unchecked.
+
+Every check is either short-circuited -- the action's kind is in the
+per-repo allowlist, or was already approved `"always"` earlier in the
+session -- or handed to a decision function, which defaults to a plain
+terminal prompt printing the action's summary and exact detail, then
+reading one reply: `y`/`yes` approves just that one request (`"once"`),
+`always` approves it and every later request of the same kind for the
+rest of the session, and anything else -- including an empty reply --
+denies it, raising `ApprovalDenied`.
+
+Pre-approve specific kinds for an entire session via
+`[managers.approval] allowlist` in `kestrel.toml`:
+
+```toml
+[managers.approval]
+allowlist = ["delete"]
+```
 
 ## Cost
 
