@@ -320,7 +320,12 @@ def test_unicode_content_round_trips_byte_exact(tmp_path: Path, case_id: str) ->
     since nothing here ever frames anything -- when recorded and then
     reverted, then the exact original bytes come back, unchanged
     down to every zero-width and multi-byte character."""
-    payload = next(case.payload for case in load_corpus() if case.id == case_id)
+    sentinel = object()
+    match = next(
+        (case.payload for case in load_corpus() if case.id == case_id), sentinel
+    )
+    assert match is not sentinel, f"Missing injection corpus case: {case_id}"
+    payload = match
     manager = UndoManager(repo_root=tmp_path)
     _write(tmp_path, "payload.txt", payload)
     manager.record(
