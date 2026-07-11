@@ -82,6 +82,14 @@ search, edit, and execute -- rather than an open-ended plugin surface.
 Every tool declares its own `ToolSchema` and returns its result already
 wrapped by `kestrel.security.frame_untrusted`, so a model never has to
 guess whether a byte it receives back is data or an instruction.
+`kestrel.tools.registry` is where all of them are wired together:
+`all_schemas()` collects every tool's schema for a provider call's own
+`tools=` argument, and `dispatch()` routes one returned tool call to
+its bound parser and executor, framing an unknown tool name, a
+malformed argument payload, or a caught tool error into an ordinary
+result rather than letting any of them crash the calling loop. Adding a
+tool means adding it to that module's own registration list -- nothing
+else needs to change.
 
 - **`read_file`** -- reads a UTF-8 text file, or a 1-indexed inclusive
   line range within it, from a repo-relative path. Refuses a path that

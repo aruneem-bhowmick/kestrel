@@ -93,4 +93,5 @@ markers = [
     "p018: the edit_file tool's unique-anchor replacement and its write-through undo journal",
     "p019: the destructive-action approval gate and execute's classification hook",
     "p020: provider-call retry with exponential backoff and full jitter",
+    "p021: the tool schema registry and dispatcher",
 ]
