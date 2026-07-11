@@ -94,6 +94,13 @@ guess whether a byte it receives back is data or an instruction.
 
 More tools land here as they're implemented.
 
+## State
+
+Kestrel writes its own runtime state under `<target-repo>/.kestrel/`: an
+append-only undo journal today (`kestrel.managers.UndoManager`), with
+artifacts and session logs joining it later. Target repos should
+gitignore that path.
+
 ## Cost
 
 Every completed turn is priced from the active model's own registry rates

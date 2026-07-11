@@ -1,0 +1,1 @@
+{"turn_id": 7, "task_id": "task-42", "path": "src/example.py", "before": "def old():\n    pass\n", "after": "def new():\n    return 1\n"}
