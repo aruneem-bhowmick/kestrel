@@ -332,19 +332,39 @@ async def run_task(
 
             if not deps.self_critique_fn(proposal, list(history)):
                 if tool_calls:
-                    history.append({"role": "assistant", "content": assistant_text, "tool_calls": tool_calls})
+                    history.append(
+                        {
+                            "role": "assistant",
+                            "content": assistant_text,
+                            "tool_calls": tool_calls,
+                        }
+                    )
                     for call in tool_calls:
-                        history.append({"role": "tool", "content": _SELF_CRITIQUE_SKIP_CONTENT, "tool_call_id": call.id})
+                        history.append(
+                            {
+                                "role": "tool",
+                                "content": _SELF_CRITIQUE_SKIP_CONTENT,
+                                "tool_call_id": call.id,
+                            }
+                        )
                 else:
                     history.append({"role": "assistant", "content": assistant_text})
-                    history.append({"role": "tool", "content": _SELF_CRITIQUE_SKIP_CONTENT})
+                    history.append(
+                        {"role": "tool", "content": _SELF_CRITIQUE_SKIP_CONTENT}
+                    )
                 deps.meter.record(usage_event, entry)
                 if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
                     return finish(TerminationReason.TOKEN_CAP)
                 continue
 
             if tool_calls:
-                history.append({"role": "assistant", "content": assistant_text, "tool_calls": tool_calls})
+                history.append(
+                    {
+                        "role": "assistant",
+                        "content": assistant_text,
+                        "tool_calls": tool_calls,
+                    }
+                )
             else:
                 history.append({"role": "assistant", "content": assistant_text})
 
@@ -355,9 +375,14 @@ async def run_task(
             for call in tool_calls:
                 result = await asyncio.to_thread(
                     _dispatch_tool_call,
-                    call, deps=deps, turn_id=turns_used, task_id=task_id
+                    call,
+                    deps=deps,
+                    turn_id=turns_used,
+                    task_id=task_id,
                 )
-                history.append({"role": "tool", "content": result.content, "tool_call_id": call.id})
+                history.append(
+                    {"role": "tool", "content": result.content, "tool_call_id": call.id}
+                )
 
             deps.meter.record(usage_event, entry)
             if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
