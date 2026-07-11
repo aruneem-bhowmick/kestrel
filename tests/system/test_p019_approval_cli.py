@@ -44,13 +44,14 @@ def test_piped_no_answer_denies_the_delete_and_the_file_survives(
     piped "n" answer, when `execute` runs, then `ApprovalDenied` is
     raised, `run_sandboxed` never executes the command, and the target
     file is still on disk."""
-    target = tmp_path / "somefile"
+    repo_root = tmp_path.resolve()
+    target = repo_root / "somefile"
     target.write_text("keep me")
 
     with pytest.raises(ApprovalDenied):
         execute(
-            ExecuteArgs(cmd=("rm", str(target))),
-            repo_root=tmp_path,
+            ExecuteArgs(cmd=("rm", "-f", target.name)),
+            repo_root=repo_root,
             approval=_approval_with_piped_reply("n"),
         )
 
@@ -63,13 +64,14 @@ def test_piped_yes_answer_allows_the_delete_and_the_file_is_gone(
     """Given a real `rm` request through the real approval path with a
     piped "y" answer, when `execute` runs, then the command is allowed
     through to the real sandbox and the target file is gone."""
-    target = tmp_path / "somefile"
+    repo_root = tmp_path.resolve()
+    target = repo_root / "somefile"
     target.write_text("delete me")
 
-    execute(
-        ExecuteArgs(cmd=("rm", str(target))),
-        repo_root=tmp_path,
+    result = execute(
+        ExecuteArgs(cmd=("rm", "-f", target.name)),
+        repo_root=repo_root,
         approval=_approval_with_piped_reply("y"),
     )
 
-    assert not target.exists()
+    assert not target.exists(), f"File was not deleted. Sandbox output:\n{result}"
