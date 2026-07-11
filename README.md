@@ -178,6 +178,34 @@ places for display. A cache-hit count is only shown when nonzero, and a
 turn with no usage at all still prints `$0.0000` rather than nothing --
 a missing cost is meant to be noticed, not hidden.
 
+## Agent loop
+
+`kestrel.agent.run_task` drives one task to completion through a
+tool-calling loop, distinct from the plain-chat REPL: each turn calls
+the model with the full tool set offered, sanity-checks what it
+proposes via an injectable self-critique function, dispatches every
+requested tool call through `kestrel.tools.registry.dispatch` (turning
+a denied approval into a framed refusal instead of raising), and folds
+the turn's usage into a running total. A turn that requests no tools at
+all is the task's natural completion.
+
+Every collaborator a task needs -- the provider client, the model
+registry, the approval and undo managers, the cost meter, and the
+task's own limits -- arrives through one `LoopDeps` bundle rather than
+global state. `LoopLimits` bounds a task with three hard caps (turn
+count, cumulative tokens, wall-clock time); crossing any of them ends
+the task with the matching `TerminationReason` rather than running
+unbounded, and a `KeyboardInterrupt` mid-task ends it the same way,
+keeping whatever turns and cost had already accumulated. A
+`ContextOverflowError` raised while streaming a turn also ends the
+task outright -- there is no compaction yet to recover the window and
+retry.
+
+Not yet implemented: mode switching (every call runs at a single,
+fixed effort level), a real self-critique model call (the default
+always approves), soft-cap budget degradation, artifact persistence,
+and subagents.
+
 ## Flight check
 
 `kestrel doctor` runs eight checks and prints one aligned line per check,
