@@ -21,6 +21,8 @@ from typing import Any, Literal
 import platformdirs
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from kestrel.managers.approval import DestructiveKind
+
 logger = logging.getLogger("kestrel.config")
 
 _CONFIG_FILENAME = "kestrel.toml"
@@ -57,6 +59,34 @@ class PathsConfig(BaseModel):
     models_file: Path | None = None
 
 
+class ApprovalConfig(BaseModel):
+    """Per-repo pre-approval for destructive tool actions.
+
+    Attributes:
+        allowlist: `DestructiveKind`s pre-approved for every request in
+            a session, so `ApprovalManager.check` never prompts for one
+            of these regardless of what the interactive decision
+            function would have said.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    allowlist: tuple[DestructiveKind, ...] = ()
+
+
+class ManagersConfig(BaseModel):
+    """Settings for Kestrel's own runtime-state managers.
+
+    Attributes:
+        approval: Per-repo configuration for the destructive-action
+            approval gate.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    approval: ApprovalConfig = ApprovalConfig()
+
+
 class KestrelConfig(BaseModel):
     """The fully validated, immutable global configuration object."""
 
@@ -64,6 +94,7 @@ class KestrelConfig(BaseModel):
 
     general: GeneralConfig = GeneralConfig()
     paths: PathsConfig = PathsConfig()
+    managers: ManagersConfig = ManagersConfig()
 
 
 class ConfigError(Exception):
