@@ -129,6 +129,7 @@ async def test_hostile_text_reply_never_becomes_a_tool_call_or_termination_signa
     )
 
     def _dispatch_should_never_be_called(*_args: object, **_kwargs: object) -> None:
+        """Stand in for `dispatch`; failing this test if it is ever reached."""
         raise AssertionError(
             "dispatch must never be called: no real tool call was made"
         )

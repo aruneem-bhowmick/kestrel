@@ -283,6 +283,7 @@ async def test_wall_clock_cap_stops_between_turns(tmp_path: Path) -> None:
     clock_values = iter([0.0, 0.0, 150.0])
 
     def clock_fn() -> float:
+        """Pop the next scripted timestamp."""
         return next(clock_values)
 
     result = await run_task("read greet.py", deps, task_id="t-5", clock_fn=clock_fn)
@@ -330,6 +331,7 @@ async def test_self_critique_declining_skips_act_and_continues_to_a_real_next_tu
     decisions = iter([False, True])
 
     def self_critique_fn(proposal: str, history: list[Message]) -> bool:
+        """Pop the next scripted decision: decline, then approve."""
         return next(decisions)
 
     deps = _build_deps(client, tmp_path, self_critique_fn=self_critique_fn)
@@ -386,6 +388,7 @@ async def test_keyboard_interrupt_during_tool_execution_returns_user_stop(
     deps = _build_deps(client, tmp_path)
 
     def _raise_interrupt(*_args: object, **_kwargs: object) -> None:
+        """Stand in for `dispatch`, simulating an interrupt mid-tool-call."""
         raise KeyboardInterrupt
 
     monkeypatch.setattr(loop_module, "dispatch", _raise_interrupt)
