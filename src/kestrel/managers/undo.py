@@ -75,6 +75,9 @@ class UndoConflictError(Exception):
     def __init__(
         self, message: str, *, reverted: list[UndoEntry] | None = None
     ) -> None:
+        """Store `message` as this exception's own text, alongside
+        whichever entries (if any) a partial multi-entry revert already
+        undid before hitting the conflict that raised this."""
         super().__init__(message)
         self.reverted = reverted if reverted is not None else []
 
@@ -137,6 +140,17 @@ class UndoManager:
     def journal_path(self) -> Path:
         """The journal file this manager reads from and appends to."""
         return self._journal_path
+
+    @property
+    def entries(self) -> tuple[UndoEntry, ...]:
+        """Every entry recorded so far, in append order, including any
+        compensating entries a prior revert call already appended.
+
+        A read-only snapshot for a caller that wants to inspect what a
+        run touched (e.g. to report every path changed) without
+        reverting anything.
+        """
+        return tuple(self._entries)
 
     def _load_existing_entries(self) -> list[UndoEntry]:
         """Read every entry already on disk at `journal_path`, in
