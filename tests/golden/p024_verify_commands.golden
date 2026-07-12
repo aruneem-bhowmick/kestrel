@@ -1,0 +1,8 @@
+{
+  "raw_text": "# Project conventions\n\nKeep changes small and covered by tests.\n\n```kestrel-verify\nlint = \"ruff check .\"\nbuild = \"true\"\ntest = \"pytest -q\"\n```\n",
+  "verify_commands": {
+    "build": "true",
+    "lint": "ruff check .",
+    "test": "pytest -q"
+  }
+}

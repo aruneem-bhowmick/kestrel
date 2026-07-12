@@ -24,6 +24,32 @@ recognized key and its default value. Secrets (API keys, tokens,
 passwords) must never be placed in this file -- set them as environment
 variables instead.
 
+## Project memory
+
+Kestrel reads an optional `KESTREL.md` from the target repo's own root
+-- free-form notes and conventions written by that repo's maintainers,
+in the same per-repo-memory tradition as `CLAUDE.md`. Unlike
+`kestrel.toml`/`models.toml`, it has exactly one location and no search
+precedence: a repo either has one or it doesn't, and having none is a
+normal outcome, not an error. Because it's authored by the repo's own
+maintainers rather than fetched at runtime by a tool, its text is
+trusted project memory -- it is never run through the untrusted-content
+framing every `read_file`/`search`/`execute` result goes through.
+
+A `KESTREL.md` may also carry one fenced ` ```kestrel-verify ` block: a
+small TOML table naming up to three commands the repo wants to be checked,
+any of which may be omitted:
+
+```kestrel-verify
+lint = "ruff check ."
+build = "true"
+test = "pytest -q"
+```
+
+Nothing runs these commands yet -- parsing them here is groundwork for
+a verification tool that will run whichever are configured and report
+pass/fail back to the model.
+
 ## Models
 
 Available models live in `models.toml`, an array of `[[models]]` tables
