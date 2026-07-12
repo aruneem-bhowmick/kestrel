@@ -28,6 +28,7 @@ from kestrel.provider.litellm_client import LiteLLMClient
 from kestrel.registry.model import ModelEntry, Registry
 from kestrel.tools.sandbox import bwrap_available, run_sandboxed
 
+
 def _can_initialize_network_namespace() -> bool:
     import shutil
     if shutil.which("bwrap") is None:
