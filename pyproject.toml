@@ -98,5 +98,6 @@ markers = [
     "p023: the `kestrel run`/`kestrel undo` CLI entry points and the phase acceptance suite",
     "p024: the KESTREL.md project-memory loader and its verify-command parsing",
     "p025: the verify tool and its VerificationReport artifact",
+    "p026: wiring verification as the agent loop's exit criterion",
     "dod_phase_1: acceptance scenario for the tool-calling-agent milestone's Definition of Done",
 ]
