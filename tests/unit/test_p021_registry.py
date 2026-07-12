@@ -224,18 +224,27 @@ def test_dispatch_edit_file_matches_calling_the_tool_directly(tmp_path: Path) ->
 
 @pytest.mark.sanity
 def test_dispatch_verify_matches_calling_the_tool_directly(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Given a KESTREL.md configuring one command, a stubbed sandbox,
     and `task_id`/`turn_id` passed through `**context`, when dispatched,
     then the result's content is exactly what calling `verify` directly
-    would return for the same arguments."""
-    (tmp_path / "KESTREL.md").write_bytes(b'```kestrel-verify\nlint = "true"\n```\n')
+    would return for the same arguments.
+
+    Uses two separate repo roots, one per call, rather than one shared
+    `tmp_path`: `verify` now allocates a fresh report path per call
+    within a task/turn (see `persist_verification_report`), so two
+    calls sharing both a repo and a task/turn would otherwise diverge
+    on that path alone, which isn't what this test is checking."""
+    dispatch_repo = tmp_path_factory.mktemp("dispatch-repo")
+    direct_repo = tmp_path_factory.mktemp("direct-repo")
+    for repo in (dispatch_repo, direct_repo):
+        (repo / "KESTREL.md").write_bytes(b'```kestrel-verify\nlint = "true"\n```\n')
     _stub_verify_run_sandboxed(monkeypatch)
     event = ToolCallEvent(id="call-7", name="verify", arguments_json="{}")
 
-    result = dispatch(event, repo_root=tmp_path, task_id="t-1", turn_id=1)
-    direct = verify(VerifyArgs(), repo_root=tmp_path, task_id="t-1", turn_id=1)
+    result = dispatch(event, repo_root=dispatch_repo, task_id="t-1", turn_id=1)
+    direct = verify(VerifyArgs(), repo_root=direct_repo, task_id="t-1", turn_id=1)
 
     assert result.tool_call_id == "call-7"
     assert result.content == direct
