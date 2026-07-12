@@ -37,7 +37,7 @@ trusted project memory -- it is never run through the untrusted-content
 framing every `read_file`/`search`/`execute` result goes through.
 
 A `KESTREL.md` may also carry one fenced ` ```kestrel-verify ` block: a
-small TOML table naming up to three commands the repo wants checked,
+small TOML table naming up to three commands the repo wants to be checked,
 any of which may be omitted:
 
 ```kestrel-verify
