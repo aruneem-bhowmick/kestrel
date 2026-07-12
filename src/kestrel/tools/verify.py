@@ -237,13 +237,34 @@ def render_verification_markdown(report: VerificationReport) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
+def _allocate_report_path(artifacts_dir: Path, *, task_id: str, turn_id: int) -> Path:
+    """Return an unused markdown path under `artifacts_dir` for this
+    task/turn's report: `verification-{task_id}-{turn_id}.md` when that
+    name is free, otherwise the same name with a numeric suffix
+    appended. Calling `verify` more than once within the same task and
+    turn -- e.g. a model narrowing its next call with `only` after an
+    earlier one failed -- gets one report file per call instead of the
+    later call silently overwriting the earlier one."""
+    base = f"verification-{task_id}-{turn_id}"
+    candidate = artifacts_dir / f"{base}.md"
+    suffix = 1
+    while candidate.exists():
+        candidate = artifacts_dir / f"{base}-{suffix}.md"
+        suffix += 1
+    return candidate
+
+
 def persist_verification_report(report: VerificationReport, *, repo_root: Path) -> Path:
-    """Write `render_verification_markdown(report)` to
-    `repo_root / ".kestrel" / "artifacts" / f"verification-{report.task_id}-{report.turn_id}.md"`,
+    """Write `render_verification_markdown(report)` to a fresh path under
+    `repo_root / ".kestrel" / "artifacts"`, named
+    `verification-{report.task_id}-{report.turn_id}.md` (or that name
+    with a numeric suffix, when an earlier call already claimed it),
     creating parent directories as needed; returns the written path."""
     artifacts_dir = repo_root / _ARTIFACTS_DIRNAME
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    path = artifacts_dir / f"verification-{report.task_id}-{report.turn_id}.md"
+    path = _allocate_report_path(
+        artifacts_dir, task_id=report.task_id, turn_id=report.turn_id
+    )
     path.write_text(render_verification_markdown(report), encoding="utf-8")
     return path
 

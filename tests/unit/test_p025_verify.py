@@ -388,6 +388,55 @@ def test_persist_verification_report_writes_the_rendered_markdown(
     assert written.read_text(encoding="utf-8") == render_verification_markdown(report)
 
 
+def test_persist_verification_report_does_not_overwrite_an_earlier_call(
+    tmp_path: Path,
+) -> None:
+    """Given two reports persisted for the same task and turn, when the
+    second is written, then it lands at a distinct, suffixed path rather
+    than overwriting the first -- a model calling `verify` more than
+    once in one turn (e.g. narrowing `only` after an earlier failure)
+    never loses the earlier report."""
+    first_report = VerificationReport(
+        task_id=_TASK_ID,
+        turn_id=_TURN_ID,
+        commands=(
+            VerificationCommandResult(
+                name="lint",
+                command="run-lint",
+                exit_code=1,
+                timed_out=False,
+                stdout="first run",
+                stderr="",
+            ),
+        ),
+        passed=False,
+    )
+    second_report = VerificationReport(
+        task_id=_TASK_ID,
+        turn_id=_TURN_ID,
+        commands=(
+            VerificationCommandResult(
+                name="lint",
+                command="run-lint",
+                exit_code=0,
+                timed_out=False,
+                stdout="second run",
+                stderr="",
+            ),
+        ),
+        passed=True,
+    )
+
+    first_path = persist_verification_report(first_report, repo_root=tmp_path)
+    second_path = persist_verification_report(second_report, repo_root=tmp_path)
+
+    assert first_path != second_path
+    assert first_path.is_file()
+    assert second_path.is_file()
+    assert "first run" in first_path.read_text(encoding="utf-8")
+    assert "second run" in second_path.read_text(encoding="utf-8")
+
+
 def test_verify_persists_a_report_readable_at_the_documented_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -158,8 +158,11 @@ else needs to change.
   short pass/fail summary per command -- never a command's own
   stdout/stderr -- and separately renders and persists the full
   per-command output as markdown to
-  `.kestrel/artifacts/verification-<task_id>-<turn_id>.md`. Pass `only`
-  (an array of `"lint"`/`"build"`/`"test"`) to restrict a call to a
+  `.kestrel/artifacts/verification-<task_id>-<turn_id>.md` (a numeric
+  suffix is appended if that name is already taken, so calling `verify`
+  more than once in the same task and turn never overwrites an earlier
+  report). Pass `only` (an array of `"lint"`/`"build"`/`"test"`) to
+  restrict a call to a
   subset of what's configured. Refuses to run when the repo has no
   KESTREL.md, or when nothing it configures matches what was asked for.
   Reloads KESTREL.md fresh on every call, since a prior turn's
