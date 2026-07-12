@@ -1,6 +1,7 @@
 """Tools a model can call: bounded, framed reads and searches, an
-anchor-based file editor with a journaled undo trail, and a sandboxed
-command runner.
+anchor-based file editor with a journaled undo trail, a sandboxed
+command runner, and a verification runner for a repo's own configured
+lint/build/test commands.
 
 Every tool in this package returns its result already wrapped by
 `kestrel.security.framing.frame_untrusted`, so nothing downstream needs
@@ -40,6 +41,15 @@ from kestrel.tools.search import (
     parse_search_args,
     search,
 )
+from kestrel.tools.verify import (
+    VERIFY_SCHEMA,
+    VerificationCommandResult,
+    VerificationReport,
+    VerifyArgs,
+    VerifyError,
+    parse_verify_args,
+    verify,
+)
 
 __all__ = [
     "READ_FILE_SCHEMA",
@@ -66,4 +76,11 @@ __all__ = [
     "ToolResult",
     "all_schemas",
     "dispatch",
+    "VERIFY_SCHEMA",
+    "VerificationCommandResult",
+    "VerificationReport",
+    "VerifyArgs",
+    "VerifyError",
+    "parse_verify_args",
+    "verify",
 ]

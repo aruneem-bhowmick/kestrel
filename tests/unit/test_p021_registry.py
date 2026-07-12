@@ -26,6 +26,7 @@ from kestrel.tools.read_file import READ_FILE_SCHEMA, ReadFileArgs, read_file
 from kestrel.tools.registry import all_schemas, dispatch
 from kestrel.tools.sandbox import SandboxResult
 from kestrel.tools.search import SEARCH_SCHEMA, SearchArgs, search
+from kestrel.tools.verify import VERIFY_SCHEMA, VerifyArgs, verify
 
 pytestmark = [pytest.mark.p021, pytest.mark.unit]
 
@@ -36,6 +37,7 @@ pytestmark = [pytest.mark.p021, pytest.mark.unit]
 # *attributes* on the `kestrel.tools` package to the functions of the
 # same name, shadowing the submodules themselves.
 _execute_mod = importlib.import_module("kestrel.tools.execute")
+_verify_mod = importlib.import_module("kestrel.tools.verify")
 
 
 def _stub_run_sandboxed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -47,6 +49,17 @@ def _stub_run_sandboxed(monkeypatch: pytest.MonkeyPatch) -> None:
         return SandboxResult(stdout="ok", stderr="", exit_code=0, timed_out=False)
 
     monkeypatch.setattr(_execute_mod, "run_sandboxed", _stub)
+
+
+def _stub_verify_run_sandboxed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace `verify`'s own `run_sandboxed` reference with a stub
+    that never touches a real `bwrap` sandbox, returning a fixed,
+    successful `SandboxResult` instead."""
+
+    def _stub(cmd: list[str], **_kwargs: object) -> SandboxResult:
+        return SandboxResult(stdout="ok", stderr="", exit_code=0, timed_out=False)
+
+    monkeypatch.setattr(_verify_mod, "run_sandboxed", _stub)
 
 
 def _stub_rg(
@@ -65,12 +78,18 @@ def _stub_rg(
 
 
 @pytest.mark.sanity
-def test_all_schemas_returns_four_schemas_in_fixed_order_by_identity() -> None:
+def test_all_schemas_returns_five_schemas_in_fixed_order_by_identity() -> None:
     """Given the registry, when `all_schemas()` is called, then it
-    returns exactly the four tool schemas, in the fixed
-    read/search/execute/edit order, each the very same object as the
-    owning tool module's own `*_SCHEMA` constant."""
-    expected = (READ_FILE_SCHEMA, SEARCH_SCHEMA, EXECUTE_SCHEMA, EDIT_FILE_SCHEMA)
+    returns exactly the five tool schemas, in the fixed
+    read/search/execute/edit/verify order, each the very same object as
+    the owning tool module's own `*_SCHEMA` constant."""
+    expected = (
+        READ_FILE_SCHEMA,
+        SEARCH_SCHEMA,
+        EXECUTE_SCHEMA,
+        EDIT_FILE_SCHEMA,
+        VERIFY_SCHEMA,
+    )
 
     schemas = all_schemas()
 
@@ -203,12 +222,40 @@ def test_dispatch_edit_file_matches_calling_the_tool_directly(tmp_path: Path) ->
     assert result.content == direct
 
 
+@pytest.mark.sanity
+def test_dispatch_verify_matches_calling_the_tool_directly(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a KESTREL.md configuring one command, a stubbed sandbox,
+    and `task_id`/`turn_id` passed through `**context`, when dispatched,
+    then the result's content is exactly what calling `verify` directly
+    would return for the same arguments.
+
+    Uses two separate repo roots, one per call, rather than one shared
+    `tmp_path`: `verify` now allocates a fresh report path per call
+    within a task/turn (see `persist_verification_report`), so two
+    calls sharing both a repo and a task/turn would otherwise diverge
+    on that path alone, which isn't what this test is checking."""
+    dispatch_repo = tmp_path_factory.mktemp("dispatch-repo")
+    direct_repo = tmp_path_factory.mktemp("direct-repo")
+    for repo in (dispatch_repo, direct_repo):
+        (repo / "KESTREL.md").write_bytes(b'```kestrel-verify\nlint = "true"\n```\n')
+    _stub_verify_run_sandboxed(monkeypatch)
+    event = ToolCallEvent(id="call-7", name="verify", arguments_json="{}")
+
+    result = dispatch(event, repo_root=dispatch_repo, task_id="t-1", turn_id=1)
+    direct = verify(VerifyArgs(), repo_root=direct_repo, task_id="t-1", turn_id=1)
+
+    assert result.tool_call_id == "call-7"
+    assert result.content == direct
+
+
 def test_dispatch_catches_read_file_error_from_the_executor(tmp_path: Path) -> None:
     """Given `read_file` arguments naming a file that does not exist,
     when dispatched, then the executor's own `ReadFileError` is caught
     and framed as the result rather than escaping `dispatch`."""
     event = ToolCallEvent(
-        id="call-7",
+        id="call-8",
         name="read_file",
         arguments_json=json.dumps({"path": "missing.py"}),
     )
@@ -227,7 +274,7 @@ def test_dispatch_catches_search_error_from_the_executor(
     rather than escaping `dispatch`."""
     _stub_rg(monkeypatch, stdout="", returncode=2, stderr="regex parse error")
     event = ToolCallEvent(
-        id="call-8",
+        id="call-9",
         name="search",
         arguments_json=json.dumps({"pattern": "("}),
     )
@@ -242,7 +289,7 @@ def test_dispatch_catches_execute_error_from_the_parser(tmp_path: Path) -> None:
     dispatched, then the parser's own `ExecuteError` is caught and
     framed as the result rather than escaping `dispatch`."""
     event = ToolCallEvent(
-        id="call-9",
+        id="call-10",
         name="execute",
         arguments_json=json.dumps({"cmd": []}),
     )
@@ -260,7 +307,7 @@ def test_dispatch_catches_edit_file_error_from_the_executor(tmp_path: Path) -> N
     (tmp_path / "greet.py").write_text("print('hi')\n", encoding="utf-8")
     undo = UndoManager(repo_root=tmp_path)
     event = ToolCallEvent(
-        id="call-10",
+        id="call-11",
         name="edit_file",
         arguments_json=json.dumps(
             {"path": "greet.py", "old": "no-such-anchor", "new": "x"}
@@ -270,6 +317,17 @@ def test_dispatch_catches_edit_file_error_from_the_executor(tmp_path: Path) -> N
     result = dispatch(event, repo_root=tmp_path, undo=undo, turn_id=1, task_id="t-1")
 
     assert "anchor not found" in result.content
+
+
+def test_dispatch_catches_verify_error_from_the_executor(tmp_path: Path) -> None:
+    """Given a repo root with no KESTREL.md, when `verify` is
+    dispatched, then the executor's own `VerifyError` is caught and
+    framed as the result rather than escaping `dispatch`."""
+    event = ToolCallEvent(id="call-12", name="verify", arguments_json="{}")
+
+    result = dispatch(event, repo_root=tmp_path, task_id="t-1", turn_id=1)
+
+    assert "KESTREL.md" in result.content
 
 
 def test_dispatch_raises_when_context_omits_an_executors_required_kwarg(
@@ -299,7 +357,7 @@ def test_dispatch_raises_when_context_omits_an_executors_required_kwarg(
         error_type=RuntimeError,
     )
     monkeypatch.setitem(registry_module._BY_NAME, "fake_tool", fake_binding)
-    event = ToolCallEvent(id="call-11", name="fake_tool", arguments_json="{}")
+    event = ToolCallEvent(id="call-13", name="fake_tool", arguments_json="{}")
 
     with pytest.raises(TypeError):
         dispatch(event, repo_root=tmp_path)

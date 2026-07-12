@@ -46,9 +46,8 @@ build = "true"
 test = "pytest -q"
 ```
 
-Nothing runs these commands yet -- parsing them here is groundwork for
-a verification tool that will run whichever are configured and report
-pass/fail back to the model.
+The `verify` tool (see [Tools](#tools)) runs whichever of these are
+configured and reports pass/fail back to the model.
 
 ## Models
 
@@ -104,7 +103,8 @@ backends is out of scope for this wrapper.
 ## Tools
 
 Kestrel offers a model a small, fixed set of capabilities -- read,
-search, edit, and execute -- rather than an open-ended plugin surface.
+search, edit, execute, and verify -- rather than an open-ended plugin
+surface.
 Every tool declares its own `ToolSchema` and returns its result already
 wrapped by `kestrel.security.frame_untrusted`, so a model never has to
 guess whether a byte it receives back is data or an instruction.
@@ -150,15 +150,33 @@ else needs to change.
   journal. Does not create new files -- an anchor checked against a
   path with no file on disk is refused the same way a missing anchor
   is, never treated as a request to create that file.
+- **`verify`** -- runs whichever of the repo's own configured
+  lint/build/test commands (see [Project memory](#project-memory)) apply,
+  in that fixed order, through the same sandbox `execute` uses. Every
+  configured command always runs to completion, even after an earlier
+  one fails, so every check's own result comes back together. Returns a
+  short pass/fail summary per command -- never a command's own
+  stdout/stderr -- and separately renders and persists the full
+  per-command output as markdown to
+  `.kestrel/artifacts/verification-<task_id>-<turn_id>.md` (a numeric
+  suffix is appended if that name is already taken, so calling `verify`
+  more than once in the same task and turn never overwrites an earlier
+  report). Pass `only` (an array of `"lint"`/`"build"`/`"test"`) to
+  restrict a call to a
+  subset of what's configured. Refuses to run when the repo has no
+  KESTREL.md, or when nothing it configures matches what was asked for.
+  Reloads KESTREL.md fresh on every call, since a prior turn's
+  `edit_file` may have just changed it.
 
 More tools land here as they're implemented.
 
 ## State
 
 Kestrel writes its own runtime state under `<target-repo>/.kestrel/`: an
-append-only undo journal today (`kestrel.managers.UndoManager`), with
-artifacts and session logs joining it later. Target repos should
-gitignore that path.
+append-only undo journal (`kestrel.managers.UndoManager`) and, under
+`.kestrel/artifacts/`, persisted verification reports from the `verify`
+tool, with session logs joining it later. Target repos should gitignore
+that path.
 
 ## Approval
 

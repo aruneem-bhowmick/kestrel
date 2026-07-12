@@ -53,6 +53,12 @@ from kestrel.tools.search import (
     parse_search_args,
     search,
 )
+from kestrel.tools.verify import (
+    VERIFY_SCHEMA,
+    VerifyError,
+    parse_verify_args,
+    verify,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +105,7 @@ _TOOLS: Final[tuple[_ToolBinding, ...]] = (
     _ToolBinding(SEARCH_SCHEMA, parse_search_args, search, SearchError),
     _ToolBinding(EXECUTE_SCHEMA, parse_execute_args, execute, ExecuteError),
     _ToolBinding(EDIT_FILE_SCHEMA, parse_edit_file_args, edit_file, EditFileError),
+    _ToolBinding(VERIFY_SCHEMA, parse_verify_args, verify, VerifyError),
 )
 
 _BY_NAME: Final[dict[str, _ToolBinding]] = {
