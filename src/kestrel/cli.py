@@ -227,6 +227,12 @@ def _run_undo_command(args: Namespace) -> int:
     try:
         reverted = undo.revert_task(args.task_id)
     except UndoConflictError as exc:
+        if exc.reverted:
+            print(
+                f"reverted {len(exc.reverted)} mutation(s) for task '{args.task_id}':"
+            )
+            for entry in exc.reverted:
+                print(f"  {entry.path}")
         print(exc, file=sys.stderr)
         return 1
 
