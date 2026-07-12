@@ -278,12 +278,7 @@ async def test_wall_clock_cap_stops_between_turns(tmp_path: Path) -> None:
     `max_wall_clock_s` at the start of a second turn, when the task
     runs, then it ends WALL_CLOCK_CAP without attempting that turn."""
     (tmp_path / "greet.py").write_text("print('hi')\n", encoding="utf-8")
-    client = _ScriptedLoopClient(
-        turns=[
-            _read_file_turn("call-1", "greet.py"),
-            _read_file_turn("call-2", "greet.py"),
-        ]
-    )
+    client = _ScriptedLoopClient(turns=[_read_file_turn("call-1", "greet.py")])
     deps = _build_deps(client, tmp_path, limits=LoopLimits(max_wall_clock_s=100.0))
     clock_values = iter([0.0, 0.0, 150.0])
 
@@ -294,8 +289,8 @@ async def test_wall_clock_cap_stops_between_turns(tmp_path: Path) -> None:
     result = await run_task("read greet.py", deps, task_id="t-5", clock_fn=clock_fn)
 
     assert result.reason == TerminationReason.WALL_CLOCK_CAP
-    assert result.turns_used == 2
-    assert client.call_count == 2
+    assert result.turns_used == 1
+    assert client.call_count == 1
 
 
 async def test_context_overflow_mid_think_ends_the_task_without_raising(
