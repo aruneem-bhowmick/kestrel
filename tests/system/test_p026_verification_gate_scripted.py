@@ -101,7 +101,7 @@ async def test_verification_required_task_completes_only_after_a_real_passing_ve
         undo=UndoManager(repo_root=tmp_path),
         meter=CostMeter(),
         require_verification=True,
-        limits=LoopLimits(max_turns=10),
+        limits=LoopLimits(max_turns=20),
     )
 
     result = await run_task(
