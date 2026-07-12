@@ -359,6 +359,8 @@ async def run_task(
                 return finish(TerminationReason.TURN_CAP)
             if clock_fn() - start >= deps.limits.max_wall_clock_s:
                 return finish(TerminationReason.WALL_CLOCK_CAP)
+            if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
+                return finish(TerminationReason.TOKEN_CAP)
 
             turns_used += 1
             try:
