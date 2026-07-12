@@ -6,6 +6,8 @@ paths raised as `KestrelMdError`.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,10 @@ from kestrel.kestrel_md import (
 )
 
 pytestmark = [pytest.mark.p024, pytest.mark.unit]
+
+_GOLDEN_FILE = (
+    Path(__file__).resolve().parent.parent / "golden" / "p024_verify_commands.golden"
+)
 
 
 def _write_kestrel_md(repo_root: Path, content: str) -> Path:
@@ -197,3 +203,28 @@ def test_as_mapping_omits_unset_fields_and_orders_lint_build_test() -> None:
         ("lint", "ruff check ."),
         ("test", "pytest -q"),
     ]
+
+
+@pytest.mark.regression
+def test_kestrel_md_wire_format_matches_golden_snapshot(tmp_path: Path) -> None:
+    """One canonical KestrelMd, with every verify command set, loaded
+    and normalized to sorted JSON, matches a pinned snapshot
+    byte-for-byte -- an accidental change to the dataclass shape shows
+    up as a diff here instead of surfacing later as a silent behavior
+    change."""
+    content = (
+        "# Project conventions\n\n"
+        "Keep changes small and covered by tests.\n\n"
+        "```kestrel-verify\n"
+        'lint = "ruff check ."\n'
+        'build = "true"\n'
+        'test = "pytest -q"\n'
+        "```\n"
+    )
+    _write_kestrel_md(tmp_path, content)
+
+    loaded = load_kestrel_md(tmp_path)
+    assert loaded is not None
+
+    normalized = json.dumps(dataclasses.asdict(loaded), indent=2, sort_keys=True)
+    assert normalized + "\n" == _GOLDEN_FILE.read_text()
