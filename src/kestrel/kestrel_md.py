@@ -137,9 +137,7 @@ def _parse_verify_block(body: str, *, path: Path) -> VerifyCommands:
 
     for key, value in data.items():
         if not isinstance(value, str):
-            raise KestrelMdError(
-                f"{path}: kestrel-verify key {key!r} must be a string"
-            )
+            raise KestrelMdError(f"{path}: kestrel-verify key {key!r} must be a string")
 
     return VerifyCommands(
         lint=data.get("lint"),

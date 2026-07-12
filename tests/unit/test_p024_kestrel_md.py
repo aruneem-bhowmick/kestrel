@@ -84,7 +84,7 @@ def test_kestrel_verify_block_parses_lint_and_test_leaving_build_none(
 def test_tilde_fence_parses_identically_to_backtick_fence(tmp_path: Path) -> None:
     """Given a kestrel-verify block delimited with ~~~ instead of ```,
     when loaded, then it parses the same as the backtick form."""
-    content = "~~~kestrel-verify\nbuild = \"make\"\n~~~\n"
+    content = '~~~kestrel-verify\nbuild = "make"\n~~~\n'
     _write_kestrel_md(tmp_path, content)
 
     loaded = load_kestrel_md(tmp_path)
