@@ -44,6 +44,17 @@ module.
 - `done_no_more_tools.sse` -- an ordinary text-only "Task complete."
   reply with `finish_reason="stop"`, standing in for a model declaring a
   multi-turn task finished with no further tool calls.
+- `toolcall_edit_greet.sse` -- a single `edit_file` tool call, whole
+  JSON arguments in one chunk rather than split, replacing a
+  `"# TODO: implement greet"` anchor with a real `greet` function body.
+- `toolcall_execute_rm.sse` -- a single `execute` tool call, whole JSON
+  arguments in one chunk, naming `{"cmd": ["rm", "somefile"]}` -- a
+  destructive command for exercising the approval gate.
+- `toolcall_read_file_payload.sse` -- a single `read_file` tool call,
+  whole JSON arguments in one chunk, naming `{"path": "payload.txt"}` --
+  reusable across every corpus case in the injection acceptance suite,
+  since only the fixture file's own on-disk content changes per case,
+  never this tool call's arguments.
 
 ## Re-recording the zai cassette
 

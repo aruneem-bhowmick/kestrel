@@ -206,6 +206,45 @@ fixed effort level), a real self-critique model call (the default
 always approves), soft-cap budget degradation, artifact persistence,
 and subagents.
 
+## Running a task
+
+`kestrel run "<task>" --repo PATH` drives the agent loop against a real
+repository from the command line, non-interactively:
+
+```sh
+kestrel run "add a function + unit test, make it pass" --repo /path/to/repo
+```
+
+It resolves config, registry, and starting model exactly like the plain
+REPL does (the same `--config`/`--model` flags, in either position
+around the subcommand), builds a fresh `ApprovalManager`, `UndoManager`,
+and `CostMeter` for this run alone, and calls `run_task` to completion.
+`--max-turns`, `--max-total-tokens`, and `--max-wall-clock-s` override
+`LoopLimits`'s own defaults. A destructive tool call still prompts on
+the real terminal exactly as described under [Approval](#approval); a
+piped, non-interactive answer works identically to a typed one.
+
+When it finishes, `kestrel run` prints a terse summary -- the task id
+(needed to undo this run later), the termination reason, the turn
+count, the total priced cost, and every distinct path the run's own
+undo journal recorded a mutation for -- then exits `0` if the task
+reached `TASK_COMPLETE` and `1` for every other termination reason:
+
+```text
+task_id: 3b1e7b7a-...
+reason: TASK_COMPLETE
+turns: 3
+total_usd: $0.0071
+files changed:
+  src/greet.py
+```
+
+`kestrel undo --task-id ID --repo PATH` reverts every file mutation a
+prior run recorded under that id, restoring each touched path to its
+exact pre-task content and printing what it reverted. Reverting twice
+in a row is safe (see [State](#state)): the second call targets the
+first's own compensating journal entry and simply toggles the file back.
+
 ## Flight check
 
 `kestrel doctor` runs eight checks and prints one aligned line per check,
