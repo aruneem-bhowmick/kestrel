@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from kestrel.agent.loop import LoopDeps, TerminationReason, run_task
+from kestrel.agent.loop import LoopDeps, LoopLimits, TerminationReason, run_task
 from kestrel.cost.meter import CostMeter
 from kestrel.managers.approval import ApprovalManager
 from kestrel.managers.undo import UndoManager
@@ -101,6 +101,7 @@ async def test_verification_required_task_completes_only_after_a_real_passing_ve
         undo=UndoManager(repo_root=tmp_path),
         meter=CostMeter(),
         require_verification=True,
+        limits=LoopLimits(max_turns=10),
     )
 
     result = await run_task(
