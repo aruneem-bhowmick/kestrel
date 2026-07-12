@@ -95,4 +95,6 @@ markers = [
     "p020: provider-call retry with exponential backoff and full jitter",
     "p021: the tool schema registry and dispatcher",
     "p022: the tool-calling agent loop and its termination predicates",
+    "p023: the `kestrel run`/`kestrel undo` CLI entry points and the phase acceptance suite",
+    "dod_phase_1: acceptance scenario for the tool-calling-agent milestone's Definition of Done",
 ]
