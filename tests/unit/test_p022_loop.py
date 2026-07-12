@@ -515,10 +515,7 @@ async def test_task_complete_on_last_turn_honors_terminal_action_over_turn_cap(
     TURN_CAP on that last allowed turn."""
     (tmp_path / "greet.py").write_text("print('hi')\n", encoding="utf-8")
     client = _ScriptedLoopClient(
-        turns=[
-            _read_file_turn("call-1", "greet.py"),
-            _stop_turn("done")
-        ]
+        turns=[_read_file_turn("call-1", "greet.py"), _stop_turn("done")]
     )
     deps = _build_deps(client, tmp_path, limits=LoopLimits(max_turns=2))
 
