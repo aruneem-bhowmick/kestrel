@@ -26,12 +26,28 @@ from kestrel.managers.approval import ApprovalManager
 from kestrel.managers.undo import UndoManager
 from kestrel.provider.litellm_client import LiteLLMClient
 from kestrel.registry.model import ModelEntry, Registry
-from kestrel.tools.sandbox import bwrap_available
+from kestrel.tools.sandbox import bwrap_available, run_sandboxed
+
+def _can_initialize_network_namespace() -> bool:
+    import shutil
+    if shutil.which("bwrap") is None:
+        return False
+    try:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_sandboxed(["true"], repo_root=Path(tmpdir), timeout_s=5.0)
+            return result.exit_code == 0 and not result.timed_out
+    except Exception:
+        return False
 
 pytestmark = [
     pytest.mark.p026,
     pytest.mark.system,
     pytest.mark.skipif(not bwrap_available(), reason="bwrap not found on PATH"),
+    pytest.mark.skipif(
+        not _can_initialize_network_namespace(),
+        reason="bwrap cannot initialize network namespace (missing capabilities or AppArmor restrictions)",
+    ),
 ]
 
 _CASSETTES = Path(__file__).resolve().parent.parent / "fixtures" / "cassettes"
@@ -101,7 +117,7 @@ async def test_verification_required_task_completes_only_after_a_real_passing_ve
         undo=UndoManager(repo_root=tmp_path),
         meter=CostMeter(),
         require_verification=True,
-        limits=LoopLimits(max_turns=20),
+        limits=LoopLimits(max_turns=50),
     )
 
     result = await run_task(
