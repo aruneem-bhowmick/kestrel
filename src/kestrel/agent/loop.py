@@ -13,6 +13,14 @@ the cost meter, and the per-task limits -- arrives through one
 `LoopDeps` bundle, so nothing here reaches for global state or
 constructs its own collaborators.
 
+Whether a turn with no requested tool calls actually ends the task is
+itself configurable: `LoopDeps.require_verification` (opt-in,
+default-`False`) withholds `TASK_COMPLETE` from that turn until the
+most recent `verify` tool call recorded in `deps.verification_reports`
+passed, nudging the model to keep going instead of letting it declare
+victory on its own say-so. Every caller that leaves the field at its
+default sees exactly the prior, ungated behavior.
+
 Deliberately out of scope for this module, each a real gap rather than
 an oversight:
 
@@ -62,6 +70,7 @@ from kestrel.provider.retry import complete_with_retry
 from kestrel.registry.model import Registry
 from kestrel.security.framing import frame_untrusted
 from kestrel.tools.registry import ToolResult, all_schemas, dispatch
+from kestrel.tools.verify import VerificationReport
 
 _SYSTEM_PROMPT: Final[str] = (
     "You are Kestrel, an autonomous coding agent. Use the tools offered "
@@ -72,6 +81,11 @@ _SYSTEM_PROMPT: Final[str] = (
 _SELF_CRITIQUE_SKIP_CONTENT: Final[str] = (
     "The proposed action was not approved by self-critique and was not "
     "carried out. Reconsider the task and propose a different next step."
+)
+
+_VERIFICATION_REQUIRED_CONTENT: Final[str] = (
+    "The task is not yet complete: call `verify` and make sure it "
+    "passes before declaring the task done."
 )
 
 
@@ -153,6 +167,17 @@ class LoopDeps:
             before it is acted on; returning `False` drops the
             proposal instead of carrying it out. Defaults to always
             approving.
+        require_verification: When `True`, a turn that requests no
+            tool calls only ends the task once the most recent report
+            in `verification_reports` passed; otherwise the loop keeps
+            going with a nudge instead of finishing. Defaults to
+            `False`, in which case a no-tool-calls turn always ends
+            the task exactly as it did before this field existed.
+        verification_reports: Every `VerificationReport` a `verify`
+            tool call has recorded for this task so far, oldest first.
+            Threaded into `dispatch` as that tool's own `report_sink`,
+            so it fills in as the task runs; `require_verification`
+            reads only its last entry.
     """
 
     client: ProviderClient
@@ -166,6 +191,8 @@ class LoopDeps:
     self_critique_fn: Callable[[str, list[Message]], bool] = field(
         default=_default_self_critique
     )
+    require_verification: bool = False
+    verification_reports: list[VerificationReport] = field(default_factory=list)
 
 
 def _split_events(
@@ -216,6 +243,13 @@ def _total_tokens(meter: CostMeter) -> int:
     return sum(turn.input_tokens + turn.output_tokens for turn in meter.turns)
 
 
+def _has_passing_verification(deps: LoopDeps) -> bool:
+    """True iff at least one `VerificationReport` has been recorded for
+    this task and the most recent one passed -- an earlier failing
+    report does not linger once a later call supersedes it."""
+    return bool(deps.verification_reports) and deps.verification_reports[-1].passed
+
+
 def _dispatch_tool_call(
     event: ToolCallEvent, *, deps: LoopDeps, turn_id: int, task_id: str
 ) -> ToolResult:
@@ -233,6 +267,7 @@ def _dispatch_tool_call(
             undo=deps.undo,
             turn_id=turn_id,
             task_id=task_id,
+            report_sink=deps.verification_reports,
         )
     except ApprovalDenied as exc:
         return ToolResult(
@@ -289,7 +324,11 @@ async def run_task(
     into `deps.meter` and checking the token cap immediately, so a turn
     that crosses it never triggers one more, avoidable model call. A
     turn that requested no tools at all is the task's natural
-    completion.
+    completion -- unless `deps.require_verification` is `True` and the
+    most recent entry in `deps.verification_reports` has not passed
+    (or none exists yet), in which case that turn instead folds a
+    nudge to call `verify` into history and the loop keeps going,
+    exactly as the self-critique-skip path already does.
 
     A `ContextOverflowError` raised while streaming a turn ends the task
     with `TerminationReason.CONTEXT_OVERFLOW` rather than propagating --
@@ -320,6 +359,8 @@ async def run_task(
                 return finish(TerminationReason.TURN_CAP)
             if clock_fn() - start >= deps.limits.max_wall_clock_s:
                 return finish(TerminationReason.WALL_CLOCK_CAP)
+            if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
+                return finish(TerminationReason.TOKEN_CAP)
 
             turns_used += 1
             try:
@@ -369,6 +410,14 @@ async def run_task(
                 history.append({"role": "assistant", "content": assistant_text})
 
             if not tool_calls:
+                if deps.require_verification and not _has_passing_verification(deps):
+                    history.append(
+                        {"role": "tool", "content": _VERIFICATION_REQUIRED_CONTENT}
+                    )
+                    deps.meter.record(usage_event, entry)
+                    if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
+                        return finish(TerminationReason.TOKEN_CAP)
+                    continue
                 deps.meter.record(usage_event, entry)
                 return finish(TerminationReason.TASK_COMPLETE)
 

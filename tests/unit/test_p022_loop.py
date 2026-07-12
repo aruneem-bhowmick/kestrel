@@ -504,3 +504,22 @@ async def test_token_cap_applies_even_when_self_critique_declines_the_turn(
     assert result.reason == TerminationReason.TOKEN_CAP
     assert result.turns_used == 1
     assert client.call_count == 1
+
+
+async def test_task_complete_on_last_turn_honors_terminal_action_over_turn_cap(
+    tmp_path: Path,
+) -> None:
+    """Given `max_turns=2` and a script that calls a tool on turn 1 and
+    then produces no tool calls (TASK_COMPLETE) on turn 2, when the task
+    runs, then it ends TASK_COMPLETE rather than being overwritten by
+    TURN_CAP on that last allowed turn."""
+    (tmp_path / "greet.py").write_text("print('hi')\n", encoding="utf-8")
+    client = _ScriptedLoopClient(
+        turns=[_read_file_turn("call-1", "greet.py"), _stop_turn("done")]
+    )
+    deps = _build_deps(client, tmp_path, limits=LoopLimits(max_turns=2))
+
+    result = await run_task("read greet.py", deps, task_id="t-13")
+
+    assert result.reason == TerminationReason.TASK_COMPLETE
+    assert result.turns_used == 2

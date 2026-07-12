@@ -250,6 +250,17 @@ fixed effort level), a real self-critique model call (the default
 always approves), soft-cap budget degradation, artifact persistence,
 and subagents.
 
+Whether the model's own say-so is enough to end a task is configurable
+via `LoopDeps.require_verification` (default `False`, preserving the
+behavior above unchanged). Set it `True` and a turn that requests no
+tools only completes the task once the most recent report in
+`LoopDeps.verification_reports` -- filled in as the `verify` tool runs
+during the task -- actually passed; otherwise the loop folds a nudge to
+call `verify` into history and keeps going, the same shape the
+self-critique-skip path already uses. This never adds a new way for a
+task to end: an unbounded task still stops only via the turn, token, or
+wall-clock cap, exactly as it always could.
+
 ## Running a task
 
 `kestrel run "<task>" --repo PATH` drives the agent loop against a real
