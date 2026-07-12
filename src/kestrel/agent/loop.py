@@ -355,11 +355,6 @@ async def run_task(
 
     try:
         while True:
-            if turns_used >= deps.limits.max_turns:
-                return finish(TerminationReason.TURN_CAP)
-            if clock_fn() - start >= deps.limits.max_wall_clock_s:
-                return finish(TerminationReason.WALL_CLOCK_CAP)
-
             turns_used += 1
             try:
                 events = await _drain_think(deps, history)
@@ -394,6 +389,10 @@ async def run_task(
                 deps.meter.record(usage_event, entry)
                 if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
                     return finish(TerminationReason.TOKEN_CAP)
+                if turns_used >= deps.limits.max_turns:
+                    return finish(TerminationReason.TURN_CAP)
+                if clock_fn() - start >= deps.limits.max_wall_clock_s:
+                    return finish(TerminationReason.WALL_CLOCK_CAP)
                 continue
 
             if tool_calls:
@@ -415,9 +414,18 @@ async def run_task(
                     deps.meter.record(usage_event, entry)
                     if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
                         return finish(TerminationReason.TOKEN_CAP)
+                    if turns_used >= deps.limits.max_turns:
+                        return finish(TerminationReason.TURN_CAP)
+                    if clock_fn() - start >= deps.limits.max_wall_clock_s:
+                        return finish(TerminationReason.WALL_CLOCK_CAP)
                     continue
                 deps.meter.record(usage_event, entry)
                 return finish(TerminationReason.TASK_COMPLETE)
+
+            if turns_used >= deps.limits.max_turns:
+                return finish(TerminationReason.TURN_CAP)
+            if clock_fn() - start >= deps.limits.max_wall_clock_s:
+                return finish(TerminationReason.WALL_CLOCK_CAP)
 
             for call in tool_calls:
                 result = await asyncio.to_thread(
