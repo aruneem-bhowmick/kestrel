@@ -70,6 +70,7 @@ VERIFY_SCHEMA = ToolSchema(
             "only": {
                 "type": "array",
                 "items": {"type": "string", "enum": list(_VERIFY_ORDER)},
+                "minItems": 1,
             },
         },
         "required": [],
@@ -160,9 +161,9 @@ def run_verification(
     lint/test run is a normal, reportable outcome, not an exception.
 
     Raises:
-        VerifyError: `kestrel_md.verify_commands` has no entry for any
-            name in `only` (or none configured at all, when `only` is
-            None) -- raised before running anything.
+        VerifyError: `only` is given but empty; `kestrel_md.verify_commands`
+            has no entry for any name in `only` (or none configured at
+            all, when `only` is None) -- raised before running anything.
     """
     configured = kestrel_md.verify_commands.as_mapping()
 
@@ -174,6 +175,11 @@ def run_verification(
                 "verify -- add a kestrel-verify block before calling verify"
             )
     else:
+        if not only:
+            raise VerifyError(
+                "'only' must not be empty -- omit it to run every "
+                "configured command instead"
+            )
         missing = [name for name in only if name not in configured]
         if missing:
             raise VerifyError(
@@ -356,11 +362,16 @@ def verify(
 def _parse_only(value: Any) -> tuple[Literal["lint", "build", "test"], ...] | None:
     """Validate the optional `only` field, defaulting to `None` (every
     configured command) when absent and raising `VerifyError` when
-    present but not an array of strings each drawn from `_VERIFY_ORDER`."""
+    present but not a non-empty array of strings each drawn from
+    `_VERIFY_ORDER`. An empty array is rejected rather than treated as
+    "run nothing" -- omitting the field entirely is how a caller asks
+    for every configured command."""
     if value is None:
         return None
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise VerifyError("arguments: 'only' must be an array of strings")
+    if not value:
+        raise VerifyError("arguments: 'only' must not be empty")
     unknown = sorted(set(value) - set(_VERIFY_ORDER))
     if unknown:
         raise VerifyError(f"arguments: 'only' names unknown command(s) {unknown}")

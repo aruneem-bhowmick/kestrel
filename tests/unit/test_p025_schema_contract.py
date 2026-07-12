@@ -51,3 +51,14 @@ def test_schema_restricts_only_items_to_lint_build_test() -> None:
     assert only_property["type"] == "array"
     assert only_property["items"]["type"] == "string"
     assert set(only_property["items"]["enum"]) == {"lint", "build", "test"}
+
+
+def test_schema_requires_only_to_be_non_empty_when_given() -> None:
+    """Given `VERIFY_SCHEMA.parameters`'s `only` property, when its
+    minimum length is inspected, then it requires at least one entry --
+    matching `parse_verify_args`'s own empty-list rejection (omitting
+    `only` entirely, not passing an empty array, is how a caller asks
+    for every configured command)."""
+    only_property = VERIFY_SCHEMA.parameters["properties"]["only"]
+
+    assert only_property["minItems"] == 1

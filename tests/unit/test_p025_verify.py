@@ -235,6 +235,24 @@ def test_only_naming_an_unconfigured_command_raises_naming_it(
 
 
 @pytest.mark.sanity
+def test_run_verification_rejects_an_empty_only_list(tmp_path: Path) -> None:
+    """Given all three commands configured, when verified with
+    `only=[]`, then `VerifyError` is raised rather than silently
+    running nothing and reporting a bogus failure -- a direct caller
+    bypassing `parse_verify_args` gets the same guard it would."""
+    kestrel_md = _all_commands_kestrel_md(tmp_path)
+
+    with pytest.raises(VerifyError, match="empty"):
+        run_verification(
+            kestrel_md,
+            only=[],
+            repo_root=tmp_path,
+            task_id=_TASK_ID,
+            turn_id=_TURN_ID,
+        )
+
+
+@pytest.mark.sanity
 def test_no_kestrel_md_raises(tmp_path: Path) -> None:
     """Given a repo root with no KESTREL.md, when `verify` is called,
     then `VerifyError` is raised -- there is nothing to run."""
@@ -526,6 +544,15 @@ def test_parse_verify_args_rejects_only_that_is_not_an_array() -> None:
     parsed, then `VerifyError` names the defect."""
     with pytest.raises(VerifyError, match="'only'"):
         parse_verify_args(json.dumps({"only": "lint"}))
+
+
+def test_parse_verify_args_rejects_an_empty_only_list() -> None:
+    """Given `only` given as an empty array, when parsed, then
+    `VerifyError` is raised rather than accepting a request that would
+    silently run nothing -- omitting the field is how a caller asks for
+    every configured command."""
+    with pytest.raises(VerifyError, match="empty"):
+        parse_verify_args(json.dumps({"only": []}))
 
 
 def test_parse_verify_args_rejects_an_unknown_command_name_in_only() -> None:
