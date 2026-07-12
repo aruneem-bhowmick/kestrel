@@ -43,6 +43,7 @@ from typing import Any, Final, Literal, cast
 from kestrel.kestrel_md import KestrelMd, load_kestrel_md
 from kestrel.provider.base import ToolSchema
 from kestrel.security.framing import frame_untrusted
+from kestrel.tools._paths import resolve_repo_path
 from kestrel.tools.execute import _cap_stream
 from kestrel.tools.sandbox import run_sandboxed
 
@@ -259,8 +260,26 @@ def persist_verification_report(report: VerificationReport, *, repo_root: Path) 
     `repo_root / ".kestrel" / "artifacts"`, named
     `verification-{report.task_id}-{report.turn_id}.md` (or that name
     with a numeric suffix, when an earlier call already claimed it),
-    creating parent directories as needed; returns the written path."""
-    artifacts_dir = repo_root / _ARTIFACTS_DIRNAME
+    creating parent directories as needed; returns the written path.
+
+    Resolves the artifacts directory through the same containment guard
+    `read_file`/`edit_file` use before writing to it: a configured
+    command just ran with read-write access to `repo_root` (see
+    `run_verification`), and this write happens unsandboxed on the host
+    afterward, so it must not blindly follow a symlink that command
+    left behind in place of `.kestrel` or `.kestrel/artifacts`.
+
+    Raises:
+        VerifyError: the artifacts directory resolves outside
+            `repo_root` -- refuses to write anywhere in that case.
+    """
+    try:
+        artifacts_dir = resolve_repo_path(_ARTIFACTS_DIRNAME, repo_root=repo_root)
+    except ValueError as exc:
+        raise VerifyError(
+            f"{_ARTIFACTS_DIRNAME}: refusing to persist a verification "
+            f"report through it ({exc})"
+        ) from exc
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     path = _allocate_report_path(
         artifacts_dir, task_id=report.task_id, turn_id=report.turn_id

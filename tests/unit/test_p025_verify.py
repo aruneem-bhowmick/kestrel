@@ -437,6 +437,28 @@ def test_persist_verification_report_does_not_overwrite_an_earlier_call(
     assert "second run" in second_path.read_text(encoding="utf-8")
 
 
+def test_persist_verification_report_refuses_a_symlinked_artifacts_dir(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Given `.kestrel` replaced with a symlink pointing outside the
+    repo root -- exactly what a configured command could leave behind,
+    since it ran with read-write access to the repo -- when a report is
+    persisted, then `VerifyError` names the escape and nothing is
+    written through the symlink; this write happens unsandboxed on the
+    host, after the command has already exited, so it cannot rely on
+    the sandbox to have caught this."""
+    outside = tmp_path_factory.mktemp("verify-outside-target")
+    (tmp_path / ".kestrel").symlink_to(outside, target_is_directory=True)
+    report = VerificationReport(
+        task_id=_TASK_ID, turn_id=_TURN_ID, commands=(), passed=False
+    )
+
+    with pytest.raises(VerifyError, match="escapes the repository root"):
+        persist_verification_report(report, repo_root=tmp_path)
+
+    assert list(outside.iterdir()) == []
+
+
 def test_verify_persists_a_report_readable_at_the_documented_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
