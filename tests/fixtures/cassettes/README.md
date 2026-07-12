@@ -55,6 +55,10 @@ module.
   reusable across every corpus case in the injection acceptance suite,
   since only the fixture file's own on-disk content changes per case,
   never this tool call's arguments.
+- `toolcall_verify.sse` -- a single `verify` tool call, whole (empty)
+  JSON arguments `{}` in one chunk, standing in for a model asking to
+  run every command KESTREL.md configures rather than narrowing via
+  `only`.
 
 ## Re-recording the zai cassette
 
