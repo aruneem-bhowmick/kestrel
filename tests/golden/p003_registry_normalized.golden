@@ -20,6 +20,25 @@
       "usd_per_mtok_input": "0.6",
       "usd_per_mtok_output": "2.2"
     },
+    "glm-5.2-air": {
+      "api_key_env": "OPENROUTER_API_KEY",
+      "backend": "openrouter",
+      "context_window": 128000,
+      "endpoint": null,
+      "id": "glm-5.2-air",
+      "max_output": 8192,
+      "precision_pin": null,
+      "provider_model": "z-ai/glm-5.2-air",
+      "requires_explicit_cache_breakpoint": false,
+      "supports_cache": true,
+      "supports_tools": true,
+      "tags": [
+        "cheap"
+      ],
+      "usd_per_mtok_cached": "0.02",
+      "usd_per_mtok_input": "0.1",
+      "usd_per_mtok_output": "0.4"
+    },
     "glm-5.2-zai": {
       "api_key_env": "ZAI_API_KEY",
       "backend": "zai",

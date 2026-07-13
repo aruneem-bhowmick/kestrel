@@ -57,8 +57,10 @@ USD-per-million-token rates. On startup Kestrel checks, in order, an
 explicit registry path passed to `load_registry()`, `./models.toml`, and
 a per-user config directory, stopping at the first one it finds; if none
 exist it falls back to the registry bundled with the package
-(`src/kestrel/data/models.default.toml`), which ships two GLM-5.2 routes
-(OpenRouter and Z.ai direct). Files are never merged across these layers.
+(`src/kestrel/data/models.default.toml`), which ships two full-size
+GLM-5.2 routes (OpenRouter and Z.ai direct) plus a smaller, `"cheap"`-
+tagged OpenRouter route for the agent loop's own budget degradation to
+fall back to. Files are never merged across these layers.
 Every entry is validated at load time; misconfigured entries fail with a
 message naming the file, the entry, and the field at fault.
 
@@ -280,6 +282,10 @@ soft_threshold = 0.8
 
 Any of the three caps may be left unset for "no cap" on that scope.
 
+Setting `LoopDeps.budget` wires this classifier into the agent loop
+itself -- see "Agent loop" below for how a `SOFT` or `HARD` result
+actually changes a running task.
+
 ## Agent loop
 
 `kestrel.agent.run_task` drives one task to completion through a
@@ -305,8 +311,7 @@ retry.
 
 Not yet implemented: mode switching (every call runs at a single,
 fixed effort level), a real self-critique model call (the default
-always approves), soft-cap budget degradation, artifact persistence,
-and subagents.
+always approves), artifact persistence, and subagents.
 
 Whether the model's own say-so is enough to end a task is configurable
 via `LoopDeps.require_verification` (default `False`, preserving the
@@ -328,6 +333,23 @@ journal left off, while sampling wall-clock budget fresh rather than
 inheriting elapsed time from before the process restarted. A task run
 without `session` set behaves exactly as before and cannot later be
 resumed.
+
+Setting `LoopDeps.budget` to a `kestrel.managers.BudgetManager` makes a
+task check its own spend every turn: `spent_day_usd`/`spent_month_usd`
+are fixed baselines the caller computes once, up front, before the task
+starts, and the loop adds its own growing `meter.session_usd` on top of
+them for each check. Crossing the soft threshold switches every
+following turn to whichever registry entry is tagged `"cheap"` (the
+packaged default registry now ships one), printing a warning either
+way -- there is no TUI yet to show it in -- and a task degrades at most
+once, to at most one cheaper entry, never cascading through further
+tiers and never reverting to a costlier one even if spend later looks
+fine. Crossing the hard threshold ends the task immediately with
+`TerminationReason.BUDGET_HALT`; because every turn up to and including
+the one that tripped it was already journaled (when `session` is also
+set), `resume_task` picks it back up once an operator raises the cap.
+Leaving `budget` unset (the default) skips every check above and
+behaves exactly as it did before this field existed.
 
 ## Running a task
 
