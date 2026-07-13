@@ -474,14 +474,18 @@ async def test_resume_after_budget_halt_preserves_degraded_state(
         first_client, tmp_path, registry, budget=first_budget, session=session
     )
 
-    first_result = await run_task("do it", first_deps, task_id="t-budget-resume-degraded")
+    first_result = await run_task(
+        "do it", first_deps, task_id="t-budget-resume-degraded"
+    )
     assert first_result.reason == TerminationReason.BUDGET_HALT
     assert first_result.turns_used == 2
     assert first_client.requested_model_ids == [_MODEL_ID, _CHEAP_MODEL_ID]
 
     second_client = _ScriptedLoopClient(turns=[_stop_turn("done", input_tokens=100)])
     raised_budget = BudgetManager(limits=BudgetLimits(session_usd=Decimal("100")))
-    second_session = SessionManager(repo_root=tmp_path, task_id="t-budget-resume-degraded")
+    second_session = SessionManager(
+        repo_root=tmp_path, task_id="t-budget-resume-degraded"
+    )
     second_deps = _build_deps(
         second_client, tmp_path, registry, budget=raised_budget, session=second_session
     )
