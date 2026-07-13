@@ -14,7 +14,9 @@ suite (``tests/e2e/test_p005_live_openrouter.py``,
 ``tests/e2e/test_p011_dod_live.py``): the hard budget assertion below
 keeps every run well inside the project's $0.50-per-run policy ceiling
 documented in ``docs-kestrel``'s own acceptance criteria for this
-milestone.
+milestone. The invocation passes ``--no-require-verification`` since the
+fixture repo carries no KESTREL.md to verify against and this scenario's
+own job is proving task completion, not the verification gate.
 """
 
 from __future__ import annotations
@@ -79,6 +81,7 @@ def test_dod_live_run_completes_a_real_small_task(
             "add a docstring to the one function in greet.py",
             "--repo",
             str(repo_dir),
+            "--no-require-verification",
         ],
         capture_output=True,
         encoding="utf-8",
