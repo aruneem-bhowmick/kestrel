@@ -37,6 +37,21 @@ than from zero. Wall-clock budget is never inherited across a resume --
 `clock_fn` is always sampled fresh at the start of whichever call is
 driving the loop.
 
+Every turn's own spend is also checked against `LoopDeps.budget`, when
+set: a `BudgetManager.check` call folds this turn's own priced total on
+top of the day/month baselines the caller computed once, before the
+task started (`spent_day_usd`/`spent_month_usd`), and crossing the soft
+threshold switches every following turn to whichever registry entry is
+tagged `"cheap"`, logging a warning either way, while crossing the hard
+threshold ends the task immediately with a `BUDGET_HALT`
+`TerminationReason`. By the time that happens, whatever turn tripped it
+has already been journaled to `deps.session` (when one is set), so
+`resume_task` can pick the task back up once an operator raises the
+cap. A task degrades at most once, to at most one cheaper entry, and
+never un-degrades mid-task even if later spend looks fine again;
+`LoopDeps.budget=None` (the default) skips every check above, leaving
+every existing caller's behavior unchanged.
+
 Deliberately out of scope for this module, each a real gap rather than
 an oversight:
 
@@ -48,8 +63,10 @@ an oversight:
   module's control flow.
 - No compaction -- a context-window overflow ends the task outright
   rather than being recovered from by trimming or summarizing history.
-- No soft-cap degradation -- `LoopLimits` are hard stops; there is no
-  reduced-cost fallback as a limit is approached.
+- No cascading, multi-tier budget degradation, and no un-degrading back
+  to a costlier model once spend looks fine again -- a task degrades to
+  at most one cheaper registry entry, at most once, for the rest of its
+  own run.
 - No artifact persistence beyond the session journal itself -- `LoopResult`
   is a plain, in-memory value, never written to disk on its own.
 - No subagents -- `run_task` drives exactly one flat loop and never
@@ -59,6 +76,7 @@ an oversight:
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -70,6 +88,7 @@ from typing import Final, assert_never
 from kestrel.cost.meter import CostMeter, TurnCost
 from kestrel.kestrel_md import KestrelMd
 from kestrel.managers.approval import ApprovalDenied, ApprovalManager
+from kestrel.managers.budget import BudgetManager, BudgetStatus
 from kestrel.managers.session import SessionManager, TurnRecord, load_session
 from kestrel.managers.undo import UndoManager
 from kestrel.provider.base import Message, ProviderClient
@@ -87,6 +106,8 @@ from kestrel.registry.model import ModelEntry, Registry
 from kestrel.security.framing import frame_untrusted
 from kestrel.tools.registry import ToolResult, all_schemas, dispatch
 from kestrel.tools.verify import VerificationReport
+
+logger = logging.getLogger("kestrel.agent")
 
 _SYSTEM_PROMPT: Final[str] = (
     "You are Kestrel, an autonomous coding agent. Use the tools offered "
@@ -138,6 +159,7 @@ class TerminationReason(StrEnum):
     WALL_CLOCK_CAP = "wall_clock_cap"
     CONTEXT_OVERFLOW = "context_overflow"
     USER_STOP = "user_stop"
+    BUDGET_HALT = "budget_halt"
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +226,18 @@ class LoopDeps:
             journal is kept and the task cannot later be resumed via
             `resume_task`. Every existing caller that leaves this unset
             sees identical behavior to before this field existed.
+        budget: Classifies this task's spend against configured USD
+            caps every turn, when set -- `None` (the default) skips the
+            check entirely, leaving every existing caller's behavior
+            unchanged.
+        spent_day_usd: Spend already recorded, across every other task,
+            for the current day -- a fixed baseline the caller computes
+            once, up front (e.g. via
+            `kestrel.managers.session.aggregate_historical_spend`), and
+            never re-reads mid-task; this task's own growing
+            `meter.session_usd` is added on top of it for every check.
+        spent_month_usd: The same fixed baseline as `spent_day_usd`, but
+            summed over the current month rather than the current day.
     """
 
     client: ProviderClient
@@ -221,6 +255,9 @@ class LoopDeps:
     verification_reports: list[VerificationReport] = field(default_factory=list)
     kestrel_md: KestrelMd | None = None
     session: SessionManager | None = None
+    budget: BudgetManager | None = None
+    spent_day_usd: Decimal = Decimal(0)
+    spent_month_usd: Decimal = Decimal(0)
 
 
 def _split_events(
@@ -276,6 +313,70 @@ def _has_passing_verification(deps: LoopDeps) -> bool:
     this task and the most recent one passed -- an earlier failing
     report does not linger once a later call supersedes it."""
     return bool(deps.verification_reports) and deps.verification_reports[-1].passed
+
+
+def _find_cheap_entry(registry: Registry, *, exclude: str) -> str | None:
+    """The first (sorted by id, for determinism) registry entry tagged
+    `"cheap"` other than `exclude` (the currently active model --
+    degrading to the same model would be a no-op); `None` when the
+    registry has no such entry, in which case the caller keeps running
+    on the current model rather than treating a missing target as an
+    error."""
+    for model_id in registry.ids():
+        if model_id != exclude and "cheap" in registry.get(model_id).tags:
+            return model_id
+    return None
+
+
+def _apply_budget_check(
+    deps: LoopDeps,
+    *,
+    active_model_id: str,
+    degraded: bool,
+    spent_session: Decimal,
+) -> tuple[str, bool, bool]:
+    """Classify this turn's spend against `deps.budget` and decide
+    whether the task should keep running as-is, degrade to a cheaper
+    model, or halt outright.
+
+    Returns `(active_model_id, degraded, should_halt)`: `active_model_id`
+    is only changed the first time a SOFT threshold is crossed and a
+    `"cheap"`-tagged entry other than the current one exists; `degraded`
+    flips to `True` the first time a SOFT threshold is crossed at all,
+    whether or not a cheap entry was actually available to switch to,
+    since a task degrades at most once regardless; `should_halt` tells
+    the caller to end the task with `TerminationReason.BUDGET_HALT`
+    right away. A task with `deps.budget=None` never classifies
+    anything and returns its own inputs back unchanged with
+    `should_halt=False`.
+    """
+    if deps.budget is None:
+        return active_model_id, degraded, False
+
+    event = deps.budget.check(
+        spent_session=spent_session,
+        spent_day=deps.spent_day_usd + spent_session,
+        spent_month=deps.spent_month_usd + spent_session,
+    )
+    if event.status is BudgetStatus.HARD:
+        return active_model_id, degraded, True
+    if event.status is BudgetStatus.SOFT and not degraded:
+        cheap_id = _find_cheap_entry(deps.registry, exclude=active_model_id)
+        if cheap_id is not None:
+            logger.warning(
+                "budget soft cap reached (%s); degrading to %r",
+                event.tripped_cap,
+                cheap_id,
+            )
+            return cheap_id, True, False
+        logger.warning(
+            "budget soft cap reached (%s); no 'cheap'-tagged registry "
+            "entry to degrade to, continuing on %r",
+            event.tripped_cap,
+            active_model_id,
+        )
+        return active_model_id, True, False
+    return active_model_id, degraded, False
 
 
 def _record_session_turn(
@@ -339,10 +440,16 @@ def _dispatch_tool_call(
 
 
 async def _drain_think(
-    deps: LoopDeps, history: Sequence[Message], entry: ModelEntry
+    deps: LoopDeps, history: Sequence[Message], entry: ModelEntry, model_id: str
 ) -> list[StreamEvent]:
     """Stream one full turn from `deps.client`, offering it the full
     tool set, and collect every event it yields.
+
+    `model_id` is the turn's own actually-active model -- `deps.model_id`
+    itself is never read here, since a budget-triggered degrade changes
+    which model a later turn is sent to without ever mutating
+    `deps.model_id`; `entry` is `model_id`'s own registry entry, already
+    re-resolved by the caller, so the two always name the same model.
 
     The leading messages sent ahead of `history` come from
     `build_stable_prefix`, folding `deps.kestrel_md` in when present, so
@@ -361,7 +468,7 @@ async def _drain_think(
     return [
         event
         async for event in complete_with_retry(
-            deps.client, messages, all_schemas(), deps.model_id, "high", stream=True
+            deps.client, messages, all_schemas(), model_id, "high", stream=True
         )
     ]
 
@@ -415,8 +522,19 @@ async def _drive(
     the model call or running a tool -- ends the task with
     `TerminationReason.USER_STOP`, keeping whatever turns and cost had
     already accumulated, rather than escaping this call.
+
+    Every turn's own priced cost is also checked against `deps.budget`,
+    once it has been recorded: crossing the hard threshold ends the task
+    with `TerminationReason.BUDGET_HALT` right there, before another
+    model call is ever made, and crossing the soft threshold switches
+    `active_model_id` -- the model every subsequent `_drain_think` call
+    actually targets, as opposed to the fixed `deps.model_id` the task
+    started on -- to a `"cheap"`-tagged registry entry, at most once per
+    task.
     """
     entry = deps.registry.get(deps.model_id)
+    active_model_id = deps.model_id
+    degraded = False
     start = clock_fn()
     turns_used = turns_used_start
 
@@ -450,7 +568,7 @@ async def _drive(
             # journaled everything up to that point.
             turn_start_len = 0 if turns_used == 1 else len(history)
             try:
-                events = await _drain_think(deps, history, entry)
+                events = await _drain_think(deps, history, entry, active_model_id)
             except ContextOverflowError:
                 return finish(TerminationReason.CONTEXT_OVERFLOW)
 
@@ -488,6 +606,15 @@ async def _drive(
                     messages_before=turn_start_len,
                     turn_cost=turn_cost,
                 )
+                active_model_id, degraded, should_halt = _apply_budget_check(
+                    deps,
+                    active_model_id=active_model_id,
+                    degraded=degraded,
+                    spent_session=deps.meter.session_usd,
+                )
+                entry = deps.registry.get(active_model_id)
+                if should_halt:
+                    return finish(TerminationReason.BUDGET_HALT)
                 if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
                     return finish(TerminationReason.TOKEN_CAP)
                 continue
@@ -517,6 +644,15 @@ async def _drive(
                         messages_before=turn_start_len,
                         turn_cost=turn_cost,
                     )
+                    active_model_id, degraded, should_halt = _apply_budget_check(
+                        deps,
+                        active_model_id=active_model_id,
+                        degraded=degraded,
+                        spent_session=deps.meter.session_usd,
+                    )
+                    entry = deps.registry.get(active_model_id)
+                    if should_halt:
+                        return finish(TerminationReason.BUDGET_HALT)
                     if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
                         return finish(TerminationReason.TOKEN_CAP)
                     continue
@@ -529,6 +665,15 @@ async def _drive(
                     messages_before=turn_start_len,
                     turn_cost=turn_cost,
                 )
+                active_model_id, degraded, should_halt = _apply_budget_check(
+                    deps,
+                    active_model_id=active_model_id,
+                    degraded=degraded,
+                    spent_session=deps.meter.session_usd,
+                )
+                entry = deps.registry.get(active_model_id)
+                if should_halt:
+                    return finish(TerminationReason.BUDGET_HALT)
                 return finish(TerminationReason.TASK_COMPLETE)
 
             for call in tool_calls:
@@ -552,6 +697,15 @@ async def _drive(
                 messages_before=turn_start_len,
                 turn_cost=turn_cost,
             )
+            active_model_id, degraded, should_halt = _apply_budget_check(
+                deps,
+                active_model_id=active_model_id,
+                degraded=degraded,
+                spent_session=deps.meter.session_usd,
+            )
+            entry = deps.registry.get(active_model_id)
+            if should_halt:
+                return finish(TerminationReason.BUDGET_HALT)
             if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
                 return finish(TerminationReason.TOKEN_CAP)
     except KeyboardInterrupt:
