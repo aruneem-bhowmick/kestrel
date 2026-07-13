@@ -31,7 +31,12 @@ _GOLDEN_FILE = (
 _SYSTEM_PROMPT = "You are Kestrel, an autonomous coding agent."
 
 
-def _entry(*, backend: str, supports_cache: bool) -> ModelEntry:
+def _entry(
+    *,
+    backend: str,
+    supports_cache: bool,
+    requires_explicit_cache_breakpoint: bool = False,
+) -> ModelEntry:
     """Build a minimal, otherwise-valid `ModelEntry` for one backend and
     cache-support combination -- every field but the two under test is
     an arbitrary but valid placeholder. Direct backends (`zai`) require
@@ -50,6 +55,7 @@ def _entry(*, backend: str, supports_cache: bool) -> ModelEntry:
         usd_per_mtok_cached=Decimal("0.20"),
         supports_tools=True,
         supports_cache=supports_cache,
+        requires_explicit_cache_breakpoint=requires_explicit_cache_breakpoint,
     )
 
 
@@ -139,12 +145,12 @@ def test_cache_capable_non_anthropic_backend_leaves_messages_unmarked(
         assert "cache_breakpoint" not in message
 
 
-def test_anthropic_cache_capable_entry_marks_only_the_last_message() -> None:
+def test_cache_capable_entry_with_explicit_marker_marks_only_the_last_message() -> None:
     """Given a synthetic entry for a backend that does need an explicit
     marker, with caching supported, when breakpoints are marked, then
     exactly the last message carries `cache_breakpoint=True` and every
     earlier message is left untouched."""
-    entry = _entry(backend="anthropic", supports_cache=True)
+    entry = _entry(backend="anthropic", supports_cache=True, requires_explicit_cache_breakpoint=True)
     messages: list[Message] = [
         {"role": "system", "content": "prefix"},
         {"role": "user", "content": "task"},
@@ -158,12 +164,12 @@ def test_anthropic_cache_capable_entry_marks_only_the_last_message() -> None:
     assert marked[1]["content"] == messages[1]["content"]
 
 
-def test_anthropic_backend_without_cache_support_leaves_messages_unmarked() -> None:
+def test_entry_with_explicit_marker_without_cache_support_leaves_messages_unmarked() -> None:
     """Given a synthetic entry for the explicit-marker backend whose
     caching is disabled, when breakpoints are marked, then no message
     is annotated -- caching support gates the marker independently of
     the backend name."""
-    entry = _entry(backend="anthropic", supports_cache=False)
+    entry = _entry(backend="anthropic", supports_cache=False, requires_explicit_cache_breakpoint=True)
     messages: list[Message] = [
         {"role": "system", "content": "prefix"},
         {"role": "user", "content": "task"},
