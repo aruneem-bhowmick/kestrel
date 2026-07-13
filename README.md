@@ -100,6 +100,20 @@ verbatim in place of the computed delay. `RetryPolicy` controls the
 attempt count and backoff bounds; retrying across multiple models or
 backends is out of scope for this wrapper.
 
+Both the agent loop and the REPL send the exact same leading messages,
+byte-for-byte, on every turn of one task or session:
+`kestrel.provider.cache.build_stable_prefix()` renders one system-role
+message from the fixed system prompt, folding in the target repo's
+`KESTREL.md` (loaded once, up front, and never reloaded mid-task) when
+one exists. Sending an identical prefix turn over turn is what lets a
+cache-capable backend actually reuse its cached compute instead of
+reprocessing the whole thing from scratch on every call.
+`mark_cache_breakpoints()` sits next to it as a dormant extension point:
+no backend wired up today needs an explicit marker for where that
+prefix ends, so it is currently a no-op, but a future adapter for a
+backend that does need one can read `Message.cache_breakpoint` off the
+last message this function annotates.
+
 ## Tools
 
 Kestrel offers a model a small, fixed set of capabilities -- read,
