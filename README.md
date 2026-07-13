@@ -306,8 +306,9 @@ the task with the matching `TerminationReason` rather than running
 unbounded, and a `KeyboardInterrupt` mid-task ends it the same way,
 keeping whatever turns and cost had already accumulated. A
 `ContextOverflowError` raised while streaming a turn also ends the
-task outright -- there is no compaction yet to recover the window and
-retry.
+task outright -- see "Compaction" below for how context-window
+pressure is recovered from before that ever happens, and why it can
+still happen despite that.
 
 Not yet implemented: mode switching (every call runs at a single,
 fixed effort level), a real self-critique model call (the default
@@ -350,6 +351,33 @@ the one that tripped it was already journaled (when `session` is also
 set), `resume_task` picks it back up once an operator raises the cap.
 Leaving `budget` unset (the default) skips every check above and
 behaves exactly as it did before this field existed.
+
+### Compaction
+
+Context-window pressure is recovered from, not just detected. Once a
+turn's own billed prompt size (`deps.meter.turns[-1].input_tokens`)
+reaches 70% of the active model's `context_window`, the next
+iteration's pre-check folds everything in `history` but the most
+recent few messages into one model-generated summary via
+`kestrel.agent.compaction.compact_history`, before spending another
+real model call. That call is explicitly instructed to preserve the
+task's own goal, any plan or TODO language the conversation already
+contains, and the most recent verification outcome, rather than
+inventing new steps of its own -- the folded-away messages are
+replaced by a single `"system"`-role message holding that summary.
+
+The summarization call itself is priced, journaled (when
+`LoopDeps.session` is set), and checked against `LoopDeps.budget` (when
+set) exactly like any other turn -- sharing its own journal record's
+turn id with the real turn that immediately follows it, and never
+incrementing `LoopResult.turns_used`, which counts only real model
+calls -- and it can itself end the task outright (a hard budget halt or
+the cumulative token cap) before that following turn's own model call
+is ever made. This reduces how often a task ends `CONTEXT_OVERFLOW`,
+not the possibility of it: a single message that alone exceeds the
+window still ends the task that way, compaction or not. Neither the
+70% threshold nor how many trailing messages are kept verbatim is
+configurable via `kestrel.toml` yet -- both are fixed constants.
 
 ## Running a task
 

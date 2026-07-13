@@ -59,6 +59,12 @@ module.
   JSON arguments `{}` in one chunk, standing in for a model asking to
   run every command KESTREL.md configures rather than narrowing via
   `only`.
+- `compaction_summary.sse` -- an ordinary text-only "Summary: ..." reply
+  with `usage` (`prompt_tokens=42`, `completion_tokens=18`,
+  `cached_tokens=0`) and `finish_reason="stop"`, standing in for a
+  compaction call's own model response -- token counts distinct from
+  every other cassette's, so a system test can tell which turn priced
+  which call.
 
 ## Re-recording the zai cassette
 

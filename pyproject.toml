@@ -105,4 +105,5 @@ markers = [
     "dod_phase_1: acceptance scenario for the tool-calling-agent milestone's Definition of Done",
     "p030: the session/day/month budget-cap classifier with soft and hard thresholds",
     "p031: wiring budget-aware degradation, hard-halt, and resume into the agent loop",
+    "p032: summarize-and-fold compaction triggered by context-window pressure",
 ]
