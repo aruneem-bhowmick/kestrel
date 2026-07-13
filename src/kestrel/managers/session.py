@@ -40,21 +40,24 @@ _SESSIONS_DIRNAME = "sessions"
 
 @dataclass(frozen=True, slots=True)
 class TurnRecord:
-    """One journaled turn (or, in the future, compaction event) of a task.
+    """One journaled turn (or compaction event) of a task.
 
     Attributes:
         turn_id: The agent-loop turn this record is associated with.
-            NOT a unique key across the journal -- a future compaction
-            record and the real turn immediately following it may
-            legitimately share a `turn_id`.
+            NOT a unique key across the journal -- a compaction record
+            and the real turn immediately following it legitimately
+            share a `turn_id`.
         task_id: The task this record belongs to.
         timestamp: `time.time()`-style UTC epoch seconds when this
             record was created -- the basis for day/month spend
             aggregation.
         message_deltas: Every `Message` appended to history during this
-            record's own turn, in order.
+            record's own turn, in order -- for a compaction event, this
+            is the whole, just-folded history instead, since folding
+            replaces history rather than appending to it.
         turn_cost: This record's own priced `TurnCost` -- every record
-            is priced.
+            is priced, including a compaction call's own summarization
+            cost.
         verification: The `VerificationReport` this record's own turn
             produced, or `None` when it produced none.
     """

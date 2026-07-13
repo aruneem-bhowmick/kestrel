@@ -1,12 +1,44 @@
 """Drives one task through a tool-calling loop until it finishes or a
 termination predicate trips.
 
-Each iteration repeats the same shape: a pre-flight check against the
-configured caps, a model call offering the full tool set, a
-self-critique pass over what the model proposed, dispatching any
-requested tool calls (approval-gated wherever a tool itself requires
-it) through the shared registry, and finally folding the turn's token
-usage into the running total and deciding whether to keep going.
+Every iteration of the loop repeats the same six phases, in order:
+
+1. Pre-check & compaction. Stop the task outright once it has used up
+   its turn cap, its wall-clock budget, or its cumulative token cap.
+   Otherwise, when the most recently recorded turn's own input tokens
+   sit at or above 70% of the active model's context window, fold
+   everything but the last few messages of `history` into one
+   model-generated summary (`kestrel.agent.compaction.compact_history`)
+   before spending another real model call. That summarization call is
+   itself priced, journaled, and checked against the configured budget
+   exactly like any other turn -- sharing its own journal record's
+   `turn_id` with the real turn that follows it -- and can itself end
+   the task (a hard budget halt or the token cap) before that turn's
+   own model call is ever made.
+2. Think. Send the stable leading prefix (the system prompt, plus the
+   target repo's own project-memory file when one exists) followed by
+   `history` to the active model -- possibly a cheaper entry than the
+   task started on, once a budget threshold has been crossed -- through
+   the shared retrying client wrapper.
+3. Self-critique. Sanity-check what the model proposed via an
+   injectable predicate before acting on it; a declined proposal is
+   recorded as a skipped turn with a synthetic explanation in place of
+   whatever it wanted to do, and the loop tries again instead.
+4. Act / tool dispatch. Pass every requested tool call through the
+   shared tool registry, in the order the model made them, threading in
+   the task's approval and undo managers, its running verification
+   reports, and enough identifying context (turn and task id) for a
+   tool to journal its own effects.
+5. Tool execution. Run each dispatched call and fold its result back
+   into history as a tool-role message, keyed to the call it answers.
+6. Post-process. Price the turn, journal it to the task's session when
+   one is configured, classify the task's running spend against its
+   configured budget (halting outright past the hard threshold,
+   degrading to a cheaper model past the soft one), check the
+   cumulative token cap, and -- only for a turn that requested no tool
+   calls at all -- decide whether that is really the task's natural
+   completion, or whether it should be nudged to keep going instead.
+
 `run_task` is the entry point for a brand new task; everything it needs
 -- the provider client, the model registry, the approval and undo
 managers, the cost meter, and the per-task limits -- arrives through
@@ -22,7 +54,8 @@ victory on its own say-so. Every caller that leaves the field at its
 default sees exactly the prior, ungated behavior.
 
 A task's own turns are durably journaled as they complete: when
-`LoopDeps.session` is set, every real (non-declined) turn is appended to
+`LoopDeps.session` is set, every real (non-declined) turn -- and every
+compaction event folded into history along the way -- is appended to
 it as a `TurnRecord` -- its own message deltas, priced cost, and
 whichever `VerificationReport` is most current -- so a task interrupted
 by a crash or a hard budget halt can be reconstructed via
@@ -52,6 +85,18 @@ never un-degrades mid-task even if later spend looks fine again;
 `LoopDeps.budget=None` (the default) skips every check above, leaving
 every existing caller's behavior unchanged.
 
+Context-window pressure is recovered from, not just detected: past the
+70% threshold described in phase 1 above, `kestrel.agent.compaction`
+folds the older portion of `history` into one carry-forward summary
+that preserves the task's own goal, any next-step or TODO language the
+conversation already contains, and the most recent verification
+result, so a long-running task does not have to choose between running
+out of room and forgetting what it was doing. This reduces the
+*frequency* of a context overflow, not the possibility of one: a single
+message that alone exceeds the window -- one enormous tool result, say
+-- still ends the task `CONTEXT_OVERFLOW`, compaction or not, exactly
+as it always did.
+
 Deliberately out of scope for this module, each a real gap rather than
 an oversight:
 
@@ -61,12 +106,13 @@ an oversight:
   defaults to always approving; the injection point exists so a real
   cheap-model check can be plugged in later without changing this
   module's control flow.
-- No compaction -- a context-window overflow ends the task outright
-  rather than being recovered from by trimming or summarizing history.
 - No cascading, multi-tier budget degradation, and no un-degrading back
   to a costlier model once spend looks fine again -- a task degrades to
   at most one cheaper registry entry, at most once, for the rest of its
   own run.
+- No configurable compaction threshold or keep-last-N window -- both
+  are fixed constants today, not something a repo's own `kestrel.toml`
+  can adjust yet.
 - No artifact persistence beyond the session journal itself -- `LoopResult`
   is a plain, in-memory value, never written to disk on its own.
 - No subagents -- `run_task` drives exactly one flat loop and never
@@ -85,6 +131,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final, assert_never
 
+from kestrel.agent.compaction import compact_history, should_compact
 from kestrel.cost.meter import CostMeter, TurnCost
 from kestrel.kestrel_md import KestrelMd
 from kestrel.managers.approval import ApprovalDenied, ApprovalManager
@@ -493,27 +540,40 @@ async def _drive(
     (history and turn count seeded from a prior session).
 
     Every iteration repeats: a pre-check against `deps.limits` (turns
-    spent so far, wall-clock elapsed since this call's own start) that
-    ends the task with the matching `TerminationReason` before spending
-    another model call, never after; a model call offering the full tool
-    set; a `deps.self_critique_fn` pass over what was proposed, which, on
-    `False`, drops the proposal, records a synthetic explanation of the
-    skip in its place, and moves on to another turn instead of acting on
-    it; dispatching every requested tool call in order through the
-    shared tool registry, turning a denied approval into a framed
-    refusal rather than raising; and finally folding the turn's usage
-    into `deps.meter` and checking the token cap immediately, so a turn
-    that crosses it never triggers one more, avoidable model call. A
-    turn that requested no tools at all is the task's natural
-    completion -- unless `deps.require_verification` is `True` and the
-    most recent entry in `deps.verification_reports` has not passed
-    (or none exists yet), in which case that turn instead folds a
-    nudge to call `verify` into history and the loop keeps going,
-    exactly as the self-critique-skip path already does.
+    spent so far, wall-clock elapsed since this call's own start, and
+    the cumulative token cap) that ends the task with the matching
+    `TerminationReason` before spending another model call, never
+    after; when the most recently recorded turn's own input tokens sit
+    at or above 70% of the active model's context window, a
+    summarize-and-fold compaction call (`kestrel.agent.compaction.
+    compact_history`) that replaces `history` with a shorter,
+    equivalent one before this iteration's own model call is ever made
+    -- itself priced, journaled, and budget-checked exactly like any
+    other turn, and capable of ending the task on its own (a hard
+    budget halt or the token cap) before that model call happens; a
+    model call offering the full tool set; a `deps.self_critique_fn`
+    pass over what was proposed, which, on `False`, drops the proposal,
+    records a synthetic explanation of the skip in its place, and moves
+    on to another turn instead of acting on it; dispatching every
+    requested tool call in order through the shared tool registry,
+    turning a denied approval into a framed refusal rather than
+    raising; and finally folding the turn's usage into `deps.meter` and
+    checking the token cap immediately, so a turn that crosses it never
+    triggers one more, avoidable model call. A turn that requested no
+    tools at all is the task's natural completion -- unless
+    `deps.require_verification` is `True` and the most recent entry in
+    `deps.verification_reports` has not passed (or none exists yet), in
+    which case that turn instead folds a nudge to call `verify` into
+    history and the loop keeps going, exactly as the self-critique-skip
+    path already does.
 
-    Every real (non-declined) turn is also journaled to `deps.session`,
-    when one is configured, as a `TurnRecord` covering exactly the
-    messages that turn itself appended. `turns_used_start == 0` (a fresh
+    Every real (non-declined) turn -- and every compaction fold along
+    the way -- is also journaled to `deps.session`, when one is
+    configured, as a `TurnRecord` covering exactly the messages that
+    turn itself appended (a compaction's own record instead covers the
+    whole, just-folded `history`, since folding replaces history rather
+    than appending to it, and shares its `turn_id` with the real turn
+    that immediately follows it). `turns_used_start == 0` (a fresh
     `run_task` call) means nothing in `history` has been journaled yet,
     so the first turn's own record also captures whatever seed messages
     `history` already held when this call began; `turns_used_start > 0`
@@ -521,9 +581,11 @@ async def _drive(
     was already durably recorded by a prior call, so only what a new
     turn itself appends is captured from here on.
 
-    A `ContextOverflowError` raised while streaming a turn ends the task
-    with `TerminationReason.CONTEXT_OVERFLOW` rather than propagating --
-    there is no compaction here to recover the window and retry. A
+    A `ContextOverflowError` raised while streaming a turn -- or while
+    streaming the compaction call itself -- ends the task with
+    `TerminationReason.CONTEXT_OVERFLOW` rather than propagating:
+    compaction lowers how often this happens, but a single message that
+    alone exceeds the window still overflows regardless. A
     `KeyboardInterrupt` raised at any point during a turn -- streaming
     the model call or running a tool -- ends the task with
     `TerminationReason.USER_STOP`, keeping whatever turns and cost had
@@ -566,6 +628,51 @@ async def _drive(
                 return finish(TerminationReason.WALL_CLOCK_CAP)
             if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
                 return finish(TerminationReason.TOKEN_CAP)
+
+            if deps.meter.turns and should_compact(
+                deps.meter.turns[-1].input_tokens, entry.context_window
+            ):
+                try:
+                    compacted_history, compaction_usage = await compact_history(
+                        deps.client,
+                        active_model_id,
+                        history,
+                        last_verification=(
+                            deps.verification_reports[-1]
+                            if deps.verification_reports
+                            else None
+                        ),
+                    )
+                except ContextOverflowError:
+                    return finish(TerminationReason.CONTEXT_OVERFLOW)
+                history = compacted_history
+                compaction_cost = deps.meter.record(compaction_usage, entry)
+                # The compaction record shares its turn_id with the real turn
+                # that follows it (turns_used hasn't been incremented for
+                # that turn yet) and captures the whole post-fold history as
+                # its own delta, since a fold replaces history rather than
+                # appending to it.
+                _record_session_turn(
+                    deps,
+                    turn_id=turns_used + 1,
+                    task_id=task_id,
+                    history=history,
+                    messages_before=0,
+                    turn_cost=compaction_cost,
+                    active_model_id=active_model_id,
+                    degraded=degraded,
+                )
+                active_model_id, degraded, should_halt = _apply_budget_check(
+                    deps,
+                    active_model_id=active_model_id,
+                    degraded=degraded,
+                    spent_session=deps.meter.session_usd,
+                )
+                entry = deps.registry.get(active_model_id)
+                if should_halt:
+                    return finish(TerminationReason.BUDGET_HALT)
+                if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
+                    return finish(TerminationReason.TOKEN_CAP)
 
             turns_used += 1
             # `turns_used == 1` is this call's very first turn with no
