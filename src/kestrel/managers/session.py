@@ -224,7 +224,13 @@ def _read_journal(journal_path: Path) -> list[TurnRecord]:
     for i, line in enumerate(lines):
         try:
             records.append(_record_from_json(line.decode("utf-8")))
-        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as exc:
             if i == len(lines) - 1:
                 break
             raise exc
@@ -268,7 +274,9 @@ class SessionManager:
         like `UndoManager.record`'s own append discipline: binary mode,
         explicit `\\n`, byte-stable line endings across platforms."""
         if record.task_id != self._task_id:
-            raise ValueError(f"record task_id {record.task_id!r} does not match journal task_id {self._task_id!r}")
+            raise ValueError(
+                f"record task_id {record.task_id!r} does not match journal task_id {self._task_id!r}"
+            )
         self._journal_path.parent.mkdir(parents=True, exist_ok=True)
         line = f"{_record_to_json(record)}\n".encode("utf-8")
         with self._journal_path.open("ab") as handle:

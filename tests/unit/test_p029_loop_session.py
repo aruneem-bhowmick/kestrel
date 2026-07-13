@@ -303,7 +303,9 @@ async def test_resume_task_continues_the_turn_counter_and_reseeds_the_meter(
 
     second_client = _ScriptedLoopClient(turns=[_stop_turn("done")])
     second_session = SessionManager(repo_root=tmp_path, task_id="t-loop-5")
-    second_deps = _build_deps(second_client, tmp_path, limits=LoopLimits(max_turns=10), session=second_session)
+    second_deps = _build_deps(
+        second_client, tmp_path, limits=LoopLimits(max_turns=10), session=second_session
+    )
 
     resumed_result = await resume_task("t-loop-5", second_deps)
 

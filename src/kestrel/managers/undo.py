@@ -164,7 +164,13 @@ class UndoManager:
         for i, line in enumerate(lines):
             try:
                 entries.append(_entry_from_json(line.decode("utf-8")))
-            except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            except (
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                KeyError,
+                TypeError,
+                ValueError,
+            ) as exc:
                 if i == len(lines) - 1:
                     break
                 raise exc
