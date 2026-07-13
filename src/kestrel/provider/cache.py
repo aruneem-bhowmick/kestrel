@@ -28,12 +28,6 @@ from kestrel.registry.model import ModelEntry
 
 _MEMORY_BANNER: Final[str] = "Project memory (KESTREL.md):"
 
-# Backends whose wire protocol accepts an explicit cache-boundary marker.
-# Empty in effect for every backend actually wired up today (see this
-# module's docstring); adding a name here without a matching adapter
-# change is inert, since nothing yet reads the marker back out.
-_EXPLICIT_BREAKPOINT_BACKENDS: Final[frozenset[str]] = frozenset({"anthropic"})
-
 
 def build_stable_prefix(
     system_prompt: str,
@@ -78,14 +72,13 @@ def mark_cache_breakpoints(
     unchanged.
 
     Sets `cache_breakpoint=True` on exactly the last message when
-    `entry.backend` is in the small set of backends whose wire protocol
-    requires an explicit marker for where the cacheable prefix ends,
-    and `entry.supports_cache` is also `True`. In every other case --
+    `entry.requires_explicit_cache_breakpoint` is `True` and
+    `entry.supports_cache` is also `True`. In every other case --
     including every backend actually wired up today -- this returns a
     new list with the same messages, none of them touched, since an
     implicit, position-based cache boundary is all any of them need.
     """
-    if entry.backend not in _EXPLICIT_BREAKPOINT_BACKENDS or not entry.supports_cache:
+    if not entry.requires_explicit_cache_breakpoint or not entry.supports_cache:
         return list(messages)
     if not messages:
         return list(messages)
