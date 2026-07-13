@@ -251,6 +251,35 @@ turn's prefix to hit against, and a backend without cache support was
 never expected to hit at all. The REPL's `/cost` command prints this
 warning, when present, after the per-turn table.
 
+## Budget
+
+`kestrel.managers.BudgetManager` classifies how much has been spent
+against three independently configurable USD caps -- session, day, and
+month -- returning whether each is under budget (`OK`), past a soft
+warn/degrade threshold (`SOFT`), or past its hard halt threshold
+(`HARD`). It is a pure classifier: it never reads a file or tracks
+spend itself, only turns three already-computed `Decimal` totals
+(session/day/month spend, however a caller chooses to compute them)
+into a `BudgetEvent` naming the worst status across all three and,
+when more than one cap ties at that status, the first one in
+session/day/month priority order.
+
+A cap of `None` never trips, regardless of spend. Any configured cap
+trips `HARD` once spend reaches it, and `SOFT` once spend reaches
+`cap * soft_threshold` (0.8 by default, i.e. 80% of the cap). Configure
+caps and the soft-threshold fraction per repo via `[managers.budget]`
+in `kestrel.toml`:
+
+```toml
+[managers.budget]
+session_usd = 5.00
+day_usd = 20.00
+month_usd = 100.00
+soft_threshold = 0.8
+```
+
+Any of the three caps may be left unset for "no cap" on that scope.
+
 ## Agent loop
 
 `kestrel.agent.run_task` drives one task to completion through a
