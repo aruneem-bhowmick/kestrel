@@ -168,7 +168,9 @@ def test_cache_capable_entry_with_explicit_marker_marks_only_the_last_message() 
     assert marked[1]["content"] == messages[1]["content"]
 
 
-def test_entry_with_explicit_marker_without_cache_support_leaves_messages_unmarked() -> None:
+def test_entry_with_explicit_marker_without_cache_support_leaves_messages_unmarked() -> (
+    None
+):
     """Given a synthetic entry for the explicit-marker backend whose
     caching is disabled, when breakpoints are marked, then no message
     is annotated -- caching support gates the marker independently of
