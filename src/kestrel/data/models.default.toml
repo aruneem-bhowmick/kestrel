@@ -32,3 +32,21 @@ usd_per_mtok_cached = 0.11
 supports_tools = true
 supports_cache = true
 tags = ["planner", "executor"]
+
+# A smaller, cheaper route for budget-triggered degradation to fall back
+# to when spend crosses its soft cap. Without an entry like this one, a
+# registry can still be loaded and used -- it just has nowhere to
+# degrade to, and a soft cap alone never halts a task on its own.
+[[models]]
+id = "glm-5.2-air"
+backend = "openrouter"
+provider_model = "z-ai/glm-5.2-air"
+api_key_env = "OPENROUTER_API_KEY"
+context_window = 128000
+max_output = 8192
+usd_per_mtok_input = 0.10
+usd_per_mtok_output = 0.40
+usd_per_mtok_cached = 0.02
+supports_tools = true
+supports_cache = true
+tags = ["cheap"]
