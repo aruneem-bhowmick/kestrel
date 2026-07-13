@@ -302,7 +302,8 @@ async def test_resume_task_continues_the_turn_counter_and_reseeds_the_meter(
     assert first_result.turns_used == 1
 
     second_client = _ScriptedLoopClient(turns=[_stop_turn("done")])
-    second_deps = _build_deps(second_client, tmp_path, limits=LoopLimits(max_turns=10))
+    second_session = SessionManager(repo_root=tmp_path, task_id="t-loop-5")
+    second_deps = _build_deps(second_client, tmp_path, limits=LoopLimits(max_turns=10), session=second_session)
 
     resumed_result = await resume_task("t-loop-5", second_deps)
 
@@ -313,6 +314,7 @@ async def test_resume_task_continues_the_turn_counter_and_reseeds_the_meter(
     assert second_deps.meter.turns[0] == first_deps.meter.turns[0]
     assert resumed_result.history[0] == {"role": "user", "content": "do it"}
     assert resumed_result.history[-1] == {"role": "assistant", "content": "done"}
+    assert len(second_session.records) == 2
 
 
 async def test_resume_task_seeds_verification_reports_from_the_last_report(
@@ -336,17 +338,20 @@ async def test_resume_task_seeds_verification_reports_from_the_last_report(
     await run_task("fix it", first_deps, task_id="t-loop-6")
 
     second_client = _ScriptedLoopClient(turns=[_stop_turn("now done")])
+    second_session = SessionManager(repo_root=tmp_path, task_id="t-loop-6")
     second_deps = _build_deps(
         second_client,
         tmp_path,
         limits=LoopLimits(max_turns=10),
         require_verification=True,
+        session=second_session,
     )
 
     resumed_result = await resume_task("t-loop-6", second_deps)
 
     assert resumed_result.reason == TerminationReason.TASK_COMPLETE
     assert second_deps.verification_reports == [report]
+    assert len(second_session.records) == 2
 
 
 @pytest.mark.sanity

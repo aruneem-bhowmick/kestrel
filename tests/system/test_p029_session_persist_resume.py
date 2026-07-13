@@ -124,6 +124,7 @@ async def test_a_task_halted_at_a_turn_cap_resumes_in_a_fresh_process_and_comple
     )
     monkeypatch.setenv("KESTREL_OPENROUTER_BASE_URL", second_base_url)
 
+    resumed_session = SessionManager(repo_root=tmp_path, task_id="sys-p029-1")
     resumed_deps = LoopDeps(
         client=LiteLLMClient(registry),
         registry=registry,
@@ -132,6 +133,7 @@ async def test_a_task_halted_at_a_turn_cap_resumes_in_a_fresh_process_and_comple
         approval=ApprovalManager(),
         undo=UndoManager(repo_root=tmp_path),
         meter=CostMeter(),
+        session=resumed_session,
         limits=LoopLimits(max_turns=10),
     )
 
@@ -140,6 +142,9 @@ async def test_a_task_halted_at_a_turn_cap_resumes_in_a_fresh_process_and_comple
     assert resumed_result.reason == TerminationReason.TASK_COMPLETE
     assert resumed_result.turns_used == 2
     assert len(second_captured) == 1
+
+    final_state = load_session(tmp_path, "sys-p029-1")
+    assert final_state.turns_used == 2
 
     tool_messages = [m for m in resumed_result.history if m["role"] == "tool"]
     assert len(tool_messages) == 1
