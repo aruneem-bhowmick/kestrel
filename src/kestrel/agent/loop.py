@@ -55,9 +55,11 @@ from pathlib import Path
 from typing import Final, assert_never
 
 from kestrel.cost.meter import CostMeter
+from kestrel.kestrel_md import KestrelMd
 from kestrel.managers.approval import ApprovalDenied, ApprovalManager
 from kestrel.managers.undo import UndoManager
 from kestrel.provider.base import Message, ProviderClient
+from kestrel.provider.cache import build_stable_prefix, mark_cache_breakpoints
 from kestrel.provider.errors import ContextOverflowError
 from kestrel.provider.events import (
     StopEvent,
@@ -67,7 +69,7 @@ from kestrel.provider.events import (
     UsageEvent,
 )
 from kestrel.provider.retry import complete_with_retry
-from kestrel.registry.model import Registry
+from kestrel.registry.model import ModelEntry, Registry
 from kestrel.security.framing import frame_untrusted
 from kestrel.tools.registry import ToolResult, all_schemas, dispatch
 from kestrel.tools.verify import VerificationReport
@@ -178,6 +180,11 @@ class LoopDeps:
             Threaded into `dispatch` as that tool's own `report_sink`,
             so it fills in as the task runs; `require_verification`
             reads only its last entry.
+        kestrel_md: The target repo's project-memory file, loaded once
+            by the caller before the task starts and never reloaded
+            mid-task -- keeping it fixed for a whole task is what lets
+            the leading prefix built from it stay byte-identical across
+            every turn. `None` when the repo has no `KESTREL.md`.
     """
 
     client: ProviderClient
@@ -193,6 +200,7 @@ class LoopDeps:
     )
     require_verification: bool = False
     verification_reports: list[VerificationReport] = field(default_factory=list)
+    kestrel_md: KestrelMd | None = None
 
 
 def _split_events(
@@ -276,18 +284,26 @@ def _dispatch_tool_call(
         )
 
 
-async def _drain_think(deps: LoopDeps, history: Sequence[Message]) -> list[StreamEvent]:
+async def _drain_think(
+    deps: LoopDeps, history: Sequence[Message], entry: ModelEntry
+) -> list[StreamEvent]:
     """Stream one full turn from `deps.client`, offering it the full
     tool set, and collect every event it yields.
+
+    The leading messages sent ahead of `history` come from
+    `build_stable_prefix`, folding `deps.kestrel_md` in when present, so
+    every turn of one task sends the exact same prefix a cache-capable
+    backend can reuse -- `mark_cache_breakpoints` then annotates it for
+    `entry`, a no-op for every backend that needs no explicit marker.
 
     Routed through `complete_with_retry` so a transient rate-limit or
     server failure is retried with backoff before it ever reaches this
     loop as an exception.
     """
-    messages: list[Message] = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        *history,
-    ]
+    prefix = mark_cache_breakpoints(
+        build_stable_prefix(_SYSTEM_PROMPT, deps.kestrel_md), entry
+    )
+    messages: list[Message] = [*prefix, *history]
     return [
         event
         async for event in complete_with_retry(
@@ -364,7 +380,7 @@ async def run_task(
 
             turns_used += 1
             try:
-                events = await _drain_think(deps, history)
+                events = await _drain_think(deps, history, entry)
             except ContextOverflowError:
                 return finish(TerminationReason.CONTEXT_OVERFLOW)
 

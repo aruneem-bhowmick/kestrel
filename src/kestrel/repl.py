@@ -20,7 +20,9 @@ from typing import Final, TextIO, assert_never
 from kestrel import __version__
 from kestrel.config import KestrelConfig
 from kestrel.cost.meter import CostMeter, TurnCost, format_cost_line
+from kestrel.kestrel_md import KestrelMd
 from kestrel.provider.base import Message, ProviderClient
+from kestrel.provider.cache import build_stable_prefix, mark_cache_breakpoints
 from kestrel.provider.errors import (
     AuthError,
     ContextOverflowError,
@@ -97,6 +99,12 @@ class ReplSession:
         history: Conversation turns so far, excluding the system prompt
             (which is prepended fresh on every call). Preserved verbatim
             across a ``/model`` hot-swap.
+        kestrel_md: The working directory's project-memory file, loaded
+            once when the session starts and never reloaded mid-session
+            -- keeping it fixed is what lets the leading prefix built
+            from it stay byte-identical across every turn, including
+            across a ``/model`` hot-swap. ``None`` when the working
+            directory has no ``KESTREL.md``.
     """
 
     config: KestrelConfig
@@ -105,6 +113,7 @@ class ReplSession:
     meter: CostMeter
     active_model_id: str
     history: list[Message] = field(default_factory=list)
+    kestrel_md: KestrelMd | None = None
 
 
 def _format_provider_error(exc: ProviderError) -> str:
@@ -124,14 +133,18 @@ async def run_turn(session: ReplSession, user_text: str, out: TextIO) -> None:
     successfully. On a ``ProviderError`` mid-stream, one error line is
     printed and the failed exchange is dropped entirely -- history is left
     exactly as it was, so the next turn resumes cleanly.
+
+    The leading messages sent ahead of history come from
+    ``build_stable_prefix``, folding ``session.kestrel_md`` in when
+    present, so every turn of the session -- even after a ``/model``
+    hot-swap -- sends the same prefix a cache-capable backend can reuse.
     """
     entry = session.registry.get(session.active_model_id)
     user_message: Message = {"role": "user", "content": user_text}
-    messages: list[Message] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        *session.history,
-        user_message,
-    ]
+    prefix = mark_cache_breakpoints(
+        build_stable_prefix(SYSTEM_PROMPT, session.kestrel_md), entry
+    )
+    messages: list[Message] = [*prefix, *session.history, user_message]
 
     raw_chunks: list[str] = []
     turn_cost: TurnCost | None = None

@@ -9,6 +9,7 @@
       "max_output": 16384,
       "precision_pin": null,
       "provider_model": "z-ai/glm-5.2",
+      "requires_explicit_cache_breakpoint": false,
       "supports_cache": true,
       "supports_tools": true,
       "tags": [
@@ -28,6 +29,7 @@
       "max_output": 16384,
       "precision_pin": null,
       "provider_model": "glm-5.2",
+      "requires_explicit_cache_breakpoint": false,
       "supports_cache": true,
       "supports_tools": true,
       "tags": [
