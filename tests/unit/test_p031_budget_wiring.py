@@ -60,13 +60,20 @@ def _entry(
 ) -> ModelEntry:
     """Build one registry entry with round, easy-to-hand-verify rates by
     default -- individual tests override a rate where the scenario
-    itself needs the original and cheap entries priced differently."""
+    itself needs the original and cheap entries priced differently.
+
+    `context_window` is deliberately huge: this suite's own scripted
+    turns spend up to eight figures of (unrealistically large) input
+    tokens purely to hit clean dollar amounts, not to press context
+    pressure, so it must stay far short of the compaction threshold --
+    that behavior has its own dedicated coverage elsewhere.
+    """
     return ModelEntry(
         id=model_id,
         backend=_BACKEND,
         provider_model=f"z-ai/{model_id}",
         api_key_env="OPENROUTER_API_KEY",
-        context_window=200_000,
+        context_window=100_000_000,
         max_output=16_384,
         usd_per_mtok_input=usd_per_mtok_input,
         usd_per_mtok_output=usd_per_mtok_output,
