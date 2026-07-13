@@ -186,11 +186,12 @@ def test_resolve_startup_returns_the_configured_default_model(
         ["--config", str(config_path), "run", "task", "--repo", str(tmp_path)]
     )
 
-    config, registry, model_id = _resolve_startup(args)
+    config, registry, model_id, kestrel_md = _resolve_startup(args)
 
     assert model_id == "glm-5.2"
     assert config.general.default_model == "glm-5.2"
     assert registry.get("glm-5.2").backend == "openrouter"
+    assert kestrel_md is None
 
 
 def test_resolve_startup_model_flag_overrides_the_configured_default(
@@ -214,7 +215,7 @@ def test_resolve_startup_model_flag_overrides_the_configured_default(
         ]
     )
 
-    _config, registry, model_id = _resolve_startup(args)
+    _config, registry, model_id, _kestrel_md = _resolve_startup(args)
 
     assert model_id == "glm-5.2-zai"
     assert registry.get("glm-5.2-zai").backend == "zai"
