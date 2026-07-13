@@ -236,6 +236,19 @@ places for display. A cache-hit count is only shown when nonzero, and a
 turn with no usage at all still prints `$0.0000` rather than nothing --
 a missing cost is meant to be noticed, not hidden.
 
+`CostMeter.cache_hit_ratio` divides the session's total cached input
+tokens by its total input tokens, entirely in `Decimal` arithmetic, and
+returns `None` before any turn with real usage has been recorded.
+`CostMeter.cache_alert` turns that ratio into a one-line warning naming
+the measured percentage, but only once a session is long enough and the
+active model is cache-capable: the active model's `supports_cache` must
+be `True`, at least three turns must have been recorded, and the ratio
+itself must sit below 50%. A cache-incapable model or a session with
+only one or two turns never warns -- a short session never had a prior
+turn's prefix to hit against, and a backend without cache support was
+never expected to hit at all. The REPL's `/cost` command prints this
+warning, when present, after the per-turn table.
+
 ## Agent loop
 
 `kestrel.agent.run_task` drives one task to completion through a

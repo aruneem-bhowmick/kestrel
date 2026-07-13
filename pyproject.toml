@@ -100,5 +100,6 @@ markers = [
     "p025: the verify tool and its VerificationReport artifact",
     "p026: wiring verification as the agent loop's exit criterion",
     "p027: the byte-stable cache prefix and its wiring into every model call",
+    "p028: the cache-hit ratio aggregate and its low-hit-rate alert",
     "dod_phase_1: acceptance scenario for the tool-calling-agent milestone's Definition of Done",
 ]

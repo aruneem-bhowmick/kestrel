@@ -276,6 +276,44 @@ def test_cost_command_prints_session_total_and_per_turn_breakdown() -> None:
     assert "1." in out.getvalue()
 
 
+def test_cost_command_omits_cache_alert_below_minimum_turn_count() -> None:
+    """Given a session with only one recorded turn (below the alert's
+    minimum turn count), when ``/cost`` runs, then no cache-hit warning
+    line appears -- the existing single-turn output is unaffected by the
+    new alert wiring."""
+    client = FakeProviderClient([])
+    session = _session(client)
+    session.meter.record(
+        UsageEvent(input_tokens=42, output_tokens=7, cached_tokens=0),
+        session.registry.get("glm-5.2"),
+    )
+    out = io.StringIO()
+
+    _dispatch_command(session, "/cost", out)
+
+    assert "cache-hit ratio" not in out.getvalue()
+
+
+def test_cost_command_prints_cache_alert_for_a_low_ratio_session() -> None:
+    """Given a session on a cache-capable model with enough turns and a
+    cache-hit ratio below the alert threshold, when ``/cost`` runs, then
+    the warning line from ``CostMeter.cache_alert`` is printed after the
+    per-turn table."""
+    client = FakeProviderClient([])
+    session = _session(client)
+    entry = session.registry.get("glm-5.2")
+    for _ in range(3):
+        session.meter.record(
+            UsageEvent(input_tokens=100, output_tokens=10, cached_tokens=0), entry
+        )
+    out = io.StringIO()
+
+    _dispatch_command(session, "/cost", out)
+
+    assert session.meter.cache_alert(entry) is not None
+    assert session.meter.cache_alert(entry) in out.getvalue()
+
+
 def test_help_command_lists_every_command() -> None:
     """Given any session, when ``/help`` runs, then every documented
     command name appears in the output."""

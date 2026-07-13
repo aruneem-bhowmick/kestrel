@@ -205,10 +205,17 @@ def _cmd_models(session: ReplSession, out: TextIO) -> None:
 
 
 def _cmd_cost(session: ReplSession, out: TextIO) -> None:
-    """Handle ``/cost``: print the running session total and a per-turn table."""
+    """Handle ``/cost``: print the running session total, a per-turn table,
+    and a low-cache-hit warning when the active model's ratio has dropped
+    below the alert threshold.
+    """
     out.write(f"session total: ${session.meter.session_usd:.4f}\n")
     for index, turn in enumerate(session.meter.turns, start=1):
         out.write(f"  {index}. {format_cost_line(turn, session.meter.session_usd)}\n")
+    entry = session.registry.get(session.active_model_id)
+    alert = session.meter.cache_alert(entry)
+    if alert is not None:
+        out.write(f"{alert}\n")
 
 
 def _cmd_help(out: TextIO) -> None:
