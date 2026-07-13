@@ -276,7 +276,7 @@ def test_cost_command_prints_session_total_and_per_turn_breakdown() -> None:
     assert "1." in out.getvalue()
 
 
-def test_cost_command_omits_cache_alert_when_ratio_is_healthy() -> None:
+def test_cost_command_omits_cache_alert_below_minimum_turn_count() -> None:
     """Given a session with only one recorded turn (below the alert's
     minimum turn count), when ``/cost`` runs, then no cache-hit warning
     line appears -- the existing single-turn output is unaffected by the
