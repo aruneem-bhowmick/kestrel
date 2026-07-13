@@ -16,12 +16,19 @@ from kestrel.provider.events import StreamEvent, ToolCallEvent
 
 
 class Message(TypedDict):
-    """One turn of conversation history passed to a model."""
+    """One turn of conversation history passed to a model.
+
+    ``cache_breakpoint`` is an optional, purely additive marker: absent
+    on every message literal written before it existed, and left unset
+    by every call site until an adapter that needs an explicit prompt-
+    cache boundary reads it (see ``kestrel.provider.cache``).
+    """
 
     role: Literal["system", "user", "assistant", "tool"]
     content: str
     tool_calls: NotRequired[list[ToolCallEvent]]
     tool_call_id: NotRequired[str]
+    cache_breakpoint: NotRequired[bool]
 
 
 @dataclass(frozen=True, slots=True)
