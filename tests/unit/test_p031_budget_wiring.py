@@ -450,3 +450,44 @@ async def test_degraded_task_cost_band(
     assert result.reason == TerminationReason.TASK_COMPLETE
     assert client.requested_model_ids == [_MODEL_ID, _MODEL_ID, _CHEAP_MODEL_ID]
     assert result.total_usd == Decimal("0.002260")
+
+
+async def test_resume_after_budget_halt_preserves_degraded_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a task that crosses SOFT on turn 1, degrades, and then halts
+    on turn 2 (BUDGET_HALT), when it is resumed with a raised cap, then
+    it remains on the cheap model for turn 3 instead of resetting to the
+    original model."""
+    monkeypatch.setattr(loop_module, "dispatch", _fake_dispatch)
+    registry = _registry_with_cheap_entry()
+
+    first_client = _ScriptedLoopClient(
+        turns=[
+            _tool_turn("call-1", input_tokens=1_300_000),
+            _tool_turn("call-2", input_tokens=1_000_000),
+        ]
+    )
+    first_budget = BudgetManager(limits=BudgetLimits(session_usd=Decimal("1.50")))
+    session = SessionManager(repo_root=tmp_path, task_id="t-budget-resume-degraded")
+    first_deps = _build_deps(
+        first_client, tmp_path, registry, budget=first_budget, session=session
+    )
+
+    first_result = await run_task("do it", first_deps, task_id="t-budget-resume-degraded")
+    assert first_result.reason == TerminationReason.BUDGET_HALT
+    assert first_result.turns_used == 2
+    assert first_client.requested_model_ids == [_MODEL_ID, _CHEAP_MODEL_ID]
+
+    second_client = _ScriptedLoopClient(turns=[_stop_turn("done", input_tokens=100)])
+    raised_budget = BudgetManager(limits=BudgetLimits(session_usd=Decimal("100")))
+    second_session = SessionManager(repo_root=tmp_path, task_id="t-budget-resume-degraded")
+    second_deps = _build_deps(
+        second_client, tmp_path, registry, budget=raised_budget, session=second_session
+    )
+
+    resumed_result = await resume_task("t-budget-resume-degraded", second_deps)
+
+    assert resumed_result.reason == TerminationReason.TASK_COMPLETE
+    assert resumed_result.turns_used == 3
+    assert second_client.requested_model_ids == [_CHEAP_MODEL_ID]

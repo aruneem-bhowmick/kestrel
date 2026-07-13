@@ -387,6 +387,8 @@ def _record_session_turn(
     history: Sequence[Message],
     messages_before: int,
     turn_cost: TurnCost,
+    active_model_id: str,
+    degraded: bool,
 ) -> None:
     """Append this turn's own `TurnRecord` to `deps.session`'s journal,
     when one is configured for this task -- a harmless no-op otherwise.
@@ -409,6 +411,8 @@ def _record_session_turn(
             verification=(
                 deps.verification_reports[-1] if deps.verification_reports else None
             ),
+            active_model_id=active_model_id,
+            degraded=degraded,
         )
     )
 
@@ -480,6 +484,8 @@ async def _drive(
     clock_fn: Callable[[], float],
     *,
     turns_used_start: int,
+    active_model_id_start: str | None = None,
+    degraded_start: bool = False,
 ) -> LoopResult:
     """Drive `history` through the loop until it completes or a
     termination predicate trips -- the shared engine behind both
@@ -532,9 +538,13 @@ async def _drive(
     started on -- to a `"cheap"`-tagged registry entry, at most once per
     task.
     """
-    entry = deps.registry.get(deps.model_id)
-    active_model_id = deps.model_id
-    degraded = False
+    active_model_id = (
+        active_model_id_start
+        if turns_used_start > 0 and active_model_id_start is not None
+        else deps.model_id
+    )
+    degraded = degraded_start if turns_used_start > 0 else False
+    entry = deps.registry.get(active_model_id)
     start = clock_fn()
     turns_used = turns_used_start
 
@@ -605,6 +615,8 @@ async def _drive(
                     history=history,
                     messages_before=turn_start_len,
                     turn_cost=turn_cost,
+                    active_model_id=active_model_id,
+                    degraded=degraded,
                 )
                 active_model_id, degraded, should_halt = _apply_budget_check(
                     deps,
@@ -643,6 +655,8 @@ async def _drive(
                         history=history,
                         messages_before=turn_start_len,
                         turn_cost=turn_cost,
+                        active_model_id=active_model_id,
+                        degraded=degraded,
                     )
                     active_model_id, degraded, should_halt = _apply_budget_check(
                         deps,
@@ -664,6 +678,8 @@ async def _drive(
                     history=history,
                     messages_before=turn_start_len,
                     turn_cost=turn_cost,
+                    active_model_id=active_model_id,
+                    degraded=degraded,
                 )
                 active_model_id, degraded, should_halt = _apply_budget_check(
                     deps,
@@ -696,6 +712,8 @@ async def _drive(
                 history=history,
                 messages_before=turn_start_len,
                 turn_cost=turn_cost,
+                active_model_id=active_model_id,
+                degraded=degraded,
             )
             active_model_id, degraded, should_halt = _apply_budget_check(
                 deps,
@@ -773,5 +791,11 @@ async def resume_task(
     )
     history: list[Message] = list(state.history)
     return await _drive(
-        history, deps, task_id, clock_fn, turns_used_start=state.turns_used
+        history,
+        deps,
+        task_id,
+        clock_fn,
+        turns_used_start=state.turns_used,
+        active_model_id_start=state.active_model_id,
+        degraded_start=state.degraded,
     )

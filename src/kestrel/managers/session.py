@@ -65,6 +65,8 @@ class TurnRecord:
     message_deltas: tuple[Message, ...]
     turn_cost: TurnCost
     verification: VerificationReport | None
+    active_model_id: str | None = None
+    degraded: bool = False
 
 
 def _message_to_dict(message: Message) -> dict[str, Any]:
@@ -186,6 +188,8 @@ def _record_to_json(record: TurnRecord) -> str:
                 if record.verification is not None
                 else None
             ),
+            "active_model_id": record.active_model_id,
+            "degraded": record.degraded,
         },
         ensure_ascii=False,
     )
@@ -204,6 +208,8 @@ def _record_from_json(line: str) -> TurnRecord:
         verification=(
             _verification_from_dict(verification) if verification is not None else None
         ),
+        active_model_id=data.get("active_model_id"),
+        degraded=data.get("degraded", False),
     )
 
 
@@ -304,6 +310,8 @@ class SessionState:
     turns: tuple[TurnCost, ...]
     last_verification: VerificationReport | None
     turns_used: int
+    active_model_id: str | None
+    degraded: bool
 
 
 def load_session(repo_root: Path, task_id: str) -> SessionState:
@@ -325,18 +333,24 @@ def load_session(repo_root: Path, task_id: str) -> SessionState:
     turns: list[TurnCost] = []
     last_verification: VerificationReport | None = None
     turns_used = 0
+    active_model_id: str | None = None
+    degraded = False
     for record in records:
         history.extend(record.message_deltas)
         turns.append(record.turn_cost)
         if record.verification is not None:
             last_verification = record.verification
         turns_used = max(turns_used, record.turn_id)
+        active_model_id = record.active_model_id
+        degraded = record.degraded
 
     return SessionState(
         history=tuple(history),
         turns=tuple(turns),
         last_verification=last_verification,
         turns_used=turns_used,
+        active_model_id=active_model_id,
+        degraded=degraded,
     )
 
 
