@@ -12,12 +12,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
+from typing import Final
 
 from kestrel.provider.events import UsageEvent
 from kestrel.registry.model import ModelEntry
 
 _SIX_DP = Decimal("0.000001")
 _TOKENS_PER_MTOK = Decimal(1_000_000)
+
+# Below this fraction of billed input tokens landing as cache hits, on a
+# backend that advertises cache support, is treated as a prefix-structure
+# regression worth flagging rather than an expected cold-cache session.
+_CACHE_ALERT_THRESHOLD: Final[Decimal] = Decimal("0.50")
+# A session shorter than this never had a prior turn's prefix to hit
+# against, so alerting on its ratio would false-alarm on every task's
+# first turn or two rather than catch a real regression.
+_CACHE_ALERT_MIN_TURNS: Final[int] = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +127,42 @@ class CostMeter:
     def turns(self) -> tuple[TurnCost, ...]:
         """Every recorded turn, in the order :meth:`record` was called."""
         return tuple(self._turns)
+
+    def cache_hit_ratio(self) -> Decimal | None:
+        """``sum(cached_tokens) / sum(input_tokens)`` across every recorded
+        turn, as a ``Decimal`` in ``[0, 1]``. ``None`` when zero input
+        tokens have been recorded yet (an empty session, or one whose only
+        turns synthesized zeroed usage) -- there is no meaningful ratio to
+        report or alert on before any real turn has happened.
+        """
+        total_input = sum(turn.input_tokens for turn in self._turns)
+        if total_input == 0:
+            return None
+        total_cached = sum(turn.cached_tokens for turn in self._turns)
+        return Decimal(total_cached) / Decimal(total_input)
+
+    def cache_alert(self, entry: ModelEntry) -> str | None:
+        """A one-line warning naming the measured ratio (as a percentage)
+        when ALL of: ``entry.supports_cache`` is ``True``, at least
+        :data:`_CACHE_ALERT_MIN_TURNS` turns have been recorded, and
+        :meth:`cache_hit_ratio` is below :data:`_CACHE_ALERT_THRESHOLD`.
+        ``None`` in every other case -- including when
+        ``entry.supports_cache`` is ``False``, since a low ratio there is
+        expected rather than a regression, and when fewer than
+        :data:`_CACHE_ALERT_MIN_TURNS` turns exist, since a one- or
+        two-turn session (the first call never has a prior prefix to hit)
+        would otherwise false-alarm on every task.
+        """
+        if not entry.supports_cache or len(self._turns) < _CACHE_ALERT_MIN_TURNS:
+            return None
+        ratio = self.cache_hit_ratio()
+        if ratio is None or ratio >= _CACHE_ALERT_THRESHOLD:
+            return None
+        return (
+            f"cache-hit ratio for {entry.id} is {ratio * 100:.0f}%, below "
+            f"the {_CACHE_ALERT_THRESHOLD * 100:.0f}% alert threshold -- "
+            "possible prefix-structure regression"
+        )
 
 
 def format_cost_line(turn: TurnCost, session_usd: Decimal) -> str:
