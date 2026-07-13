@@ -10,6 +10,7 @@ exactly the sum of its turns, not an accumulation of float rounding error.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Final
@@ -92,9 +93,15 @@ def compute_turn_cost(usage: UsageEvent, entry: ModelEntry) -> Decimal:
 class CostMeter:
     """Accumulates priced turns across one REPL session."""
 
-    def __init__(self) -> None:
-        """Start with no recorded turns."""
-        self._turns: list[TurnCost] = []
+    def __init__(self, initial_turns: Sequence[TurnCost] = ()) -> None:
+        """Start pre-seeded with `initial_turns` (empty by default).
+
+        Lets a resumed task's meter be re-populated from a prior
+        session's own journaled turns without re-pricing anything --
+        every existing call site (`CostMeter()`) is unaffected, since
+        the parameter defaults to recording nothing extra.
+        """
+        self._turns: list[TurnCost] = list(initial_turns)
 
     def record(self, usage: UsageEvent, entry: ModelEntry) -> TurnCost:
         """Price ``usage`` against ``entry``, append it, and return it.

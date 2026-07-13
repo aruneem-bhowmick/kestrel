@@ -187,10 +187,12 @@ More tools land here as they're implemented.
 ## State
 
 Kestrel writes its own runtime state under `<target-repo>/.kestrel/`: an
-append-only undo journal (`kestrel.managers.UndoManager`) and, under
+append-only undo journal (`kestrel.managers.UndoManager`), under
 `.kestrel/artifacts/`, persisted verification reports from the `verify`
-tool, with session logs joining it later. Target repos should gitignore
-that path.
+tool, and under `.kestrel/sessions/`, one append-only JSONL journal per
+task (`kestrel.managers.SessionManager`) recording every turn's message
+deltas, priced cost, and latest verification report. Target repos should
+gitignore that path.
 
 ## Approval
 
@@ -287,6 +289,16 @@ call `verify` into history and keeps going, the same shape the
 self-critique-skip path already uses. This never adds a new way for a
 task to end: an unbounded task still stops only via the turn, token, or
 wall-clock cap, exactly as it always could.
+
+Setting `LoopDeps.session` to a `kestrel.managers.SessionManager` makes
+a task resumable: every real turn is journaled as it completes, and
+`kestrel.agent.resume_task(task_id, deps)` reconstructs a prior task's
+history, cost meter, and last verification report from that journal and
+continues driving it -- picking the turn-cap counter up from where the
+journal left off, while sampling wall-clock budget fresh rather than
+inheriting elapsed time from before the process restarted. A task run
+without `session` set behaves exactly as before and cannot later be
+resumed.
 
 ## Running a task
 

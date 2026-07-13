@@ -7,10 +7,10 @@ self-critique pass over what the model proposed, dispatching any
 requested tool calls (approval-gated wherever a tool itself requires
 it) through the shared registry, and finally folding the turn's token
 usage into the running total and deciding whether to keep going.
-`run_task` is the only entry point; everything it needs -- the
-provider client, the model registry, the approval and undo managers,
-the cost meter, and the per-task limits -- arrives through one
-`LoopDeps` bundle, so nothing here reaches for global state or
+`run_task` is the entry point for a brand new task; everything it needs
+-- the provider client, the model registry, the approval and undo
+managers, the cost meter, and the per-task limits -- arrives through
+one `LoopDeps` bundle, so nothing here reaches for global state or
 constructs its own collaborators.
 
 Whether a turn with no requested tool calls actually ends the task is
@@ -20,6 +20,22 @@ most recent `verify` tool call recorded in `deps.verification_reports`
 passed, nudging the model to keep going instead of letting it declare
 victory on its own say-so. Every caller that leaves the field at its
 default sees exactly the prior, ungated behavior.
+
+A task's own turns are durably journaled as they complete: when
+`LoopDeps.session` is set, every real (non-declined) turn is appended to
+it as a `TurnRecord` -- its own message deltas, priced cost, and
+whichever `VerificationReport` is most current -- so a task interrupted
+by a crash or a hard budget halt can be reconstructed via
+`kestrel.managers.session.load_session` and continued with
+`resume_task` rather than losing everything since the process's last
+clean exit. `run_task` and `resume_task` both drive the same shared
+`_drive` loop, seeded differently: `run_task` starts fresh history from
+a `task_description`; `resume_task` seeds history, the cost meter, and
+the last verification report from a prior session's own journal, and
+continues the turn-cap counter from where that session left off rather
+than from zero. Wall-clock budget is never inherited across a resume --
+`clock_fn` is always sampled fresh at the start of whichever call is
+driving the loop.
 
 Deliberately out of scope for this module, each a real gap rather than
 an oversight:
@@ -34,13 +50,10 @@ an oversight:
   rather than being recovered from by trimming or summarizing history.
 - No soft-cap degradation -- `LoopLimits` are hard stops; there is no
   reduced-cost fallback as a limit is approached.
-- No artifact persistence -- `LoopResult` is a plain, in-memory value,
-  never written to disk.
+- No artifact persistence beyond the session journal itself -- `LoopResult`
+  is a plain, in-memory value, never written to disk on its own.
 - No subagents -- `run_task` drives exactly one flat loop and never
   spawns a nested one.
-- No continuity across separate `run_task` calls -- each call starts
-  its own history seeded fresh from `task_description`; nothing here
-  resumes a previous call's conversation.
 """
 
 from __future__ import annotations
@@ -54,9 +67,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final, assert_never
 
-from kestrel.cost.meter import CostMeter
+from kestrel.cost.meter import CostMeter, TurnCost
 from kestrel.kestrel_md import KestrelMd
 from kestrel.managers.approval import ApprovalDenied, ApprovalManager
+from kestrel.managers.session import SessionManager, TurnRecord, load_session
 from kestrel.managers.undo import UndoManager
 from kestrel.provider.base import Message, ProviderClient
 from kestrel.provider.cache import build_stable_prefix, mark_cache_breakpoints
@@ -185,6 +199,11 @@ class LoopDeps:
             mid-task -- keeping it fixed for a whole task is what lets
             the leading prefix built from it stay byte-identical across
             every turn. `None` when the repo has no `KESTREL.md`.
+        session: Journals every real turn of this task as a
+            `TurnRecord`, when set -- `None` (the default) means no
+            journal is kept and the task cannot later be resumed via
+            `resume_task`. Every existing caller that leaves this unset
+            sees identical behavior to before this field existed.
     """
 
     client: ProviderClient
@@ -201,6 +220,7 @@ class LoopDeps:
     require_verification: bool = False
     verification_reports: list[VerificationReport] = field(default_factory=list)
     kestrel_md: KestrelMd | None = None
+    session: SessionManager | None = None
 
 
 def _split_events(
@@ -258,6 +278,40 @@ def _has_passing_verification(deps: LoopDeps) -> bool:
     return bool(deps.verification_reports) and deps.verification_reports[-1].passed
 
 
+def _record_session_turn(
+    deps: LoopDeps,
+    *,
+    turn_id: int,
+    task_id: str,
+    history: Sequence[Message],
+    messages_before: int,
+    turn_cost: TurnCost,
+) -> None:
+    """Append this turn's own `TurnRecord` to `deps.session`'s journal,
+    when one is configured for this task -- a harmless no-op otherwise.
+
+    `message_deltas` is exactly the slice of `history` appended since
+    `messages_before` (`history`'s length immediately before this turn's
+    own messages were folded in), and `verification` is the most recent
+    report recorded so far, if any -- not necessarily one this turn
+    itself produced.
+    """
+    if deps.session is None:
+        return
+    deps.session.record_turn(
+        TurnRecord(
+            turn_id=turn_id,
+            task_id=task_id,
+            timestamp=time.time(),
+            message_deltas=tuple(history[messages_before:]),
+            turn_cost=turn_cost,
+            verification=(
+                deps.verification_reports[-1] if deps.verification_reports else None
+            ),
+        )
+    )
+
+
 def _dispatch_tool_call(
     event: ToolCallEvent, *, deps: LoopDeps, turn_id: int, task_id: str
 ) -> ToolResult:
@@ -312,26 +366,24 @@ async def _drain_think(
     ]
 
 
-async def run_task(
-    task_description: str,
+async def _drive(
+    history: list[Message],
     deps: LoopDeps,
     task_id: str,
+    clock_fn: Callable[[], float],
     *,
-    clock_fn: Callable[[], float] = time.monotonic,
+    turns_used_start: int,
 ) -> LoopResult:
-    """Drive `task_description` through the loop until it completes or a
-    termination predicate trips.
-
-    `deps.model_id` must already be a valid entry in `deps.registry` --
-    resolving and validating a starting model is the caller's job, not
-    this loop's, the same contract `kestrel.repl.run_repl` places on its
-    own starting model id.
+    """Drive `history` through the loop until it completes or a
+    termination predicate trips -- the shared engine behind both
+    `run_task` (fresh history, `turns_used_start=0`) and `resume_task`
+    (history and turn count seeded from a prior session).
 
     Every iteration repeats: a pre-check against `deps.limits` (turns
-    spent so far, wall-clock elapsed since the first turn) that ends the
-    task with the matching `TerminationReason` before spending another
-    model call, never after; a model call offering the full tool set;
-    a `deps.self_critique_fn` pass over what was proposed, which, on
+    spent so far, wall-clock elapsed since this call's own start) that
+    ends the task with the matching `TerminationReason` before spending
+    another model call, never after; a model call offering the full tool
+    set; a `deps.self_critique_fn` pass over what was proposed, which, on
     `False`, drops the proposal, records a synthetic explanation of the
     skip in its place, and moves on to another turn instead of acting on
     it; dispatching every requested tool call in order through the
@@ -346,6 +398,16 @@ async def run_task(
     nudge to call `verify` into history and the loop keeps going,
     exactly as the self-critique-skip path already does.
 
+    Every real (non-declined) turn is also journaled to `deps.session`,
+    when one is configured, as a `TurnRecord` covering exactly the
+    messages that turn itself appended. `turns_used_start == 0` (a fresh
+    `run_task` call) means nothing in `history` has been journaled yet,
+    so the first turn's own record also captures whatever seed messages
+    `history` already held when this call began; `turns_used_start > 0`
+    (a `resume_task` call) means every message currently in `history`
+    was already durably recorded by a prior call, so only what a new
+    turn itself appends is captured from here on.
+
     A `ContextOverflowError` raised while streaming a turn ends the task
     with `TerminationReason.CONTEXT_OVERFLOW` rather than propagating --
     there is no compaction here to recover the window and retry. A
@@ -356,8 +418,7 @@ async def run_task(
     """
     entry = deps.registry.get(deps.model_id)
     start = clock_fn()
-    history: list[Message] = [{"role": "user", "content": task_description}]
-    turns_used = 0
+    turns_used = turns_used_start
 
     def finish(reason: TerminationReason) -> LoopResult:
         """Build the `LoopResult` for `reason`, snapshotting the
@@ -379,6 +440,15 @@ async def run_task(
                 return finish(TerminationReason.TOKEN_CAP)
 
             turns_used += 1
+            # `turns_used == 1` is this call's very first turn with no
+            # earlier iteration to have already journaled whatever seed
+            # messages `history` started with -- true only for a fresh
+            # `run_task` call (turns_used_start == 0), since a resumed
+            # call's first turn has turns_used_start >= 1. Every later
+            # turn's own boundary is simply `history`'s length as this
+            # iteration begins, since the turn before it already
+            # journaled everything up to that point.
+            turn_start_len = 0 if turns_used == 1 else len(history)
             try:
                 events = await _drain_think(deps, history, entry)
             except ContextOverflowError:
@@ -409,7 +479,15 @@ async def run_task(
                     history.append(
                         {"role": "tool", "content": _SELF_CRITIQUE_SKIP_CONTENT}
                     )
-                deps.meter.record(usage_event, entry)
+                turn_cost = deps.meter.record(usage_event, entry)
+                _record_session_turn(
+                    deps,
+                    turn_id=turns_used,
+                    task_id=task_id,
+                    history=history,
+                    messages_before=turn_start_len,
+                    turn_cost=turn_cost,
+                )
                 if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
                     return finish(TerminationReason.TOKEN_CAP)
                 continue
@@ -430,11 +508,27 @@ async def run_task(
                     history.append(
                         {"role": "tool", "content": _VERIFICATION_REQUIRED_CONTENT}
                     )
-                    deps.meter.record(usage_event, entry)
+                    turn_cost = deps.meter.record(usage_event, entry)
+                    _record_session_turn(
+                        deps,
+                        turn_id=turns_used,
+                        task_id=task_id,
+                        history=history,
+                        messages_before=turn_start_len,
+                        turn_cost=turn_cost,
+                    )
                     if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
                         return finish(TerminationReason.TOKEN_CAP)
                     continue
-                deps.meter.record(usage_event, entry)
+                turn_cost = deps.meter.record(usage_event, entry)
+                _record_session_turn(
+                    deps,
+                    turn_id=turns_used,
+                    task_id=task_id,
+                    history=history,
+                    messages_before=turn_start_len,
+                    turn_cost=turn_cost,
+                )
                 return finish(TerminationReason.TASK_COMPLETE)
 
             for call in tool_calls:
@@ -449,8 +543,81 @@ async def run_task(
                     {"role": "tool", "content": result.content, "tool_call_id": call.id}
                 )
 
-            deps.meter.record(usage_event, entry)
+            turn_cost = deps.meter.record(usage_event, entry)
+            _record_session_turn(
+                deps,
+                turn_id=turns_used,
+                task_id=task_id,
+                history=history,
+                messages_before=turn_start_len,
+                turn_cost=turn_cost,
+            )
             if _total_tokens(deps.meter) >= deps.limits.max_total_tokens:
                 return finish(TerminationReason.TOKEN_CAP)
     except KeyboardInterrupt:
         return finish(TerminationReason.USER_STOP)
+
+
+async def run_task(
+    task_description: str,
+    deps: LoopDeps,
+    task_id: str,
+    *,
+    clock_fn: Callable[[], float] = time.monotonic,
+) -> LoopResult:
+    """Drive `task_description` through the loop until it completes or a
+    termination predicate trips.
+
+    `deps.model_id` must already be a valid entry in `deps.registry` --
+    resolving and validating a starting model is the caller's job, not
+    this loop's, the same contract `kestrel.repl.run_repl` places on its
+    own starting model id.
+
+    Starts a brand new conversation seeded from `task_description` and
+    drives it via the shared `_drive` engine (see its own docstring for
+    the loop's full turn-by-turn behavior); `resume_task` is the sibling
+    entry point that continues a prior session instead of starting one.
+    """
+    history: list[Message] = [{"role": "user", "content": task_description}]
+    return await _drive(history, deps, task_id, clock_fn, turns_used_start=0)
+
+
+async def resume_task(
+    task_id: str,
+    deps: LoopDeps,
+    *,
+    clock_fn: Callable[[], float] = time.monotonic,
+) -> LoopResult:
+    """Reconstruct a prior task's state via
+    `kestrel.managers.session.load_session(deps.repo_root, task_id)` and
+    continue driving it through the same `_drive` engine `run_task`
+    uses, seeded from that state rather than from a fresh
+    `task_description`.
+
+    Seeds: `history` from the loaded session's own `history`; `deps.meter`
+    re-populated from its `turns` (via `CostMeter`'s `initial_turns`
+    parameter); `deps.verification_reports` pre-populated with
+    `[last_verification]` when the session recorded one, else left
+    empty; the loop's own turn-cap counter starts at the session's
+    `turns_used`, not zero.
+
+    Wall-clock budget is NOT inherited: `clock_fn()` is sampled fresh at
+    the start of `_drive`'s own call, and `deps.limits.max_wall_clock_s`
+    applies to this resumed call's own elapsed time only -- a task
+    halted by a hard budget cap yesterday and resumed today must not
+    immediately trip `WALL_CLOCK_CAP` from time that passed while no
+    process was even running.
+
+    Raises:
+        FileNotFoundError: propagated from `load_session` unchanged --
+            no journal exists for `task_id` under `deps.repo_root`.
+    """
+    state = load_session(deps.repo_root, task_id)
+    deps.meter = CostMeter(initial_turns=state.turns)
+    deps.verification_reports = (
+        [state.last_verification] if state.last_verification is not None else []
+    )
+    history: list[Message] = list(state.history)
+    return await _drive(
+        history, deps, task_id, clock_fn, turns_used_start=state.turns_used
+    )
