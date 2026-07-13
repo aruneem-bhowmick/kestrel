@@ -157,12 +157,16 @@ async def compact_history(
     any other turn's own usage, so a compaction call is accounted for
     by the same machinery every real model call already goes through.
     """
-    if len(history) <= keep_last_n:
+    split_idx = len(history) - keep_last_n
+    while split_idx > 0 and history[split_idx].get("role") == "tool":
+        split_idx -= 1
+
+    if split_idx <= 0:
         return list(history), UsageEvent(
             input_tokens=0, output_tokens=0, cached_tokens=0
         )
 
-    older_tail = history[:-keep_last_n]
+    older_tail = history[:split_idx]
     messages: list[Message] = [
         {"role": "system", "content": _COMPACTION_SYSTEM_PROMPT},
         *older_tail,
@@ -170,4 +174,4 @@ async def compact_history(
     summary_text, usage_event = await _drain_summary_text(client, messages, model_id)
     summary_content = summary_text + _render_verification_note(last_verification)
     summary_message: Message = {"role": "system", "content": summary_content}
-    return [summary_message, *history[-keep_last_n:]], usage_event
+    return [summary_message, *history[split_idx:]], usage_event
