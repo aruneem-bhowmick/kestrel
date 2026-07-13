@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import platformdirs
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from kestrel.managers.approval import DestructiveKind
 
@@ -92,10 +92,10 @@ class BudgetConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    session_usd: Decimal | None = None
-    day_usd: Decimal | None = None
-    month_usd: Decimal | None = None
-    soft_threshold: Decimal = Decimal("0.8")
+    session_usd: Decimal | None = Field(default=None, ge=Decimal("0"))
+    day_usd: Decimal | None = Field(default=None, ge=Decimal("0"))
+    month_usd: Decimal | None = Field(default=None, ge=Decimal("0"))
+    soft_threshold: Decimal = Field(default=Decimal("0.8"), gt=Decimal("0"), le=Decimal("1"))
 
 
 class ManagersConfig(BaseModel):
