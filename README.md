@@ -388,28 +388,62 @@ repository from the command line, non-interactively:
 kestrel run "add a function + unit test, make it pass" --repo /path/to/repo
 ```
 
-It resolves config, registry, and starting model exactly like the plain
-REPL does (the same `--config`/`--model` flags, in either position
-around the subcommand), builds a fresh `ApprovalManager`, `UndoManager`,
-and `CostMeter` for this run alone, and calls `run_task` to completion.
+It resolves config, registry, starting model, and the target repo's own
+`KESTREL.md` exactly like the plain REPL does (the same
+`--config`/`--model` flags, in either position around the subcommand),
+builds a fresh `ApprovalManager`, `UndoManager`, `SessionManager`, and
+`CostMeter` for this run alone, and calls `run_task` to completion.
 `--max-turns`, `--max-total-tokens`, and `--max-wall-clock-s` override
 `LoopLimits`'s own defaults. A destructive tool call still prompts on
 the real terminal exactly as described under [Approval](#approval); a
 piped, non-interactive answer works identically to a typed one.
 
+`--require-verification`/`--no-require-verification`
+(default: **enabled**) sets `LoopDeps.require_verification` -- with it
+on, a task only completes once the most recent `verify` call passed
+(see [Agent loop](#agent-loop)); pass `--no-require-verification` for a
+task whose repo has no configured `verify` commands, or that should
+still complete on the model's own say-so as it did before this flag
+existed.
+
+`--session-budget-usd`, `--day-budget-usd`, `--month-budget-usd`, and
+`--budget-soft-threshold` build the run's own `BudgetManager` (see
+[Budget](#budget)), each falling back to `kestrel.toml`'s own
+`[managers.budget]` table when left unset; day and month spend baselines
+are computed once, up front, from every other task's own journaled
+history under this repo. Because every run now also builds a
+`SessionManager`, a task that halts `BUDGET_HALT` can always be picked
+back up with `kestrel run --resume TASK_ID --repo PATH` instead of the
+usual `kestrel run "<task>" --repo PATH` invocation -- same flags
+otherwise, continuing the halted task's own history, cost, and turn
+count rather than starting over.
+
 When it finishes, `kestrel run` prints a terse summary -- the task id
 (needed to undo this run later), the termination reason, the turn
-count, the total priced cost, and every distinct path the run's own
-undo journal recorded a mutation for -- then exits `0` if the task
-reached `TASK_COMPLETE` and `1` for every other termination reason:
+count, the total priced cost, a cache-hit line once at least one turn
+has recorded real usage, and every distinct path the run's own undo
+journal recorded a mutation for -- then exits `0` if the task reached
+`TASK_COMPLETE` and `1` for every other termination reason:
 
 ```text
 task_id: 3b1e7b7a-...
 reason: TASK_COMPLETE
 turns: 3
 total_usd: $0.0071
+cache_hit: 62%
 files changed:
   src/greet.py
+```
+
+A `BUDGET_HALT` termination prints an abbreviated summary instead --
+still the task id and reason line, but the turn count, cost, cache-hit,
+and files-changed lines are replaced by a dedicated message naming which
+cap tripped and the exact command to resume:
+
+```text
+task_id: 3b1e7b7a-...
+reason: BUDGET_HALT
+budget halt: session cap reached; resume with: kestrel run --resume 3b1e7b7a-... --repo /path/to/repo
 ```
 
 `kestrel undo --task-id ID --repo PATH` reverts every file mutation a
@@ -460,6 +494,29 @@ token) completion against the configured default model, confirming the
 backend actually answers. This is the only check that spends money or
 touches the network, so it never runs unless explicitly requested --
 never pass `--live` in an automated or CI context.
+
+## Mutation testing
+
+`uv run mutmut run` checks that the automated suite would actually catch
+a broken change to the two modules where a subtly wrong formula or
+predicate is easiest to miss and costliest to ship silently:
+`kestrel/cost/meter.py` (the pricing arithmetic) and
+`kestrel/agent/loop.py` (the loop's own termination and budget
+predicates). It systematically mutates small pieces of each -- flipping a
+comparison, swapping an operator -- and reruns the targeted subset of the
+suite (`uv run pytest -m 'p007 or p022 or p026 or p028 or p031 or p032'`)
+against every mutant; a mutant that still passes is a "survivor" worth
+triaging, since it means some change to that logic would ship unnoticed.
+
+This is a manually invoked quality check, not a CI gate -- mutation
+testing's own runtime cost (many reruns of the targeted suite, one per
+mutant) makes it unsuited to running on every commit the way the sanity
+and coverage gates do. Run it locally before a change to either module
+lands, and triage any survivor it reports: either the suite is missing a
+case that would have caught it, or the surviving mutant is behaviorally
+equivalent to the original and can be marked accordingly. `mutmut` itself
+only runs under WSL on Windows -- see its own upstream note if `mutmut
+run` reports no native Windows support.
 
 ## Jetson quickstart
 
