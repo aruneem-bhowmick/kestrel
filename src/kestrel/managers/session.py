@@ -267,6 +267,8 @@ class SessionManager:
         """Append `record` to the journal (disk + in-memory), exactly
         like `UndoManager.record`'s own append discipline: binary mode,
         explicit `\\n`, byte-stable line endings across platforms."""
+        if record.task_id != self._task_id:
+            raise ValueError(f"record task_id {record.task_id!r} does not match journal task_id {self._task_id!r}")
         self._journal_path.parent.mkdir(parents=True, exist_ok=True)
         line = f"{_record_to_json(record)}\n".encode("utf-8")
         with self._journal_path.open("ab") as handle:
