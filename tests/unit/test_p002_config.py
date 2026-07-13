@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -262,6 +263,67 @@ def test_managers_approval_secret_shaped_key_is_rejected(tmp_path: Path) -> None
     in the no-secrets-on-disk guard."""
     (tmp_path / "kestrel.toml").write_text(
         '[managers.approval]\napi_key = "sk-do-not-put-me-here"\n'
+    )
+
+    with pytest.raises(
+        config.ConfigError, match="Secrets belong in environment variables"
+    ):
+        config.load_config()
+
+
+def test_managers_budget_defaults_to_no_caps() -> None:
+    """Given a kestrel.toml with no [managers.budget] table at all, when
+    load_config runs, then every cap defaults to None (no cap) and
+    soft_threshold defaults to 0.8, rather than requiring the table to
+    be spelled out."""
+    loaded, _source = config.load_config()
+
+    assert loaded.managers.budget.session_usd is None
+    assert loaded.managers.budget.day_usd is None
+    assert loaded.managers.budget.month_usd is None
+    assert loaded.managers.budget.soft_threshold == Decimal("0.8")
+
+
+def test_managers_budget_round_trips(tmp_path: Path) -> None:
+    """Given a kestrel.toml naming every [managers.budget] field, when
+    load_config runs, then each value survives intact as a Decimal,
+    including one expressed to six decimal places rather than a round
+    number."""
+    (tmp_path / "kestrel.toml").write_text(
+        "[managers.budget]\n"
+        "session_usd = 5.00\n"
+        "day_usd = 20.5\n"
+        "month_usd = 100.123456\n"
+        "soft_threshold = 0.5\n"
+    )
+
+    loaded, _source = config.load_config()
+
+    assert loaded.managers.budget.session_usd == Decimal("5.00")
+    assert loaded.managers.budget.day_usd == Decimal("20.5")
+    assert loaded.managers.budget.month_usd == Decimal("100.123456")
+    assert loaded.managers.budget.soft_threshold == Decimal("0.5")
+
+
+def test_managers_budget_unknown_key_raises_config_error(tmp_path: Path) -> None:
+    """Given a [managers.budget] table carrying a key outside its
+    schema, when load_config runs, then it raises ConfigError naming
+    that key -- the same extra="forbid" guard every other config table
+    enforces applies here too."""
+    (tmp_path / "kestrel.toml").write_text('[managers.budget]\nbogus_key = "x"\n')
+
+    with pytest.raises(config.ConfigError, match="bogus_key"):
+        config.load_config()
+
+
+@pytest.mark.regression
+def test_managers_budget_secret_shaped_key_is_rejected(tmp_path: Path) -> None:
+    """Given a secret-shaped key nested under [managers.budget], when
+    load_config runs, then the secret scan still catches it before
+    schema validation runs -- the new table doesn't create a blind spot
+    in the no-secrets-on-disk guard."""
+    (tmp_path / "kestrel.toml").write_text(
+        '[managers.budget]\napi_key = "sk-do-not-put-me-here"\n'
     )
 
     with pytest.raises(
