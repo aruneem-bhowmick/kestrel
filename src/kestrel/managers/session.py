@@ -218,13 +218,13 @@ def _read_journal(journal_path: Path) -> list[TurnRecord]:
     """
     if not journal_path.exists():
         return []
-    text = journal_path.read_bytes().decode("utf-8")
-    lines = [line for line in text.splitlines() if line]
+    raw_lines = journal_path.read_bytes().splitlines()
+    lines = [line for line in raw_lines if line]
     records: list[TurnRecord] = []
     for i, line in enumerate(lines):
         try:
-            records.append(_record_from_json(line))
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            records.append(_record_from_json(line.decode("utf-8")))
+        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             if i == len(lines) - 1:
                 break
             raise exc
