@@ -67,6 +67,7 @@ class ModelEntry(BaseModel):
     usd_per_mtok_cached: Decimal = Field(ge=0)
     supports_tools: bool
     supports_cache: bool
+    requires_explicit_cache_breakpoint: bool = False
     precision_pin: str | None = None
     tags: frozenset[Tag] = frozenset()
 
