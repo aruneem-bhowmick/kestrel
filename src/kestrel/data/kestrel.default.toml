@@ -37,3 +37,16 @@
 # two are recognized but have no live call path yet). Leave unset to
 # require interactive approval for every destructive action.
 # allowlist = ["delete"]
+
+[managers.budget]
+# USD caps on this task's own spend, on spend across the current UTC
+# day, and on spend across the current UTC month. Leave any of them
+# unset for "no cap" on that scope.
+# session_usd = 5.00
+# day_usd = 20.00
+# month_usd = 100.00
+
+# Fraction of a cap counted as the soft (warn/degrade) boundary, e.g.
+# 0.8 means the soft threshold trips at 80% of whichever cap it
+# belongs to.
+# soft_threshold = 0.8

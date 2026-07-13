@@ -15,11 +15,12 @@ import logging
 import os
 import re
 import tomllib
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
 import platformdirs
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from kestrel.managers.approval import DestructiveKind
 
@@ -74,17 +75,45 @@ class ApprovalConfig(BaseModel):
     allowlist: tuple[DestructiveKind, ...] = ()
 
 
+class BudgetConfig(BaseModel):
+    """Per-repo USD budget caps and soft-threshold fraction.
+
+    Attributes:
+        session_usd: Cap on this task/session's own spend, in USD.
+            `None` means no cap for this scope.
+        day_usd: Cap on spend across the current UTC day, in USD.
+            `None` means no cap for this scope.
+        month_usd: Cap on spend across the current UTC month, in USD.
+            `None` means no cap for this scope.
+        soft_threshold: Fraction of a cap counted as the soft
+            (warn/degrade) boundary, e.g. 0.8 means the soft threshold
+            trips at 80% of whichever cap it belongs to.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    session_usd: Decimal | None = Field(default=None, ge=Decimal("0"))
+    day_usd: Decimal | None = Field(default=None, ge=Decimal("0"))
+    month_usd: Decimal | None = Field(default=None, ge=Decimal("0"))
+    soft_threshold: Decimal = Field(
+        default=Decimal("0.8"), gt=Decimal("0"), le=Decimal("1")
+    )
+
+
 class ManagersConfig(BaseModel):
     """Settings for Kestrel's own runtime-state managers.
 
     Attributes:
         approval: Per-repo configuration for the destructive-action
             approval gate.
+        budget: Per-repo configuration for session/day/month USD
+            budget caps.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     approval: ApprovalConfig = ApprovalConfig()
+    budget: BudgetConfig = BudgetConfig()
 
 
 class KestrelConfig(BaseModel):

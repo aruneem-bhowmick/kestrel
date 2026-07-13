@@ -103,4 +103,5 @@ markers = [
     "p028: the cache-hit ratio aggregate and its low-hit-rate alert",
     "p029: the journaled session manager and the agent loop's resume path",
     "dod_phase_1: acceptance scenario for the tool-calling-agent milestone's Definition of Done",
+    "p030: the session/day/month budget-cap classifier with soft and hard thresholds",
 ]
