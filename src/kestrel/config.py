@@ -95,7 +95,9 @@ class BudgetConfig(BaseModel):
     session_usd: Decimal | None = Field(default=None, ge=Decimal("0"))
     day_usd: Decimal | None = Field(default=None, ge=Decimal("0"))
     month_usd: Decimal | None = Field(default=None, ge=Decimal("0"))
-    soft_threshold: Decimal = Field(default=Decimal("0.8"), gt=Decimal("0"), le=Decimal("1"))
+    soft_threshold: Decimal = Field(
+        default=Decimal("0.8"), gt=Decimal("0"), le=Decimal("1")
+    )
 
 
 class ManagersConfig(BaseModel):
