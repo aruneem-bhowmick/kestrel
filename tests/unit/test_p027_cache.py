@@ -150,7 +150,11 @@ def test_cache_capable_entry_with_explicit_marker_marks_only_the_last_message() 
     marker, with caching supported, when breakpoints are marked, then
     exactly the last message carries `cache_breakpoint=True` and every
     earlier message is left untouched."""
-    entry = _entry(backend="anthropic", supports_cache=True, requires_explicit_cache_breakpoint=True)
+    entry = _entry(
+        backend="anthropic",
+        supports_cache=True,
+        requires_explicit_cache_breakpoint=True,
+    )
     messages: list[Message] = [
         {"role": "system", "content": "prefix"},
         {"role": "user", "content": "task"},
@@ -169,7 +173,11 @@ def test_entry_with_explicit_marker_without_cache_support_leaves_messages_unmark
     caching is disabled, when breakpoints are marked, then no message
     is annotated -- caching support gates the marker independently of
     the backend name."""
-    entry = _entry(backend="anthropic", supports_cache=False, requires_explicit_cache_breakpoint=True)
+    entry = _entry(
+        backend="anthropic",
+        supports_cache=False,
+        requires_explicit_cache_breakpoint=True,
+    )
     messages: list[Message] = [
         {"role": "system", "content": "prefix"},
         {"role": "user", "content": "task"},
