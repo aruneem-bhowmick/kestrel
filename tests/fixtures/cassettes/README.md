@@ -65,6 +65,35 @@ module.
   compaction call's own model response -- token counts distinct from
   every other cassette's, so a system test can tell which turn priced
   which call.
+- `toolcall_edit_farewell.sse` -- a single `edit_file` tool call, whole
+  JSON arguments in one chunk, replacing a `"# TODO: implement
+  farewell"` anchor with a real `farewell` function body -- the second
+  of two files a multi-file acceptance scenario edits, alongside
+  `toolcall_edit_greet.sse`'s own `greet.py`.
+- `cache_hit_turn1_cold.sse` -- a `read_file` tool call with `usage`
+  (`prompt_tokens=100`, `completion_tokens=15`, `cached_tokens=0`),
+  standing in for the first turn of a session, before any prior turn's
+  prefix exists to hit against.
+- `cache_hit_turn2_warm.sse` -- a `read_file` tool call with `usage`
+  (`prompt_tokens=150`, `completion_tokens=15`, `cached_tokens=120`, an
+  80% hit rate), standing in for a later turn against a cache-capable
+  backend once the stable prefix has already been primed.
+- `cache_hit_turn3_done.sse` -- an ordinary text-only closing reply with
+  `usage` (`prompt_tokens=150`, `completion_tokens=12`,
+  `cached_tokens=120`), the same 80% hit rate as
+  `cache_hit_turn2_warm.sse`, so a three-turn session's aggregate ratio
+  clears the 50% alert threshold comfortably.
+- `budget_toolcall_big.sse` -- a `read_file` tool call with a
+  deliberately huge `usage.prompt_tokens=500000` (`completion_tokens=0`,
+  `cached_tokens=0`), sized so two turns at a registry entry's round
+  per-token rate cross a small USD budget cap on clean dollar amounts,
+  mirroring `tests/unit/test_p031_budget_wiring.py`'s own token-count
+  convention.
+- `budget_done_small.sse` -- an ordinary text-only "Task complete."
+  reply with a deliberately small `usage` (`prompt_tokens=100`,
+  `completion_tokens=10`, `cached_tokens=0`), standing in for the turn
+  that closes out a task after a budget degrade or a resume, priced low
+  enough not to itself threaten whatever cap the scenario configured.
 
 ## Re-recording the zai cassette
 

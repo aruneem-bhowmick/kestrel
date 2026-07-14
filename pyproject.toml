@@ -31,6 +31,7 @@ dev = [
     "starlette",
     "uvicorn",
     "httpx",
+    "mutmut",
 ]
 
 [tool.ruff]
@@ -43,6 +44,14 @@ extend-select = ["I"]
 python_version = "3.12"
 strict = true
 files = ["src/kestrel"]
+
+[tool.mutmut]
+source_paths = ["src/kestrel"]
+only_mutate = ["src/kestrel/cost/meter.py", "src/kestrel/agent/loop.py"]
+pytest_add_cli_args_test_selection = [
+    "-m",
+    "p007 or p022 or p026 or p028 or p031 or p032 or (p033 and not live)",
+]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
@@ -106,4 +115,6 @@ markers = [
     "p030: the session/day/month budget-cap classifier with soft and hard thresholds",
     "p031: wiring budget-aware degradation, hard-halt, and resume into the agent loop",
     "p032: summarize-and-fold compaction triggered by context-window pressure",
+    "p033: kestrel run's verification/resume/budget CLI wiring and its own acceptance suite",
+    "dod_phase_2: acceptance scenario for the verified-and-budgeted-agent milestone's Definition of Done",
 ]

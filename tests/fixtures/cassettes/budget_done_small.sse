@@ -1,0 +1,8 @@
+data: {"id": "chatcmpl-budget_done_small", "object": "chat.completion.chunk", "created": 1700000200, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Task complete."}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-budget_done_small", "object": "chat.completion.chunk", "created": 1700000200, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"id": "chatcmpl-budget_done_small", "object": "chat.completion.chunk", "created": 1700000200, "model": "z-ai/glm-5.2", "choices": [], "usage": {"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110, "prompt_tokens_details": {"cached_tokens": 0}}}
+
+data: [DONE]
+

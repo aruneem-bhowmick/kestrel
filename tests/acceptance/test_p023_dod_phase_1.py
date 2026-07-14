@@ -13,6 +13,12 @@ real subprocess against the hermetic mock backend (see
 or a live credential. The one clause that requires a real provider call
 has its own budget-capped, opt-in twin in
 ``tests/e2e/test_p023_dod_live.py``.
+
+Every `kestrel run` invocation below passes `--no-require-verification`:
+none of these scenarios scripts a `verify` tool call, and `run` now
+withholds completion from a no-tool-calls turn until one has passed by
+default, so leaving the flag at its default would silently change what
+each scenario here actually exercises rather than exercising it at all.
 """
 
 from __future__ import annotations
@@ -203,6 +209,7 @@ def test_dod_task_completes_end_to_end(
             str(repo_dir),
             "--config",
             str(config_path),
+            "--no-require-verification",
         ],
         capture_output=True,
         encoding="utf-8",
@@ -249,6 +256,7 @@ def test_dod_approval_gates_destructive_ops(
             str(repo_dir),
             "--config",
             str(config_path),
+            "--no-require-verification",
         ],
         input="n\n",
         capture_output=True,
@@ -295,6 +303,7 @@ def test_dod_undo_reverts_a_task(
             str(repo_dir),
             "--config",
             str(config_path),
+            "--no-require-verification",
         ],
         capture_output=True,
         encoding="utf-8",
@@ -363,6 +372,7 @@ def test_dod_injection_corpus_fails_closed(
             str(repo_dir),
             "--config",
             str(config_path),
+            "--no-require-verification",
         ],
         capture_output=True,
         encoding="utf-8",

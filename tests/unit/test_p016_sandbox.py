@@ -189,10 +189,11 @@ def test_argv_contains_the_default_containment_flags_and_the_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Given no `allow_network` or `extra_rw_paths` override, when run,
-    then the `bwrap` argv ro-binds the filesystem root, binds
-    `repo_root` read-write, unshares the network namespace, dies with
-    its parent, sets `repo_root` as the working directory, and appends
-    the command's own argv untouched at the end."""
+    then the `bwrap` argv ro-binds the filesystem root, mounts a fresh
+    `/dev`, binds `repo_root` read-write, unshares the network
+    namespace, dies with its parent, sets `repo_root` as the working
+    directory, and appends the command's own argv untouched at the
+    end."""
     calls = _capture_argv(monkeypatch)
 
     run_sandboxed(["echo", "hi"], repo_root=tmp_path, timeout_s=5.0)
@@ -201,6 +202,13 @@ def test_argv_contains_the_default_containment_flags_and_the_command(
     assert argv[0] == "bwrap"
     assert "--ro-bind" in argv
     assert argv[argv.index("--ro-bind") + 1 : argv.index("--ro-bind") + 3] == ["/", "/"]
+    assert "--dev" in argv
+    assert argv[argv.index("--dev") + 1] == "/dev"
+    # Not just present, but layered directly on top of the root bind:
+    # bwrap applies later filesystem sources on top of earlier ones, so
+    # `--dev /dev` must follow `--ro-bind / /` to actually take effect
+    # rather than being shadowed by it.
+    assert argv.index("--dev") == argv.index("--ro-bind") + 3
     assert "--bind" in argv
     bind_index = argv.index("--bind")
     assert argv[bind_index + 1 : bind_index + 3] == [str(tmp_path), str(tmp_path)]

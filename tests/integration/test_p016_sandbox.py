@@ -58,6 +58,31 @@ def test_echo_inside_the_sandbox_succeeds(tmp_path: Path) -> None:
     assert result.timed_out is False
 
 
+def test_a_python_interpreter_starts_successfully_inside_the_sandbox(
+    tmp_path: Path,
+) -> None:
+    """Given a command that starts a fresh CPython interpreter (`pytest`
+    is exactly this shape, and is what `verify`'s own KESTREL.md-configured
+    `test` command normally runs), when run inside the sandbox, then it
+    starts and exits 0 rather than dying during interpreter startup.
+
+    CPython seeds hash randomization from `getrandom()`/`/dev/urandom`
+    on every startup; a sandbox whose `/dev` is not itself a working
+    device tree (as opposed to one that merely happens to look normal
+    read-only under `--ro-bind`) fails this before the interpreter can
+    run a single line, with `_Py_HashRandomization_Init: failed to get
+    random numbers to initialize Python` on stderr -- the exact failure
+    `--dev /dev` in `_build_bwrap_argv` exists to prevent.
+    """
+    result = run_sandboxed(
+        ["python3", "-c", "print('ok')"], repo_root=tmp_path, timeout_s=10.0
+    )
+
+    assert result.timed_out is False
+    assert result.exit_code == 0, result.stderr
+    assert "ok" in result.stdout
+
+
 def test_writing_outside_repo_root_fails_without_crashing_the_harness(
     tmp_path: Path,
 ) -> None:
@@ -82,18 +107,28 @@ def test_writing_outside_repo_root_fails_without_crashing_the_harness(
 
 
 def test_network_call_fails_due_to_the_unshared_namespace(tmp_path: Path) -> None:
-    """Given a command that tries to open a TCP connection to the
-    loopback address, when run inside the sandbox with the default
+    """Given a command that tries to open a TCP connection to a real,
+    non-loopback address, when run inside the sandbox with the default
     `allow_network=False`, then the connection fails with a
     network-unreachable error -- proof the network namespace itself is
-    unshared (loopback recreated but down), distinct from the
-    connection-refused error the same call would raise outside the
-    sandbox against a port nothing listens on."""
+    unshared and carries no route out at all, not merely that
+    something refused the connection.
+
+    Deliberately targets a non-loopback address rather than
+    `127.0.0.1`: bwrap brings up a real, working loopback interface
+    inside an unshared network namespace (so sandboxed code can still
+    talk to itself over `127.0.0.1`), so a loopback connection to a
+    port nothing listens on gets an ordinary connection-refused error
+    both inside and outside the sandbox -- it proves nothing about
+    isolation either way. A namespace with no configured route besides
+    loopback, by contrast, cannot reach any other address at all,
+    which is exactly what network isolation is supposed to guarantee.
+    """
     result = run_sandboxed(
         [
             "python3",
             "-c",
-            "import socket; socket.create_connection(('127.0.0.1', 1), timeout=2)",
+            "import socket; socket.create_connection(('10.255.255.1', 80), timeout=2)",
         ],
         repo_root=tmp_path,
         timeout_s=10.0,

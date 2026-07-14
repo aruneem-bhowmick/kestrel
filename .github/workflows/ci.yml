@@ -56,6 +56,16 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y ripgrep bubblewrap
 
+      - name: Allow bwrap to unshare a network namespace
+        # Ubuntu 24.04 restricts unprivileged user namespace creation via
+        # AppArmor by default, which blocks bwrap's own loopback setup
+        # inside a `--unshare-net` sandbox (`bwrap: loopback: Failed
+        # RTM_NEWADDR: Operation not permitted`) -- the sandboxed `execute`
+        # and `verify` tools both run with the network namespace unshared.
+        # Scoped to this runner only; does not affect anything the package
+        # ships.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Run test suite
         run: >-
           uv run pytest -m "not live and not e2e and not smoke"
@@ -82,6 +92,16 @@ jobs:
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y ripgrep bubblewrap
+
+      - name: Allow bwrap to unshare a network namespace
+        # Ubuntu 24.04 restricts unprivileged user namespace creation via
+        # AppArmor by default, which blocks bwrap's own loopback setup
+        # inside a `--unshare-net` sandbox (`bwrap: loopback: Failed
+        # RTM_NEWADDR: Operation not permitted`) -- the sandboxed `execute`
+        # and `verify` tools both run with the network namespace unshared.
+        # Scoped to this runner only; does not affect anything the package
+        # ships.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Run test suite
         run: >-

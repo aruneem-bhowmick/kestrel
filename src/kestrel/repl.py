@@ -294,6 +294,7 @@ def run_repl(
     client: ProviderClient,
     model_id: str,
     *,
+    kestrel_md: KestrelMd | None = None,
     input_fn: Callable[[str], str] = input,
     out: TextIO = sys.stdout,
 ) -> int:
@@ -303,6 +304,8 @@ def run_repl(
     and validate the starting model (honoring an explicit override versus
     the configured default) before entering the loop, so an unknown
     starting model is a caller-side error, not something this loop handles.
+    ``kestrel_md`` is threaded straight into the session (``None`` by
+    default, matching every caller that predates project-memory support).
     """
     session = ReplSession(
         config=config,
@@ -311,5 +314,6 @@ def run_repl(
         meter=CostMeter(),
         active_model_id=model_id,
         history=[],
+        kestrel_md=kestrel_md,
     )
     return _run_repl_loop(session, input_fn=input_fn, out=out)

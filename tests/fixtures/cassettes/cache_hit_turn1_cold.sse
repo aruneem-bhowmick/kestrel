@@ -1,0 +1,8 @@
+data: {"id": "chatcmpl-cache_hit_turn1_cold", "object": "chat.completion.chunk", "created": 1700000100, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [{"index": 0, "id": "call_cache_read_1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"src/greet.py\"}"}}]}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-cache_hit_turn1_cold", "object": "chat.completion.chunk", "created": 1700000100, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+
+data: {"id": "chatcmpl-cache_hit_turn1_cold", "object": "chat.completion.chunk", "created": 1700000100, "model": "z-ai/glm-5.2", "choices": [], "usage": {"prompt_tokens": 100, "completion_tokens": 15, "total_tokens": 115, "prompt_tokens_details": {"cached_tokens": 0}}}
+
+data: [DONE]
+
