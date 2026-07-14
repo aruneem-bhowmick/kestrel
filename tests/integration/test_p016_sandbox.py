@@ -58,6 +58,31 @@ def test_echo_inside_the_sandbox_succeeds(tmp_path: Path) -> None:
     assert result.timed_out is False
 
 
+def test_a_python_interpreter_starts_successfully_inside_the_sandbox(
+    tmp_path: Path,
+) -> None:
+    """Given a command that starts a fresh CPython interpreter (`pytest`
+    is exactly this shape, and is what `verify`'s own KESTREL.md-configured
+    `test` command normally runs), when run inside the sandbox, then it
+    starts and exits 0 rather than dying during interpreter startup.
+
+    CPython seeds hash randomization from `getrandom()`/`/dev/urandom`
+    on every startup; a sandbox whose `/dev` is not itself a working
+    device tree (as opposed to one that merely happens to look normal
+    read-only under `--ro-bind`) fails this before the interpreter can
+    run a single line, with `_Py_HashRandomization_Init: failed to get
+    random numbers to initialize Python` on stderr -- the exact failure
+    `--dev /dev` in `_build_bwrap_argv` exists to prevent.
+    """
+    result = run_sandboxed(
+        ["python3", "-c", "print('ok')"], repo_root=tmp_path, timeout_s=10.0
+    )
+
+    assert result.timed_out is False
+    assert result.exit_code == 0, result.stderr
+    assert "ok" in result.stdout
+
+
 def test_writing_outside_repo_root_fails_without_crashing_the_harness(
     tmp_path: Path,
 ) -> None:

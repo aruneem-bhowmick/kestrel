@@ -91,17 +91,32 @@ def _build_bwrap_argv(
     extra_rw_paths: Sequence[Path],
 ) -> list[str]:
     """Build the full `bwrap` argv for `cmd`: a read-only bind of the
-    whole filesystem root, read-write binds of `repo_root`,
-    `scratch_dir`, and each of `extra_rw_paths` layered on top of it,
-    the sandboxed process dying if its parent does, the network
-    namespace unshared unless `allow_network`, and the working directory
-    set to `repo_root` -- followed by `cmd` itself, untouched, so no
-    shell ever interprets it."""
+    whole filesystem root, a freshly mounted `/dev` layered on top of
+    it, read-write binds of `repo_root`, `scratch_dir`, and each of
+    `extra_rw_paths`, the sandboxed process dying if its parent does,
+    the network namespace unshared unless `allow_network`, and the
+    working directory set to `repo_root` -- followed by `cmd` itself,
+    untouched, so no shell ever interprets it.
+
+    `--dev /dev` is load-bearing, not cosmetic: `--ro-bind / /` alone
+    carries over whatever `/dev` entries the host's root happens to
+    expose at that path, which is not guaranteed to include a working
+    `/dev/urandom` in every environment. Any sandboxed command that
+    starts a CPython interpreter -- `pytest`, most obviously -- calls
+    `getrandom()`/reads `/dev/urandom` to seed hash randomization at
+    startup, and dies immediately with `_Py_HashRandomization_Init:
+    failed to get random numbers to initialize Python` when that isn't
+    available; a plain command like `true` never touches it and always
+    looks fine. `--dev /dev` gives every sandboxed process bwrap's own
+    minimal, always-functional device set instead of depending on the
+    host's."""
     argv = [
         _BWRAP_BIN,
         "--ro-bind",
         "/",
         "/",
+        "--dev",
+        "/dev",
         "--bind",
         str(repo_root),
         str(repo_root),
