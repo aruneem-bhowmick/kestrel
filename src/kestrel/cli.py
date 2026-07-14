@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import shlex
 import sys
 import time
 import uuid
@@ -325,7 +326,7 @@ def _print_budget_halt(
     print(f"reason: {TerminationReason.BUDGET_HALT.name}")
     print(
         f"budget halt: {event.tripped_cap} cap reached; resume with: "
-        f"kestrel run --resume {task_id} --repo {repo_root}"
+        f"kestrel run --resume {shlex.quote(task_id)} --repo {shlex.quote(str(repo_root))}"
     )
 
 

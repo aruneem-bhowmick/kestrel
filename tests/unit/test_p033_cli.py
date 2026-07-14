@@ -13,6 +13,7 @@ end-to-end behavior.
 
 from __future__ import annotations
 
+import shlex
 from argparse import Namespace
 from collections.abc import Callable
 from decimal import Decimal
@@ -448,3 +449,25 @@ def test_print_budget_halt_names_the_tripped_cap_and_the_resume_command(
     assert "reason: BUDGET_HALT" in out
     assert "budget halt: session cap reached" in out
     assert f"kestrel run --resume t-1 --repo {repo_root}" in out
+
+
+def test_print_budget_halt_quotes_a_repo_path_containing_a_space(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Given a `repo_root` containing a space, when the halt message is
+    printed, then the resume command quotes it so the printed
+    invocation can be copy-pasted and run as-is rather than being torn
+    into two shell words."""
+    repo_root = Path("repo with spaces")
+    _print_budget_halt(
+        "t-1",
+        budget_limits=BudgetLimits(session_usd=Decimal("1.00")),
+        spent_session_usd=Decimal("1.00"),
+        spent_day_usd=Decimal("0"),
+        spent_month_usd=Decimal("0"),
+        repo_root=repo_root,
+    )
+
+    out = capsys.readouterr().out
+    assert f"--repo {shlex.quote(str(repo_root))}" in out
+    assert "--repo repo with spaces" not in out
