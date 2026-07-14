@@ -188,6 +188,24 @@ def _run_env(openrouter_base: str) -> dict[str, str]:
     return env
 
 
+def _render_verification_reports(repo_dir: Path) -> str:
+    """Render every persisted `.kestrel/artifacts/*.md` verification
+    report under `repo_dir`, for a failure message: a real `verify`
+    call's own sandboxed command can fail for reasons entirely outside
+    this test's own logic (a broken host/CI sandbox environment, most
+    notably), and a bare `returncode != 0` assertion gives no way to
+    tell that apart from a genuine regression in the verification-gate
+    behavior this test exists to check. Returns a placeholder string
+    when no artifacts directory exists at all."""
+    artifacts_dir = repo_dir / ".kestrel" / "artifacts"
+    if not artifacts_dir.exists():
+        return "(no .kestrel/artifacts directory)"
+    return "\n".join(
+        f"--- {path} ---\n{path.read_text(encoding='utf-8')}"
+        for path in sorted(artifacts_dir.glob("*.md"))
+    )
+
+
 @pytest.mark.skipif(not bwrap_available(), reason="bwrap not found on PATH")
 def test_dod_verification_is_the_exit_criterion(
     tmp_path: Path,
@@ -248,17 +266,9 @@ def test_dod_verification_is_the_exit_criterion(
         check=False,
     )
 
-    diag_artifacts = repo_dir / ".kestrel" / "artifacts"
-    diag_reports = (
-        "\n".join(
-            f"--- {p} ---\n{p.read_text(encoding='utf-8')}"
-            for p in sorted(diag_artifacts.glob("*.md"))
-        )
-        if diag_artifacts.exists()
-        else "(no .kestrel/artifacts directory)"
-    )
     assert result.returncode == 0, (
-        f"stdout={result.stdout!r}\nstderr={result.stderr!r}\n{diag_reports}"
+        f"stdout={result.stdout!r}\nstderr={result.stderr!r}\n"
+        f"{_render_verification_reports(repo_dir)}"
     )
     assert "TASK_COMPLETE" in result.stdout
     assert len(captured) == 5, (
