@@ -248,7 +248,18 @@ def test_dod_verification_is_the_exit_criterion(
         check=False,
     )
 
-    assert result.returncode == 0, result.stderr
+    diag_artifacts = repo_dir / ".kestrel" / "artifacts"
+    diag_reports = (
+        "\n".join(
+            f"--- {p} ---\n{p.read_text(encoding='utf-8')}"
+            for p in sorted(diag_artifacts.glob("*.md"))
+        )
+        if diag_artifacts.exists()
+        else "(no .kestrel/artifacts directory)"
+    )
+    assert result.returncode == 0, (
+        f"stdout={result.stdout!r}\nstderr={result.stderr!r}\n{diag_reports}"
+    )
     assert "TASK_COMPLETE" in result.stdout
     assert len(captured) == 5, (
         "the premature 'done' attempt must not have ended the task"
