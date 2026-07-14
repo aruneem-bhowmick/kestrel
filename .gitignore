@@ -19,3 +19,7 @@ __pycache__/
 .ruff_cache/
 dist/
 .kestrel/
+
+# mutmut's own working directory and cache (`uv run mutmut run`)
+mutants/
+.mutmut-cache

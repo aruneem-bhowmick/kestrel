@@ -501,12 +501,19 @@ never pass `--live` in an automated or CI context.
 a broken change to the two modules where a subtly wrong formula or
 predicate is easiest to miss and costliest to ship silently:
 `kestrel/cost/meter.py` (the pricing arithmetic) and
-`kestrel/agent/loop.py` (the loop's own termination and budget
-predicates). It systematically mutates small pieces of each -- flipping a
-comparison, swapping an operator -- and reruns the targeted subset of the
-suite (`uv run pytest -m 'p007 or p022 or p026 or p028 or p031 or p032'`)
-against every mutant; a mutant that still passes is a "survivor" worth
-triaging, since it means some change to that logic would ship unnoticed.
+`kestrel/agent/loop.py` (the loop's own termination, verification-gate,
+and budget predicates), configured via `[tool.mutmut]`'s `only_mutate`.
+It systematically mutates small pieces of each -- flipping a comparison,
+swapping an operator -- and reruns the targeted subset of the suite
+(`uv run pytest -m 'p007 or p022 or p026 or p028 or p031 or p032 or
+p033'`, configured via `pytest_add_cli_args_test_selection`) against
+every mutant; a mutant that still passes is a "survivor" worth triaging,
+since it means some change to that logic would ship unnoticed. `p033` is
+in that set alongside the unit-level markers because its own acceptance
+suite is what exercises the verification gate and both budget
+thresholds through a real `kestrel run` invocation rather than a
+scripted `LoopDeps` call, so a mutant that only a full CLI run would
+catch does not slip through.
 
 This is a manually invoked quality check, not a CI gate -- mutation
 testing's own runtime cost (many reruns of the targeted suite, one per
