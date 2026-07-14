@@ -50,7 +50,7 @@ source_paths = ["src/kestrel"]
 only_mutate = ["src/kestrel/cost/meter.py", "src/kestrel/agent/loop.py"]
 pytest_add_cli_args_test_selection = [
     "-m",
-    "p007 or p022 or p026 or p028 or p031 or p032 or p033",
+    "p007 or p022 or p026 or p028 or p031 or p032 or (p033 and not live)",
 ]
 
 [tool.pytest.ini_options]

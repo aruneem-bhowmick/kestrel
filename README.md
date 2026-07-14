@@ -506,14 +506,16 @@ and budget predicates), configured via `[tool.mutmut]`'s `only_mutate`.
 It systematically mutates small pieces of each -- flipping a comparison,
 swapping an operator -- and reruns the targeted subset of the suite
 (`uv run pytest -m 'p007 or p022 or p026 or p028 or p031 or p032 or
-p033'`, configured via `pytest_add_cli_args_test_selection`) against
-every mutant; a mutant that still passes is a "survivor" worth triaging,
-since it means some change to that logic would ship unnoticed. `p033` is
-in that set alongside the unit-level markers because its own acceptance
-suite is what exercises the verification gate and both budget
-thresholds through a real `kestrel run` invocation rather than a
-scripted `LoopDeps` call, so a mutant that only a full CLI run would
-catch does not slip through.
+(p033 and not live)'`, configured via `pytest_add_cli_args_test_selection`)
+against every mutant; a mutant that still passes is a "survivor" worth
+triaging, since it means some change to that logic would ship
+unnoticed. `p033` is in that set alongside the unit-level markers
+because its own acceptance suite is what exercises the verification
+gate and both budget thresholds through a real `kestrel run` invocation
+rather than a scripted `LoopDeps` call, so a mutant that only a full
+CLI run would catch does not slip through -- `and not live` excludes
+its own opt-in live smoke test, which needs real credentials and would
+otherwise get a network-backed run of its own for every single mutant.
 
 This is a manually invoked quality check, not a CI gate -- mutation
 testing's own runtime cost (many reruns of the targeted suite, one per
