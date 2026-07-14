@@ -204,6 +204,11 @@ def test_argv_contains_the_default_containment_flags_and_the_command(
     assert argv[argv.index("--ro-bind") + 1 : argv.index("--ro-bind") + 3] == ["/", "/"]
     assert "--dev" in argv
     assert argv[argv.index("--dev") + 1] == "/dev"
+    # Not just present, but layered directly on top of the root bind:
+    # bwrap applies later filesystem sources on top of earlier ones, so
+    # `--dev /dev` must follow `--ro-bind / /` to actually take effect
+    # rather than being shadowed by it.
+    assert argv.index("--dev") == argv.index("--ro-bind") + 3
     assert "--bind" in argv
     bind_index = argv.index("--bind")
     assert argv[bind_index + 1 : bind_index + 3] == [str(tmp_path), str(tmp_path)]
