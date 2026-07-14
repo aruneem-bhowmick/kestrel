@@ -9,6 +9,7 @@ import time
 import uuid
 from argparse import SUPPRESS, ArgumentParser, BooleanOptionalAction, Namespace
 from collections.abc import Sequence
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
@@ -366,32 +367,63 @@ def _print_task_summary(
             print(f"  {path}")
 
 
-def _run_task_command(
+@dataclass(frozen=True, slots=True)
+class _RunSetup:
+    """The collaborator bundle `_run_task_command` and
+    `_resume_task_command` both build, via `_build_run_deps`, before
+    driving their own task.
+
+    Attributes:
+        deps: The `LoopDeps` bundle to drive the task with.
+        undo: The task's own `UndoManager`, read again after the run to
+            list touched paths in the summary.
+        meter: The `CostMeter` `deps` was built with. For a resumed
+            task, `resume_task` replaces `deps.meter` with a freshly
+            seeded one, so a caller printing a post-run summary should
+            read `deps.meter` at that point, not this field -- this
+            field is only guaranteed current for a fresh `run`.
+        budget_limits: The resolved caps, needed again by
+            `_print_budget_halt` to reclassify the run's final spend.
+        spent_day_usd: The day baseline `_print_budget_halt` also needs.
+        spent_month_usd: The month baseline `_print_budget_halt` also
+            needs.
+    """
+
+    deps: LoopDeps
+    undo: UndoManager
+    meter: CostMeter
+    budget_limits: BudgetLimits
+    spent_day_usd: Decimal
+    spent_month_usd: Decimal
+
+
+def _build_run_deps(
+    *,
     args: Namespace,
     config: KestrelConfig,
     registry: Registry,
     model_id: str,
     kestrel_md: KestrelMd | None,
-) -> int:
-    """Run `args.task` to completion against `args.repo` and print a terse
-    summary.
+    repo_root: Path,
+    task_id: str,
+) -> _RunSetup:
+    """Build the `LoopDeps` bundle -- and the collaborators a caller
+    needs again after the run -- shared by `_run_task_command` and
+    `_resume_task_command`.
 
     Builds a fresh `ApprovalManager` (pre-approving whatever
-    `config.managers.approval.allowlist` names), `UndoManager`,
-    `SessionManager` (so the task can later be picked back up via
-    `kestrel run --resume`), `BudgetManager` (from `_resolve_budget_limits`),
-    and `CostMeter` for this run alone -- nothing here is reused across
-    separate `run` invocations. `spent_day_usd`/`spent_month_usd` are
-    computed once, up front, via `aggregate_historical_spend` over every
-    other task's own journaled spend, excluding this brand new task id
-    (which cannot yet have any history of its own). On
-    `TerminationReason.BUDGET_HALT`, prints `_print_budget_halt`'s
-    dedicated message instead of the ordinary summary; every other
-    reason gets `_print_task_summary`. Exits `0` only on
-    `TerminationReason.TASK_COMPLETE`.
+    `config.managers.approval.allowlist` names), `UndoManager`, and
+    `CostMeter`; a `SessionManager` scoped to `task_id` (loading an
+    existing journal when one is already there, so a resume picks up
+    where a halted run left off rather than starting empty); and
+    `BudgetManager` from `_resolve_budget_limits`. `spent_day_usd`/
+    `spent_month_usd` are computed once via `aggregate_historical_spend`
+    over every *other* task's own journaled spend, always excluding
+    `task_id` itself -- for a fresh run that id has no history yet to
+    exclude; for a resume, excluding it is what keeps that task's own
+    prior spend (already re-added once its own `CostMeter` is resumed)
+    from being double-counted.
     """
-    repo_root = Path(args.repo)
-    task_id = str(uuid.uuid4())
     undo = UndoManager(repo_root=repo_root)
     session = SessionManager(repo_root=repo_root, task_id=task_id)
     budget_limits = _resolve_budget_limits(args, config)
@@ -425,22 +457,62 @@ def _run_task_command(
         spent_day_usd=spent_day_usd,
         spent_month_usd=spent_month_usd,
     )
+    return _RunSetup(
+        deps=deps,
+        undo=undo,
+        meter=meter,
+        budget_limits=budget_limits,
+        spent_day_usd=spent_day_usd,
+        spent_month_usd=spent_month_usd,
+    )
+
+
+def _run_task_command(
+    args: Namespace,
+    config: KestrelConfig,
+    registry: Registry,
+    model_id: str,
+    kestrel_md: KestrelMd | None,
+) -> int:
+    """Run `args.task` to completion against `args.repo` and print a terse
+    summary.
+
+    Builds its collaborators via `_build_run_deps` -- nothing built
+    there is reused across separate `run` invocations. On
+    `TerminationReason.BUDGET_HALT`, prints `_print_budget_halt`'s
+    dedicated message instead of the ordinary summary; every other
+    reason gets `_print_task_summary`. Exits `0` only on
+    `TerminationReason.TASK_COMPLETE`.
+    """
+    repo_root = Path(args.repo)
+    task_id = str(uuid.uuid4())
+    setup = _build_run_deps(
+        args=args,
+        config=config,
+        registry=registry,
+        model_id=model_id,
+        kestrel_md=kestrel_md,
+        repo_root=repo_root,
+        task_id=task_id,
+    )
 
     assert args.task is not None  # enforced by the `task`/`--resume` mutex group
-    result = asyncio.run(run_task(args.task, deps, task_id))
+    result = asyncio.run(run_task(args.task, setup.deps, task_id))
 
     if result.reason is TerminationReason.BUDGET_HALT:
         _print_budget_halt(
             task_id,
-            budget_limits=budget_limits,
+            budget_limits=setup.budget_limits,
             spent_session_usd=result.total_usd,
-            spent_day_usd=spent_day_usd,
-            spent_month_usd=spent_month_usd,
+            spent_day_usd=setup.spent_day_usd,
+            spent_month_usd=setup.spent_month_usd,
             repo_root=repo_root,
         )
         return 1
 
-    _print_task_summary(task_id, result, undo, meter, registry.get(model_id))
+    _print_task_summary(
+        task_id, result, setup.undo, setup.meter, registry.get(model_id)
+    )
     return 0 if result.reason is TerminationReason.TASK_COMPLETE else 1
 
 
@@ -454,14 +526,16 @@ def _resume_task_command(
     """Continue `args.resume` from its own journal under `args.repo` and
     print the identical summary shape `_run_task_command` does.
 
-    Resolves `model_id`/`kestrel_md`/the budget cap the same way
-    `_run_task_command` does; `SessionManager` and `UndoManager` both
-    point at the same task id's existing journal, so they pick up right
-    where the halted run left off rather than starting empty. Neither
-    `CostMeter` nor `verification_reports` need seeding here --
-    `resume_task` itself reconstructs both from the loaded session state
-    (see `kestrel.agent.loop.resume_task`), overwriting whatever
-    placeholder `LoopDeps.meter` was built with below.
+    Builds its collaborators via `_build_run_deps`, exactly like
+    `_run_task_command` does, except `task_id` is `args.resume` rather
+    than a freshly generated id -- `_build_run_deps`'s own
+    `SessionManager`/`UndoManager` construction already loads that id's
+    existing journal when one is there, so they pick up right where the
+    halted run left off rather than starting empty. Neither `CostMeter`
+    nor `verification_reports` need seeding here -- `resume_task` itself
+    reconstructs both from the loaded session state (see
+    `kestrel.agent.loop.resume_task`), overwriting whatever placeholder
+    `LoopDeps.meter` `_build_run_deps` built.
 
     Raises nothing on a missing journal -- `FileNotFoundError` is caught
     and reported the same way a `ConfigError` is, exiting `1` instead of
@@ -470,41 +544,18 @@ def _resume_task_command(
     repo_root = Path(args.repo)
     task_id = args.resume
     assert task_id is not None  # enforced by the `task`/`--resume` mutex group
-    undo = UndoManager(repo_root=repo_root)
-    session = SessionManager(repo_root=repo_root, task_id=task_id)
-    budget_limits = _resolve_budget_limits(args, config)
-    now = time.time()
-    spent_day_usd = aggregate_historical_spend(
-        repo_root, now=now, window_s=_DAY_WINDOW_S, exclude_task_id=task_id
-    )
-    spent_month_usd = aggregate_historical_spend(
-        repo_root, now=now, window_s=_MONTH_WINDOW_S, exclude_task_id=task_id
-    )
-    deps = LoopDeps(
-        client=LiteLLMClient(registry),
+    setup = _build_run_deps(
+        args=args,
+        config=config,
         registry=registry,
         model_id=model_id,
-        repo_root=repo_root,
-        approval=ApprovalManager(
-            allowlist=frozenset(config.managers.approval.allowlist)
-        ),
-        undo=undo,
-        meter=CostMeter(),
-        limits=LoopLimits(
-            max_turns=args.max_turns,
-            max_total_tokens=args.max_total_tokens,
-            max_wall_clock_s=args.max_wall_clock_s,
-        ),
-        require_verification=args.require_verification,
         kestrel_md=kestrel_md,
-        session=session,
-        budget=BudgetManager(limits=budget_limits),
-        spent_day_usd=spent_day_usd,
-        spent_month_usd=spent_month_usd,
+        repo_root=repo_root,
+        task_id=task_id,
     )
 
     try:
-        result = asyncio.run(resume_task(task_id, deps))
+        result = asyncio.run(resume_task(task_id, setup.deps))
     except FileNotFoundError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -512,15 +563,17 @@ def _resume_task_command(
     if result.reason is TerminationReason.BUDGET_HALT:
         _print_budget_halt(
             task_id,
-            budget_limits=budget_limits,
+            budget_limits=setup.budget_limits,
             spent_session_usd=result.total_usd,
-            spent_day_usd=spent_day_usd,
-            spent_month_usd=spent_month_usd,
+            spent_day_usd=setup.spent_day_usd,
+            spent_month_usd=setup.spent_month_usd,
             repo_root=repo_root,
         )
         return 1
 
-    _print_task_summary(task_id, result, undo, deps.meter, registry.get(model_id))
+    _print_task_summary(
+        task_id, result, setup.undo, setup.deps.meter, registry.get(model_id)
+    )
     return 0 if result.reason is TerminationReason.TASK_COMPLETE else 1
 
 
