@@ -77,7 +77,7 @@ def mark_cache_breakpoints(
     new list with the same messages, none of them touched, since an
     implicit, position-based cache boundary is all any of them need.
 
-    This checks a plain boolean field on `entry`, never `entry.backend`
+    This checks plain boolean fields on `entry`, never `entry.backend`
     itself -- marking is something a registry entry opts into, not
     something this function infers from a hardcoded set of backend
     names. That keeps onboarding a backend that needs an explicit marker
