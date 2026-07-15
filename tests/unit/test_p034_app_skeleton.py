@@ -101,3 +101,44 @@ async def test_panes_are_split_across_the_documented_columns() -> None:
         assert pilot.app.query_one("#artifact").parent is right_column
         assert pilot.app.query_one("#diff").parent is right_column
         assert right_column in pilot.app.query_one("#tool_log").ancestors
+
+
+async def test_f1_focuses_task_input() -> None:
+    """Given a mounted KestrelApp, when F1 is pressed, then focus moves
+    to the task-input box."""
+    async with KestrelApp().run_test() as pilot:
+        await pilot.press("f1")
+        assert pilot.app.focused is pilot.app.query_one("#task_input", Input)
+
+
+async def test_f2_focuses_tool_log() -> None:
+    """Given a mounted KestrelApp, when F2 is pressed, then focus moves
+    to the tool-log pane."""
+    async with KestrelApp().run_test() as pilot:
+        await pilot.press("f2")
+        assert pilot.app.focused is pilot.app.query_one("#tool_log", ToolLogPane)
+
+
+async def test_f3_focuses_diff_pane() -> None:
+    """Given a mounted KestrelApp, when F3 is pressed, then focus moves
+    to the diff pane."""
+    async with KestrelApp().run_test() as pilot:
+        await pilot.press("f3")
+        assert pilot.app.focused is pilot.app.query_one("#diff", DiffPane)
+
+
+async def test_f4_focuses_artifact_pane() -> None:
+    """Given a mounted KestrelApp, when F4 is pressed, then focus moves
+    to the artifact pane."""
+    async with KestrelApp().run_test() as pilot:
+        await pilot.press("f4")
+        assert pilot.app.focused is pilot.app.query_one("#artifact", ArtifactPane)
+
+
+async def test_ctrl_q_exits_cleanly() -> None:
+    """Given a mounted KestrelApp, when ctrl+q is pressed, then the app
+    stops running and run_test's own context manager exits without
+    raising."""
+    async with KestrelApp().run_test() as pilot:
+        await pilot.press("ctrl+q")
+        assert not pilot.app.is_running
