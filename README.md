@@ -114,7 +114,10 @@ reprocessing the whole thing from scratch on every call.
 no backend wired up today needs an explicit marker for where that
 prefix ends, so it is currently a no-op, but a future adapter for a
 backend that does need one can read `Message.cache_breakpoint` off the
-last message this function annotates.
+last message this function annotates. Whether an entry needs that marker
+is `ModelEntry.requires_explicit_cache_breakpoint`, a plain per-entry
+flag rather than a hardcoded backend name -- onboarding a backend that
+needs one is a registry change, not a code change.
 
 ## Tools
 

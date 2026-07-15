@@ -47,6 +47,13 @@ class ModelEntry(BaseModel):
         usd_per_mtok_cached: Price per million cache-hit input tokens.
         supports_tools: Whether the backend accepts tool/function schemas.
         supports_cache: Whether the backend supports prompt caching.
+        requires_explicit_cache_breakpoint: Whether this entry needs an
+            explicit marker for where its cacheable prefix ends, rather
+            than an implicit, position-based boundary. A plain per-entry
+            flag rather than a hardcoded backend-name check, so a backend
+            that starts (or stops) needing one is a registry-entry
+            change, not a code change. Defaults to ``False``: every
+            backend wired up today infers the boundary implicitly.
         precision_pin: Quantization pinned by the operator (e.g.
             ``"fp8"``), or ``None`` to leave precision provider-managed.
         tags: Routing hints (planner/executor role, relative cost,
