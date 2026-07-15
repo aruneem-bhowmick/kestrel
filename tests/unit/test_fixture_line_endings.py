@@ -27,10 +27,10 @@ def test_no_golden_fixture_contains_a_carriage_return() -> None:
     several tests compare against with `read_bytes()` are meaningless if
     a platform-specific line-ending conversion has silently changed them
     from what was actually committed."""
-    offenders = [
-        path.name
-        for path in sorted(_GOLDEN_DIR.glob("*.golden"))
-        if b"\r" in path.read_bytes()
-    ]
+    golden_files = sorted(_GOLDEN_DIR.glob("*.golden"))
+    assert _GOLDEN_DIR.is_dir(), f"golden fixture directory missing: {_GOLDEN_DIR}"
+    assert golden_files, f"no *.golden fixtures found under {_GOLDEN_DIR}"
+
+    offenders = [path.name for path in golden_files if b"\r" in path.read_bytes()]
 
     assert offenders == []
