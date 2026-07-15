@@ -455,6 +455,29 @@ exact pre-task content and printing what it reverted. Reverting twice
 in a row is safe (see [State](#state)): the second call targets the
 first's own compensating journal entry and simply toggles the file back.
 
+## TUI
+
+Running `kestrel` with no subcommand mounts a Textual-based cockpit
+instead of the plain REPL: a conversation pane streaming the active
+task's assistant text, an artifact viewer for the task's most recently
+produced artifact, a collapsible tool log of tool calls and their
+outcomes, a diff view for the most recent file mutation, and a one-line
+status bar docked to the top of the screen. A 2fr-wide left column
+holds the conversation pane above a task-input box; a 1fr-wide right
+column stacks the artifact, tool-log, and diff panes.
+
+`F1`-`F4` jump focus to the task-input box, the tool log, the diff
+pane, and the artifact pane in turn; `ctrl+q` quits. Every pane shows
+only static placeholder content today -- wiring each one to live task
+data is ongoing work that lands without touching this layout.
+
+The default theme ("kestrel") is a restrained rust-and-slate palette
+defined entirely as ordinary Textual CSS variables in
+`src/kestrel/tui/kestrel.tcss`. Customize it by editing that file's
+rules directly, or by pointing a `KestrelApp` subclass's own
+`CSS_PATH` at a different stylesheet -- either way, no changes to the
+app's own Python code are required.
+
 ## Flight check
 
 `kestrel doctor` runs eight checks and prints one aligned line per check,
