@@ -124,4 +124,5 @@ markers = [
     "p032: summarize-and-fold compaction triggered by context-window pressure",
     "p033: kestrel run's verification/resume/budget CLI wiring and its own acceptance suite",
     "dod_phase_2: acceptance scenario for the verified-and-budgeted-agent milestone's Definition of Done",
+    "p034: the KestrelApp Textual skeleton, default theme, and pane layout",
 ]
