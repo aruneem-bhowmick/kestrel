@@ -820,6 +820,7 @@ dependencies = [
     { name = "litellm" },
     { name = "platformdirs" },
     { name = "pydantic" },
+    { name = "textual" },
 ]
 
 [package.dev-dependencies]
@@ -842,6 +843,7 @@ requires-dist = [
     { name = "litellm" },
     { name = "platformdirs" },
     { name = "pydantic", specifier = ">=2" },
+    { name = "textual", specifier = ">=0.80" },
 ]
 
 [package.metadata.requires-dev]
