@@ -530,6 +530,16 @@ equivalent to the original and can be marked accordingly. `mutmut` itself
 only runs under WSL on Windows -- see its own upstream note if `mutmut
 run` reports no native Windows support.
 
+## Docstring coverage
+
+`uv run interrogate` checks that `src/kestrel` and `tests` stay
+documented as the codebase grows, failing if coverage drops below the
+80% floor set in `[tool.interrogate]`. Like `mutmut`, this is a manually
+invoked quality check rather than a CI gate -- unlike `mutmut`, its
+runtime cost is negligible, so there's no reason not to run it alongside
+`ruff`/`mypy` before a change lands. Pass `-v` for a per-file breakdown
+of exactly which functions, classes, or modules are missing a docstring.
+
 ## Jetson quickstart
 
 Deploying to an NVIDIA Jetson Orin Nano? See

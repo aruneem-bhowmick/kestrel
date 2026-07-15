@@ -32,6 +32,7 @@ dev = [
     "uvicorn",
     "httpx",
     "mutmut",
+    "interrogate",
 ]
 
 [tool.ruff]
@@ -44,6 +45,11 @@ extend-select = ["I"]
 python_version = "3.12"
 strict = true
 files = ["src/kestrel"]
+
+[tool.interrogate]
+fail-under = 80
+paths = ["src/kestrel", "tests"]
+verbose = 2
 
 [tool.mutmut]
 source_paths = ["src/kestrel"]
