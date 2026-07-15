@@ -41,11 +41,15 @@ class ArtifactPane(Markdown):
     Shows a placeholder message until a later change wires in real
     artifact content."""
 
+    can_focus = True
+
 
 class DiffPane(Static):
     """Renders the most recent file mutation as a syntax-highlighted
     unified diff. Shows a placeholder message until a later change
     computes a real diff to render."""
+
+    can_focus = True
 
 
 class StatusBar(Static):
