@@ -1,0 +1,5 @@
+# Golden fixtures are pinned, byte-exact snapshots that several tests
+# compare against with a raw `read_bytes()` call. Marking them `-text`
+# stops git from applying any platform-specific line-ending conversion
+# to them on checkout or commit, on any OS or `core.autocrlf` setting.
+tests/golden/*.golden -text

@@ -114,7 +114,10 @@ reprocessing the whole thing from scratch on every call.
 no backend wired up today needs an explicit marker for where that
 prefix ends, so it is currently a no-op, but a future adapter for a
 backend that does need one can read `Message.cache_breakpoint` off the
-last message this function annotates.
+last message this function annotates. Whether an entry needs that marker
+is `ModelEntry.requires_explicit_cache_breakpoint`, a plain per-entry
+flag rather than a hardcoded backend name -- onboarding a backend that
+needs one is a registry change, not a code change.
 
 ## Tools
 
@@ -526,6 +529,16 @@ case that would have caught it, or the surviving mutant is behaviorally
 equivalent to the original and can be marked accordingly. `mutmut` itself
 only runs under WSL on Windows -- see its own upstream note if `mutmut
 run` reports no native Windows support.
+
+## Docstring coverage
+
+`uv run interrogate` checks that `src/kestrel` and `tests` stay
+documented as the codebase grows, failing if coverage drops below the
+80% floor set in `[tool.interrogate]`. Like `mutmut`, this is a manually
+invoked quality check rather than a CI gate -- unlike `mutmut`, its
+runtime cost is negligible, so there's no reason not to run it alongside
+`ruff`/`mypy` before a change lands. Pass `-v` for a per-file breakdown
+of exactly which functions, classes, or modules are missing a docstring.
 
 ## Jetson quickstart
 

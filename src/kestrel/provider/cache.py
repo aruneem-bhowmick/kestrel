@@ -68,8 +68,7 @@ def mark_cache_breakpoints(
     messages: Sequence[Message], entry: ModelEntry
 ) -> list[Message]:
     """Annotate the last of `messages` with an explicit cache breakpoint
-    when `entry`'s backend needs one; otherwise return `messages`
-    unchanged.
+    when `entry` needs one; otherwise return `messages` unchanged.
 
     Sets `cache_breakpoint=True` on exactly the last message when
     `entry.requires_explicit_cache_breakpoint` is `True` and
@@ -77,6 +76,13 @@ def mark_cache_breakpoints(
     including every backend actually wired up today -- this returns a
     new list with the same messages, none of them touched, since an
     implicit, position-based cache boundary is all any of them need.
+
+    This checks plain boolean fields on `entry`, never `entry.backend`
+    itself -- marking is something a registry entry opts into, not
+    something this function infers from a hardcoded set of backend
+    names. That keeps onboarding a backend that needs an explicit marker
+    (or retiring one that no longer does) a `models.toml` change, not a
+    change to this function.
     """
     if not entry.requires_explicit_cache_breakpoint or not entry.supports_cache:
         return list(messages)
