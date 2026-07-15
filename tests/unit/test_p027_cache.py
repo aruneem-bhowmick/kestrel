@@ -145,6 +145,31 @@ def test_cache_capable_non_anthropic_backend_leaves_messages_unmarked(
         assert "cache_breakpoint" not in message
 
 
+@pytest.mark.parametrize("backend", ["openrouter", "zai"])
+def test_cache_capable_non_anthropic_backend_with_explicit_marker_is_still_marked(
+    backend: str,
+) -> None:
+    """Given an entry for a backend that needs no explicit marker by
+    convention, but whose own `requires_explicit_cache_breakpoint` is
+    set anyway, when breakpoints are marked, then the last message still
+    carries `cache_breakpoint=True` -- proving the flag itself, not the
+    backend's name, is what governs marking."""
+    entry = _entry(
+        backend=backend,
+        supports_cache=True,
+        requires_explicit_cache_breakpoint=True,
+    )
+    messages: list[Message] = [
+        {"role": "system", "content": "prefix"},
+        {"role": "user", "content": "task"},
+    ]
+
+    marked = mark_cache_breakpoints(messages, entry)
+
+    assert "cache_breakpoint" not in marked[0]
+    assert marked[1]["cache_breakpoint"] is True
+
+
 def test_cache_capable_entry_with_explicit_marker_marks_only_the_last_message() -> None:
     """Given a synthetic entry for a backend that does need an explicit
     marker, with caching supported, when breakpoints are marked, then
