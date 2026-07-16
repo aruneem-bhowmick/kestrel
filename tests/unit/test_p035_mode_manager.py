@@ -87,3 +87,23 @@ def test_two_managers_do_not_share_mutable_mode_state() -> None:
     assert first.mode == "plan"
     assert second.mode == "fast"
     assert second.effort() == "high"
+
+
+def test_effort_by_mode_is_not_a_constructor_argument() -> None:
+    """Given ModeManager's constructor, when called with an
+    _effort_by_mode keyword argument, then it raises TypeError -- the
+    field is excluded from __init__ so a caller cannot hand every
+    instance a mutable, per-instance mapping in place of the shared
+    default."""
+    with pytest.raises(TypeError):
+        ModeManager(_effort_by_mode={"plan": "high", "fast": "high"})  # type: ignore[call-arg]
+
+
+def test_repr_omits_the_internal_effort_mapping() -> None:
+    """Given a default ModeManager, when it is repr'd, then the output
+    names its public fields but not the internal effort mapping -- an
+    implementation detail, not part of the object's displayed identity."""
+    manager = ModeManager()
+
+    assert "_effort_by_mode" not in repr(manager)
+    assert "mode=" in repr(manager)
