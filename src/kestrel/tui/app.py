@@ -20,6 +20,8 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Collapsible, Input, Markdown, RichLog, Static
 
+from kestrel.tui.status import StatusSnapshot, render_status_line
+
 
 class ConversationPane(RichLog):
     """Streams the active task's assistant text and turn/termination
@@ -56,7 +58,12 @@ class StatusBar(Static):
     """One-line live status: model, mode and effort level,
     context-window usage percentage, and session/day spend against
     their caps. Shows a placeholder line until a later change starts
-    populating it with real session state."""
+    driving `show()` from real session state."""
+
+    def show(self, snapshot: StatusSnapshot) -> None:
+        """Render `snapshot` via `render_status_line` and replace this
+        widget's displayed text with the result."""
+        self.update(render_status_line(snapshot))
 
 
 class KestrelApp(App[None]):

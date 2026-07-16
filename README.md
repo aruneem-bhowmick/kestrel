@@ -484,6 +484,22 @@ pane, and the artifact pane in turn; `ctrl+q` quits. Every pane shows
 only static placeholder content today -- wiring each one to live task
 data is ongoing work that lands without touching this layout.
 
+The status bar renders one line from a `StatusSnapshot` value --
+active model, mode and effort, context-window usage, and session/day
+spend against their caps:
+
+```text
+{model_id} · {mode}/{effort} · ctx {pct}% ({used}/{window}) · session ${session_usd:.4f}{cap} · day ${day_usd:.4f}{cap}
+```
+
+`ctx` renders as `--% (--/{window})` before any turn has billed. Each
+`{cap}` segment renders ` / cap $X.XXXX` when that scope's budget cap
+is configured, and is omitted entirely (a bare `$X.XXXX`) when it
+isn't -- the same "`None` means no cap" convention the cost meter and
+budget manager use throughout. `StatusBar.show(snapshot)` is the
+widget's own hook onto this rendering; nothing drives it from a live
+task yet.
+
 The default theme ("kestrel") is a restrained rust-and-slate palette
 defined entirely as ordinary Textual CSS variables in
 `src/kestrel/tui/kestrel.tcss`. Customize it by editing that file's
