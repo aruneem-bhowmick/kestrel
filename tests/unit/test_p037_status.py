@@ -94,6 +94,18 @@ def test_billed_turn_renders_exact_context_percentage() -> None:
 
 
 @pytest.mark.sanity
+def test_zero_context_window_renders_placeholder_instead_of_dividing() -> None:
+    """Given a billed turn but a non-positive context_window (a
+    caller-supplied value the registry itself would never produce),
+    when rendered, then the context segment falls back to the same
+    `--` placeholders used when no turn has billed, rather than
+    raising a division-by-zero error."""
+    line = render_status_line(_snapshot(context_used_tokens=50_000, context_window=0))
+
+    assert "ctx --% (--/0)" in line
+
+
+@pytest.mark.sanity
 def test_dollar_formatting_matches_cost_meter_convention() -> None:
     """Given Decimal spend figures with more than four decimal places
     of underlying precision, when rendered, then both dollar segments
