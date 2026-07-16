@@ -5,17 +5,14 @@ from __future__ import annotations
 import asyncio
 import shlex
 import sys
-import time
 import uuid
 from argparse import SUPPRESS, ArgumentParser, BooleanOptionalAction, Namespace
 from collections.abc import Sequence
-from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
 from kestrel import __version__
 from kestrel.agent.loop import (
-    LoopDeps,
     LoopLimits,
     LoopResult,
     TerminationReason,
@@ -26,24 +23,15 @@ from kestrel.config import ConfigError, KestrelConfig, load_config
 from kestrel.cost.meter import CostMeter
 from kestrel.doctor import all_checks_passed, render_report, run_doctor
 from kestrel.kestrel_md import KestrelMd, KestrelMdError, load_kestrel_md
-from kestrel.managers.approval import ApprovalManager
 from kestrel.managers.budget import BudgetLimits, BudgetManager
-from kestrel.managers.session import SessionManager, aggregate_historical_spend
 from kestrel.managers.undo import UndoConflictError, UndoManager
 from kestrel.provider.litellm_client import LiteLLMClient
 from kestrel.registry.loader import load_registry
 from kestrel.registry.model import ModelEntry, Registry, RegistryError
 from kestrel.repl import run_repl
+from kestrel.task_setup import TaskSetup, build_task_deps
 
 _DEFAULT_LIMITS = LoopLimits()
-
-# Time windows for `aggregate_historical_spend`'s day/month baselines. The
-# month window is a fixed 30-day approximation rather than a real calendar
-# month (leap years, 28-31 day months) -- close enough for a budget baseline
-# that only needs to roughly bound "this month's spend so far," not
-# reproduce a billing statement.
-_DAY_WINDOW_S = 24.0 * 60.0 * 60.0
-_MONTH_WINDOW_S = 30.0 * _DAY_WINDOW_S
 
 
 def _build_parser() -> ArgumentParser:
@@ -367,34 +355,9 @@ def _print_task_summary(
             print(f"  {path}")
 
 
-@dataclass(frozen=True, slots=True)
-class _RunSetup:
-    """The collaborator bundle `_run_task_command` and
-    `_resume_task_command` both build, via `_build_run_deps`, before
-    driving their own task.
-
-    Attributes:
-        deps: The `LoopDeps` bundle to drive the task with.
-        undo: The task's own `UndoManager`, read again after the run to
-            list touched paths in the summary.
-        meter: The `CostMeter` `deps` was built with. For a resumed
-            task, `resume_task` replaces `deps.meter` with a freshly
-            seeded one, so a caller printing a post-run summary should
-            read `deps.meter` at that point, not this field -- this
-            field is only guaranteed current for a fresh `run`.
-        budget_limits: The resolved caps, needed again by
-            `_print_budget_halt` to reclassify the run's final spend.
-        spent_day_usd: The day baseline `_print_budget_halt` also needs.
-        spent_month_usd: The month baseline `_print_budget_halt` also
-            needs.
-    """
-
-    deps: LoopDeps
-    undo: UndoManager
-    meter: CostMeter
-    budget_limits: BudgetLimits
-    spent_day_usd: Decimal
-    spent_month_usd: Decimal
+# Keeps the private name every existing call site in this module already
+# uses -- `build_task_deps`'s own `TaskSetup` is the exact same shape.
+_RunSetup = TaskSetup
 
 
 def _build_run_deps(
@@ -411,59 +374,29 @@ def _build_run_deps(
     needs again after the run -- shared by `_run_task_command` and
     `_resume_task_command`.
 
-    Builds a fresh `ApprovalManager` (pre-approving whatever
-    `config.managers.approval.allowlist` names), `UndoManager`, and
-    `CostMeter`; a `SessionManager` scoped to `task_id` (loading an
-    existing journal when one is already there, so a resume picks up
-    where a halted run left off rather than starting empty); and
-    `BudgetManager` from `_resolve_budget_limits`. `spent_day_usd`/
-    `spent_month_usd` are computed once via `aggregate_historical_spend`
-    over every *other* task's own journaled spend, always excluding
-    `task_id` itself -- for a fresh run that id has no history yet to
-    exclude; for a resume, excluding it is what keeps that task's own
-    prior spend (already re-added once its own `CostMeter` is resumed)
-    from being double-counted.
+    A thin `Namespace`-reading wrapper around `build_task_deps`: resolves
+    `args`' own budget flags via `_resolve_budget_limits`, then hands
+    everything else straight through unchanged. No behavior change to
+    any existing `kestrel run`/`--resume` invocation -- this is the same
+    construction `_build_run_deps` always did, just delegated to the
+    shared, non-CLI-coupled function the TUI also builds its own task
+    dependencies from.
     """
-    undo = UndoManager(repo_root=repo_root)
-    session = SessionManager(repo_root=repo_root, task_id=task_id)
     budget_limits = _resolve_budget_limits(args, config)
-    now = time.time()
-    spent_day_usd = aggregate_historical_spend(
-        repo_root, now=now, window_s=_DAY_WINDOW_S, exclude_task_id=task_id
-    )
-    spent_month_usd = aggregate_historical_spend(
-        repo_root, now=now, window_s=_MONTH_WINDOW_S, exclude_task_id=task_id
-    )
-    meter = CostMeter()
-    deps = LoopDeps(
-        client=LiteLLMClient(registry),
+    return build_task_deps(
+        config=config,
         registry=registry,
         model_id=model_id,
+        kestrel_md=kestrel_md,
         repo_root=repo_root,
-        approval=ApprovalManager(
-            allowlist=frozenset(config.managers.approval.allowlist)
-        ),
-        undo=undo,
-        meter=meter,
+        task_id=task_id,
         limits=LoopLimits(
             max_turns=args.max_turns,
             max_total_tokens=args.max_total_tokens,
             max_wall_clock_s=args.max_wall_clock_s,
         ),
         require_verification=args.require_verification,
-        kestrel_md=kestrel_md,
-        session=session,
-        budget=BudgetManager(limits=budget_limits),
-        spent_day_usd=spent_day_usd,
-        spent_month_usd=spent_month_usd,
-    )
-    return _RunSetup(
-        deps=deps,
-        undo=undo,
-        meter=meter,
         budget_limits=budget_limits,
-        spent_day_usd=spent_day_usd,
-        spent_month_usd=spent_month_usd,
     )
 
 
