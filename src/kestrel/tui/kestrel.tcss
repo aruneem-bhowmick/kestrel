@@ -1,0 +1,17 @@
+/* Kestrel's default theme: restrained, rust-and-slate. Override by
+   pointing KestrelApp.CSS_PATH at your own .tcss file, or by editing
+   the rules below directly. */
+$kestrel-accent: #b7410e;
+$kestrel-panel: #2f333d;
+$kestrel-background: #1c1e24;
+$kestrel-text: #e8e2d6;
+
+Screen { background: $kestrel-background; color: $kestrel-text; }
+StatusBar { dock: top; height: 1; background: $kestrel-accent; color: $kestrel-text; }
+#left_column { width: 2fr; }
+#right_column { width: 1fr; border-left: solid $kestrel-panel; }
+ConversationPane { height: 1fr; border: solid $kestrel-panel; }
+#task_input { dock: bottom; }
+ArtifactPane { height: 1fr; border: solid $kestrel-panel; }
+ToolLogPane { height: 1fr; }
+DiffPane { height: 1fr; border: solid $kestrel-panel; }
