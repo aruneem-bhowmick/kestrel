@@ -355,6 +355,19 @@ set), `resume_task` picks it back up once an operator raises the cap.
 Leaving `budget` unset (the default) skips every check above and
 behaves exactly as it did before this field existed.
 
+Setting `LoopDeps.observer` to a `kestrel.agent.observer.LoopObserver`
+makes a running task's own progress externally observable, live,
+rather than only inspectable once it ends: seven hooks fire as the
+task runs -- a turn starting, each streamed text chunk, a tool call
+starting and finishing, a fresh `VerificationReport` landing, a turn's
+own priced cost settling, and the task's own termination. Every call
+happens synchronously, inline, on the same coroutine driving the task,
+so an observer must stay fast and exception-free -- nothing it returns
+is ever read, and nothing it does can change what the loop decides
+next. Leaving `observer` unset (the default) wires in an all-no-op
+`NullLoopObserver` and behaves exactly as it did before this field
+existed.
+
 ### Compaction
 
 Context-window pressure is recovered from, not just detected. Once a

@@ -126,4 +126,5 @@ markers = [
     "dod_phase_2: acceptance scenario for the verified-and-budgeted-agent milestone's Definition of Done",
     "p034: the KestrelApp Textual skeleton, default theme, and pane layout",
     "p035: the PLAN/FAST mode manager's session state, effort mapping, and model override",
+    "p036: the injectable LoopObserver event-sink and its wiring into the agent loop",
 ]

@@ -97,6 +97,20 @@ message that alone exceeds the window -- one enormous tool result, say
 -- still ends the task `CONTEXT_OVERFLOW`, compaction or not, exactly
 as it always did.
 
+A task's own progress is observable as it happens, not only once it
+ends: `LoopDeps.observer` (an injectable `kestrel.agent.observer.
+LoopObserver`, defaulting to an all-no-op `NullLoopObserver`) is called
+at seven fixed points as `_drive` runs -- a turn starting, each
+streamed text chunk, a tool call starting and finishing, a fresh
+`VerificationReport` landing, a turn's own priced cost settling, and
+the task's own termination. Every call happens synchronously, inline,
+on the same coroutine driving the task, so an observer that blocks or
+raises stalls (or crashes) the task itself; no observer method's
+return value is ever read, so nothing an observer does can change what
+the loop decides next. Leaving `observer` unset is a no-op by
+construction, so every caller written before this hook existed keeps
+its exact prior behavior.
+
 Deliberately out of scope for this module, each a real gap rather than
 an oversight:
 
@@ -132,6 +146,7 @@ from pathlib import Path
 from typing import Final, assert_never
 
 from kestrel.agent.compaction import compact_history, should_compact
+from kestrel.agent.observer import NULL_OBSERVER, LoopObserver
 from kestrel.cost.meter import CostMeter, TurnCost
 from kestrel.kestrel_md import KestrelMd
 from kestrel.managers.approval import ApprovalDenied, ApprovalManager
@@ -285,6 +300,11 @@ class LoopDeps:
             `meter.session_usd` is added on top of it for every check.
         spent_month_usd: The same fixed baseline as `spent_day_usd`, but
             summed over the current month rather than the current day.
+        observer: Called at seven fixed points as this task runs, purely
+            for external visibility -- see `kestrel.agent.observer.
+            LoopObserver` for the full contract. Defaults to
+            `NullLoopObserver`, so every caller that leaves this unset
+            sees identical behavior to before this field existed.
     """
 
     client: ProviderClient
@@ -305,6 +325,7 @@ class LoopDeps:
     budget: BudgetManager | None = None
     spent_day_usd: Decimal = Decimal(0)
     spent_month_usd: Decimal = Decimal(0)
+    observer: LoopObserver = field(default_factory=lambda: NULL_OBSERVER)
 
 
 def _split_events(
@@ -464,6 +485,36 @@ def _record_session_turn(
     )
 
 
+def _finish_turn(
+    deps: LoopDeps,
+    *,
+    turn_id: int,
+    task_id: str,
+    history: Sequence[Message],
+    messages_before: int,
+    turn_cost: TurnCost,
+    active_model_id: str,
+    degraded: bool,
+) -> None:
+    """Journal this turn via `_record_session_turn`, then report it to
+    `deps.observer.on_turn_finished` -- the pair every real turn and
+    compaction fold in `_drive` performs together, in this order, as it
+    wraps up."""
+    _record_session_turn(
+        deps,
+        turn_id=turn_id,
+        task_id=task_id,
+        history=history,
+        messages_before=messages_before,
+        turn_cost=turn_cost,
+        active_model_id=active_model_id,
+        degraded=degraded,
+    )
+    deps.observer.on_turn_finished(
+        turn_id=turn_id, turn_cost=turn_cost, active_model_id=active_model_id
+    )
+
+
 def _dispatch_tool_call(
     event: ToolCallEvent, *, deps: LoopDeps, turn_id: int, task_id: str
 ) -> ToolResult:
@@ -511,17 +562,24 @@ async def _drain_think(
     Routed through `complete_with_retry` so a transient rate-limit or
     server failure is retried with backoff before it ever reaches this
     loop as an exception.
+
+    Every `TextDelta` yielded along the way is also echoed to
+    `deps.observer.on_text_delta`, in arrival order, before it is
+    appended to the returned list -- the loop's one streaming
+    observation point.
     """
     prefix = mark_cache_breakpoints(
         build_stable_prefix(_SYSTEM_PROMPT, deps.kestrel_md), entry
     )
     messages: list[Message] = [*prefix, *history]
-    return [
-        event
-        async for event in complete_with_retry(
-            deps.client, messages, all_schemas(), model_id, "high", stream=True
-        )
-    ]
+    events: list[StreamEvent] = []
+    async for event in complete_with_retry(
+        deps.client, messages, all_schemas(), model_id, "high", stream=True
+    ):
+        if isinstance(event, TextDelta):
+            deps.observer.on_text_delta(event.text)
+        events.append(event)
+    return events
 
 
 async def _drive(
@@ -611,14 +669,19 @@ async def _drive(
     turns_used = turns_used_start
 
     def finish(reason: TerminationReason) -> LoopResult:
-        """Build the `LoopResult` for `reason`, snapshotting the
-        turn count, priced total, and history as they stand right now."""
-        return LoopResult(
+        """Build the `LoopResult` for `reason`, snapshotting the turn
+        count, priced total, and history as they stand right now, and
+        report it to `deps.observer.on_termination` -- the loop's
+        single choke point for ending a task, so every termination
+        path fires that hook exactly once."""
+        result = LoopResult(
             reason=reason,
             turns_used=turns_used,
             total_usd=deps.meter.session_usd,
             history=tuple(history),
         )
+        deps.observer.on_termination(result)
+        return result
 
     try:
         while True:
@@ -652,7 +715,7 @@ async def _drive(
                 # that turn yet) and captures the whole post-fold history as
                 # its own delta, since a fold replaces history rather than
                 # appending to it.
-                _record_session_turn(
+                _finish_turn(
                     deps,
                     turn_id=turns_used + 1,
                     task_id=task_id,
@@ -675,6 +738,9 @@ async def _drive(
                     return finish(TerminationReason.TOKEN_CAP)
 
             turns_used += 1
+            deps.observer.on_turn_started(
+                turn_id=turns_used, active_model_id=active_model_id
+            )
             # `turns_used == 1` is this call's very first turn with no
             # earlier iteration to have already journaled whatever seed
             # messages `history` started with -- true only for a fresh
@@ -715,7 +781,7 @@ async def _drive(
                         {"role": "tool", "content": _SELF_CRITIQUE_SKIP_CONTENT}
                     )
                 turn_cost = deps.meter.record(usage_event, entry)
-                _record_session_turn(
+                _finish_turn(
                     deps,
                     turn_id=turns_used,
                     task_id=task_id,
@@ -755,7 +821,7 @@ async def _drive(
                         {"role": "tool", "content": _VERIFICATION_REQUIRED_CONTENT}
                     )
                     turn_cost = deps.meter.record(usage_event, entry)
-                    _record_session_turn(
+                    _finish_turn(
                         deps,
                         turn_id=turns_used,
                         task_id=task_id,
@@ -778,7 +844,7 @@ async def _drive(
                         return finish(TerminationReason.TOKEN_CAP)
                     continue
                 turn_cost = deps.meter.record(usage_event, entry)
-                _record_session_turn(
+                _finish_turn(
                     deps,
                     turn_id=turns_used,
                     task_id=task_id,
@@ -800,6 +866,8 @@ async def _drive(
                 return finish(TerminationReason.TASK_COMPLETE)
 
             for call in tool_calls:
+                deps.observer.on_tool_call_started(call)
+                verification_count_before = len(deps.verification_reports)
                 result = await asyncio.to_thread(
                     _dispatch_tool_call,
                     call,
@@ -807,12 +875,15 @@ async def _drive(
                     turn_id=turns_used,
                     task_id=task_id,
                 )
+                deps.observer.on_tool_call_finished(call, result)
+                if len(deps.verification_reports) > verification_count_before:
+                    deps.observer.on_verification(deps.verification_reports[-1])
                 history.append(
                     {"role": "tool", "content": result.content, "tool_call_id": call.id}
                 )
 
             turn_cost = deps.meter.record(usage_event, entry)
-            _record_session_turn(
+            _finish_turn(
                 deps,
                 turn_id=turns_used,
                 task_id=task_id,
