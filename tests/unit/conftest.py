@@ -11,12 +11,16 @@ closer-scoped definition.
 from __future__ import annotations
 
 from collections.abc import Callable
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from kestrel import config as kestrel_config
+from kestrel.config import KestrelConfig
 from kestrel.registry import loader as registry_loader
+from kestrel.registry.model import ModelEntry, Registry
+from kestrel.tui.app import KestrelApp
 
 
 @pytest.fixture
@@ -74,3 +78,36 @@ models_file = "{models_file.as_posix()}"
         return kestrel_toml
 
     return _write
+
+
+@pytest.fixture
+def kestrel_app_factory(tmp_path: Path) -> Callable[[], KestrelApp]:
+    """Return a factory building a fresh, minimally configured
+    `KestrelApp` -- one registry entry, default config, no KESTREL.md --
+    for tests that exercise the app's own layout, focus, and status-bar
+    wiring without driving a real task."""
+
+    def _build() -> KestrelApp:
+        entry = ModelEntry(
+            id="glm-5.2",
+            backend="openrouter",
+            provider_model="z-ai/glm-5.2",
+            api_key_env="OPENROUTER_API_KEY",
+            context_window=200_000,
+            max_output=16_384,
+            usd_per_mtok_input=Decimal("0.60"),
+            usd_per_mtok_output=Decimal("2.20"),
+            usd_per_mtok_cached=Decimal("0.11"),
+            supports_tools=True,
+            supports_cache=True,
+        )
+        registry = Registry(models={"glm-5.2": entry}, source=None)
+        return KestrelApp(
+            config=KestrelConfig(),
+            registry=registry,
+            model_id="glm-5.2",
+            kestrel_md=None,
+            repo_root=tmp_path,
+        )
+
+    return _build
