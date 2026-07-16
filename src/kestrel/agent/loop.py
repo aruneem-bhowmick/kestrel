@@ -485,6 +485,36 @@ def _record_session_turn(
     )
 
 
+def _finish_turn(
+    deps: LoopDeps,
+    *,
+    turn_id: int,
+    task_id: str,
+    history: Sequence[Message],
+    messages_before: int,
+    turn_cost: TurnCost,
+    active_model_id: str,
+    degraded: bool,
+) -> None:
+    """Journal this turn via `_record_session_turn`, then report it to
+    `deps.observer.on_turn_finished` -- the pair every real turn and
+    compaction fold in `_drive` performs together, in this order, as it
+    wraps up."""
+    _record_session_turn(
+        deps,
+        turn_id=turn_id,
+        task_id=task_id,
+        history=history,
+        messages_before=messages_before,
+        turn_cost=turn_cost,
+        active_model_id=active_model_id,
+        degraded=degraded,
+    )
+    deps.observer.on_turn_finished(
+        turn_id=turn_id, turn_cost=turn_cost, active_model_id=active_model_id
+    )
+
+
 def _dispatch_tool_call(
     event: ToolCallEvent, *, deps: LoopDeps, turn_id: int, task_id: str
 ) -> ToolResult:
@@ -685,7 +715,7 @@ async def _drive(
                 # that turn yet) and captures the whole post-fold history as
                 # its own delta, since a fold replaces history rather than
                 # appending to it.
-                _record_session_turn(
+                _finish_turn(
                     deps,
                     turn_id=turns_used + 1,
                     task_id=task_id,
@@ -694,11 +724,6 @@ async def _drive(
                     turn_cost=compaction_cost,
                     active_model_id=active_model_id,
                     degraded=degraded,
-                )
-                deps.observer.on_turn_finished(
-                    turn_id=turns_used + 1,
-                    turn_cost=compaction_cost,
-                    active_model_id=active_model_id,
                 )
                 active_model_id, degraded, should_halt = _apply_budget_check(
                     deps,
@@ -756,7 +781,7 @@ async def _drive(
                         {"role": "tool", "content": _SELF_CRITIQUE_SKIP_CONTENT}
                     )
                 turn_cost = deps.meter.record(usage_event, entry)
-                _record_session_turn(
+                _finish_turn(
                     deps,
                     turn_id=turns_used,
                     task_id=task_id,
@@ -765,11 +790,6 @@ async def _drive(
                     turn_cost=turn_cost,
                     active_model_id=active_model_id,
                     degraded=degraded,
-                )
-                deps.observer.on_turn_finished(
-                    turn_id=turns_used,
-                    turn_cost=turn_cost,
-                    active_model_id=active_model_id,
                 )
                 active_model_id, degraded, should_halt = _apply_budget_check(
                     deps,
@@ -801,7 +821,7 @@ async def _drive(
                         {"role": "tool", "content": _VERIFICATION_REQUIRED_CONTENT}
                     )
                     turn_cost = deps.meter.record(usage_event, entry)
-                    _record_session_turn(
+                    _finish_turn(
                         deps,
                         turn_id=turns_used,
                         task_id=task_id,
@@ -810,11 +830,6 @@ async def _drive(
                         turn_cost=turn_cost,
                         active_model_id=active_model_id,
                         degraded=degraded,
-                    )
-                    deps.observer.on_turn_finished(
-                        turn_id=turns_used,
-                        turn_cost=turn_cost,
-                        active_model_id=active_model_id,
                     )
                     active_model_id, degraded, should_halt = _apply_budget_check(
                         deps,
@@ -829,7 +844,7 @@ async def _drive(
                         return finish(TerminationReason.TOKEN_CAP)
                     continue
                 turn_cost = deps.meter.record(usage_event, entry)
-                _record_session_turn(
+                _finish_turn(
                     deps,
                     turn_id=turns_used,
                     task_id=task_id,
@@ -838,11 +853,6 @@ async def _drive(
                     turn_cost=turn_cost,
                     active_model_id=active_model_id,
                     degraded=degraded,
-                )
-                deps.observer.on_turn_finished(
-                    turn_id=turns_used,
-                    turn_cost=turn_cost,
-                    active_model_id=active_model_id,
                 )
                 active_model_id, degraded, should_halt = _apply_budget_check(
                     deps,
@@ -873,7 +883,7 @@ async def _drive(
                 )
 
             turn_cost = deps.meter.record(usage_event, entry)
-            _record_session_turn(
+            _finish_turn(
                 deps,
                 turn_id=turns_used,
                 task_id=task_id,
@@ -882,9 +892,6 @@ async def _drive(
                 turn_cost=turn_cost,
                 active_model_id=active_model_id,
                 degraded=degraded,
-            )
-            deps.observer.on_turn_finished(
-                turn_id=turns_used, turn_cost=turn_cost, active_model_id=active_model_id
             )
             active_model_id, degraded, should_halt = _apply_budget_check(
                 deps,
