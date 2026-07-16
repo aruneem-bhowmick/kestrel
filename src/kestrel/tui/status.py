@@ -67,13 +67,19 @@ def render_status_line(snapshot: StatusSnapshot) -> str:
     `{model_id} · {mode}/{effort} · ctx {pct}% ({used}/{window}) ·
     session ${session_usd:.4f}{cap} · day ${day_usd:.4f}{cap}`.
     `{pct}`/`{used}` render as `--` when `context_used_tokens is None`
-    (no turn has billed yet). Each `{cap}` segment is
-    ` / cap $X.XXXX` when that scope's own cap is set, and empty
-    (bare `$X.XXXX`) when it is `None` -- matching CostMeter/
-    BudgetManager's own "None means no cap" convention throughout
-    this codebase.
+    (no turn has billed yet) or when `context_window <= 0` -- a
+    non-positive window has no meaningful percentage to report, and
+    dividing by it would raise rather than render; a real registry
+    entry always carries a strictly positive `context_window`, so this
+    is defensive only, guarding a caller-supplied value rather than
+    one already validated by the registry (the same rationale
+    `should_compact` documents for its own zero-window guard). Each
+    `{cap}` segment is ` / cap $X.XXXX` when that scope's own cap is
+    set, and empty (bare `$X.XXXX`) when it is `None` -- matching
+    CostMeter/BudgetManager's own "None means no cap" convention
+    throughout this codebase.
     """
-    if snapshot.context_used_tokens is None:
+    if snapshot.context_used_tokens is None or snapshot.context_window <= 0:
         ctx_pct = "--"
         ctx_used = "--"
     else:
