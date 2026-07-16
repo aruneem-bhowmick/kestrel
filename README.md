@@ -1,7 +1,7 @@
 # kestrel
 
 <p align="center">
-  <img src="assets/kestrel-mascot.svg" alt="Pixel-art kestrel perched on a branch, blinking and occasionally shaking">
+  <img src="assets/kestrel.svg" alt="Pixel-art kestrel perched on a branch: blinking, shaking, and flapping">
 </p>
 
 ## Install (dev)
