@@ -47,3 +47,43 @@ def test_switching_back_to_fast_mode_restores_high_effort() -> None:
 
     assert manager.mode == "fast"
     assert manager.effort() == "high"
+
+
+def test_set_model_override_then_clear_round_trips() -> None:
+    """Given a default ModeManager, when set_model_override sets an id
+    and a later call clears it with None, then model_override reflects
+    each change in turn without disturbing mode or effort."""
+    manager = ModeManager()
+
+    manager.set_model_override("glm-5.2")
+    assert manager.model_override == "glm-5.2"
+
+    manager.set_model_override(None)
+    assert manager.model_override is None
+    assert manager.mode == "fast"
+    assert manager.effort() == "high"
+
+
+def test_effort_by_mode_mapping_is_immutable() -> None:
+    """Given a ModeManager's own internal effort mapping, when a caller
+    attempts to mutate it directly, then the assignment raises TypeError
+    -- the mapping is a MappingProxyType, not a plain dict, so it cannot
+    be tampered with through any public or private surface."""
+    manager = ModeManager()
+
+    with pytest.raises(TypeError):
+        manager._effort_by_mode["fast"] = "max"  # type: ignore[index]
+
+
+def test_two_managers_do_not_share_mutable_mode_state() -> None:
+    """Given two independently constructed ModeManagers, when one has
+    its mode switched, then the other is unaffected -- mode is per-
+    instance state, not shared through the default effort mapping."""
+    first = ModeManager()
+    second = ModeManager()
+
+    first.set_mode("plan")
+
+    assert first.mode == "plan"
+    assert second.mode == "fast"
+    assert second.effort() == "high"
