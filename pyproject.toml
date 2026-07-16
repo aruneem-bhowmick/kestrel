@@ -128,4 +128,5 @@ markers = [
     "p035: the PLAN/FAST mode manager's session state, effort mapping, and model override",
     "p036: the injectable LoopObserver event-sink and its wiring into the agent loop",
     "p037: the status bar's pure StatusSnapshot rendering and its show() widget hook",
+    "p038: the shared task-deps builder and the TUI conversation pane's live task wiring",
 ]
