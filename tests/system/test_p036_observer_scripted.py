@@ -15,22 +15,19 @@ installed, and never will be on a non-Linux host. CI installs
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from kestrel.agent.loop import LoopDeps, LoopResult, TerminationReason, run_task
-from kestrel.cost.meter import CostMeter, TurnCost
+from kestrel.cost.meter import CostMeter
 from kestrel.managers.approval import ApprovalManager
 from kestrel.managers.undo import UndoManager
-from kestrel.provider.events import ToolCallEvent
 from kestrel.provider.litellm_client import LiteLLMClient
 from kestrel.registry.model import ModelEntry, Registry
-from kestrel.tools.registry import ToolResult
 from kestrel.tools.sandbox import bwrap_available
-from kestrel.tools.verify import VerificationReport
+from tests.helpers.observer import RecordingObserver
 
 pytestmark = [
     pytest.mark.p036,
@@ -44,64 +41,6 @@ _TOOLCALL_EXECUTE_PYTEST = _CASSETTES / "toolcall_execute_pytest.sse"
 _DONE_CASSETTE = _CASSETTES / "done_no_more_tools.sse"
 
 _FILE_MARKER = "hello from the fixture module"
-
-
-@dataclass
-class RecordingObserver:
-    """A `LoopObserver` recording every call it receives, in arrival
-    order, as `(method_name, payload)` pairs -- the same shape
-    `test_p036_loop_observer_hooks.py`'s own test double uses, so a
-    call-sequence assertion here reads identically to that suite's."""
-
-    calls: list[tuple[str, object]] = field(default_factory=list)
-
-    def on_turn_started(self, *, turn_id: int, active_model_id: str) -> None:
-        """Record this call."""
-        self.calls.append(
-            (
-                "on_turn_started",
-                {"turn_id": turn_id, "active_model_id": active_model_id},
-            )
-        )
-
-    def on_text_delta(self, text: str) -> None:
-        """Record this call."""
-        self.calls.append(("on_text_delta", text))
-
-    def on_tool_call_started(self, call: ToolCallEvent) -> None:
-        """Record this call."""
-        self.calls.append(("on_tool_call_started", call))
-
-    def on_tool_call_finished(self, call: ToolCallEvent, result: ToolResult) -> None:
-        """Record this call."""
-        self.calls.append(("on_tool_call_finished", (call, result)))
-
-    def on_verification(self, report: VerificationReport) -> None:
-        """Record this call."""
-        self.calls.append(("on_verification", report))
-
-    def on_turn_finished(
-        self, *, turn_id: int, turn_cost: TurnCost, active_model_id: str
-    ) -> None:
-        """Record this call."""
-        self.calls.append(
-            (
-                "on_turn_finished",
-                {
-                    "turn_id": turn_id,
-                    "turn_cost": turn_cost,
-                    "active_model_id": active_model_id,
-                },
-            )
-        )
-
-    def on_termination(self, result: LoopResult) -> None:
-        """Record this call."""
-        self.calls.append(("on_termination", result))
-
-    def names(self) -> list[str]:
-        """Just the method names, in arrival order."""
-        return [name for name, _ in self.calls]
 
 
 def _registry() -> Registry:
