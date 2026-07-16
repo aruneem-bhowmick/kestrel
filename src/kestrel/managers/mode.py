@@ -43,7 +43,7 @@ class ModeManager:
     mode: Mode = "fast"
     model_override: str | None = None
     _effort_by_mode: Mapping[Mode, Effort] = field(
-        default_factory=lambda: _DEFAULT_EFFORT_BY_MODE
+        default=_DEFAULT_EFFORT_BY_MODE, init=False, repr=False
     )
 
     def effort(self) -> Effort:
