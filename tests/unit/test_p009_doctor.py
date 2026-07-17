@@ -10,6 +10,7 @@ config, registry, or credentials.
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -89,19 +90,28 @@ def _patch_sandbox_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _patch_tui_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the ``tui`` check deterministically ``OK``, standing in for a
+    real interactive terminal -- pytest's own captured stdout is never
+    one, so a test asserting an all-green run must pin this explicitly
+    rather than depend on however this suite happens to be invoked."""
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+
 @pytest.mark.sanity
-def test_all_green_non_live_run_passes_six_and_skips_two(
+def test_all_green_non_live_run_passes_seven_and_skips_two(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[..., Path],
 ) -> None:
     """Given a valid config, a valid registry, the default model present,
-    its credential set, and a sandbox-capable environment, when run
-    without ``--live``, then checks 1-5 and ``sandbox`` are OK, the
-    remaining two (``endpoint``, ``ollama``) are SKIP, and the run
-    counts as passing."""
+    its credential set, a sandbox-capable environment, and a real
+    (simulated) interactive terminal, when run without ``--live``, then
+    checks 1-5, ``sandbox``, and ``tui`` are OK, the remaining two
+    (``endpoint``, ``ollama``) are SKIP, and the run counts as passing."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
     _patch_sandbox_ok(monkeypatch)
+    _patch_tui_ok(monkeypatch)
     config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     results = run_doctor(config_path, live=False)
@@ -114,6 +124,7 @@ def test_all_green_non_live_run_passes_six_and_skips_two(
         "api-key",
         "endpoint",
         "sandbox",
+        "tui",
         "ollama",
     ]
     statuses = _statuses(results)
@@ -124,6 +135,7 @@ def test_all_green_non_live_run_passes_six_and_skips_two(
         "default-model",
         "api-key",
         "sandbox",
+        "tui",
     ):
         assert statuses[name] is CheckStatus.OK
     for name in ("endpoint", "ollama"):
@@ -396,7 +408,7 @@ def test_no_config_anywhere_resolves_to_builtin_defaults(tmp_path: Path) -> None
 @pytest.mark.regression
 @pytest.mark.acceptance
 def test_render_report_matches_golden_snapshot() -> None:
-    """The exact eight-line block `kestrel doctor` prints for an all-green,
+    """The exact nine-line block `kestrel doctor` prints for an all-green,
     non-live run must match a pinned snapshot byte-for-byte -- this is the
     stable alignment contract a provisioning walkthrough can screenshot.
 
@@ -405,7 +417,7 @@ def test_render_report_matches_golden_snapshot() -> None:
     would embed OS-specific separators (and a fresh ``tmp_path`` on every
     run) into the very text this test pins, which would make the
     snapshot neither stable nor portable. ``test_all_green_non_live_run_
-    passes_five_and_skips_three`` above already covers the real,
+    passes_seven_and_skips_two`` above already covers the real,
     file-backed path end to end.
     """
     results = [
@@ -416,6 +428,7 @@ def test_render_report_matches_golden_snapshot() -> None:
         CheckResult("api-key", CheckStatus.OK, "OPENROUTER_API_KEY"),
         CheckResult("endpoint", CheckStatus.SKIP, "pass --live"),
         CheckResult("sandbox", CheckStatus.OK, "bwrap"),
+        CheckResult("tui", CheckStatus.OK, "interactive"),
         CheckResult(
             "ollama", CheckStatus.SKIP, "the Ollama backend is not implemented"
         ),

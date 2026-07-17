@@ -506,8 +506,10 @@ own text incrementally at newline boundaries as it arrives, the status
 bar refreshes after every turn, and the run ends with a terse one-line
 summary naming the termination reason, turn count, and total cost.
 `kestrel.repl`'s own `run_turn`/`ReplSession`/`run_repl` remain in the
-codebase, unchanged and still tested, for the plain non-interactive
-REPL path -- they are simply not what the cockpit itself drives.
+codebase, unchanged and still exercised by their own test suite --
+`kestrel` itself no longer wires any subcommand to `run_repl` directly,
+but the streaming and terminal-sanitization logic it implements is
+exactly what the cockpit (and the rest of `kestrel.tui.*`) builds on.
 
 The status bar renders one line from a `StatusSnapshot` value --
 active model, mode and effort, context-window usage, and session/day
@@ -598,20 +600,66 @@ rules directly, or by pointing a `KestrelApp` subclass's own
 `CSS_PATH` at a different stylesheet -- either way, no changes to the
 app's own Python code are required.
 
+`kestrel` with no subcommand is this cockpit's own entry point: it
+resolves configuration, registry, and starting model the same way
+`kestrel run` does, then mounts `KestrelApp` against the current
+working directory as `repo_root`. A full-screen Textual interface has
+nowhere to draw into against a piped or redirected stdout, so it
+refuses to start against one, printing
+
+```text
+kestrel: refusing to start the TUI against a non-interactive stdout; use `kestrel run "<task>" --repo PATH` instead.
+```
+
+to stderr and exiting `1` rather than letting Textual fail against a
+terminal that isn't there. `kestrel doctor`'s own `tui` check (see
+below) asks the same question ahead of time, so a script or a remote
+session can find out the cockpit won't start there before ever trying.
+
+## Screenshots
+
+`scripts/tui_screenshots.py` drives a real `KestrelApp` through a
+scripted task against the hermetic mock server and saves three SVG
+screenshots under `assets/screenshots/`. It is reviewed by eye rather
+than pinned byte-exact -- a rendered SVG's own font and layout metrics
+can shift across Textual point releases with nothing about the
+application itself changing, which would turn a byte-exact CI gate
+into a routine-dependency-bump tripwire instead of a real regression
+check. Run it by hand (`uv run python scripts/tui_screenshots.py`)
+after a visible UI change and update the committed set once the new
+output looks right.
+
+![Conversation pane, tool log, and status bar after a completed task](assets/screenshots/conversation-and-tools.svg)
+
+The conversation pane's streamed reply, the tool log's started/finished
+pairs, and the status bar's live model/mode/context/spend summary once
+a scripted task finishes.
+
+![Diff pane showing the task's most recent file mutation](assets/screenshots/diff-view.svg)
+
+The diff pane, in focus, rendering the same task's `edit_file` mutation
+as a syntax-highlighted unified diff.
+
+![Command palette open over the cockpit](assets/screenshots/command-palette.svg)
+
+The `ctrl+p` command palette open over the cockpit.
+
 ## Flight check
 
-`kestrel doctor` runs eight checks and prints one aligned line per check,
+`kestrel doctor` runs nine checks and prints one aligned line per check,
 in order: (1) `python-version` checking the interpreter version, (2) `config`
 checking whether the configuration file loads, (3) `registry` checking
 whether the model registry loads, (4) `default-model` checking whether the
 default model exists in the registry, (5) `api-key` checking whether its
 credential environment variable is set, (6) `endpoint` probing the default
 model's live completion API, (7) `sandbox` checking whether the `execute`
-tool's `bwrap` sandbox is usable, and (8) `ollama` as a placeholder for the
-unimplemented Ollama backend. By default, the run is read-only and skips
-the `endpoint` check; passing `--live` runs the endpoint check, which performs
-a networked, potentially billable completion. A typical all-green run against
-a fresh checkout looks like:
+tool's `bwrap` sandbox is usable, (8) `tui` checking whether stdout is a
+real terminal -- the same precondition `kestrel` (no subcommand) itself
+requires before mounting the cockpit -- and (9) `ollama` as a placeholder
+for the unimplemented Ollama backend. By default, the run is read-only and
+skips the `endpoint` check; passing `--live` runs the endpoint check, which
+performs a networked, potentially billable completion. A typical all-green
+run against a fresh checkout, invoked from a real terminal, looks like:
 
 ```text
 OK    python-version  3.12
@@ -621,13 +669,22 @@ OK    default-model   glm-5.2
 OK    api-key         OPENROUTER_API_KEY
 SKIP  endpoint        pass --live
 OK    sandbox         bwrap
+OK    tui             interactive
 SKIP  ollama          the Ollama backend is not implemented
 ```
 
+Running `kestrel doctor` itself from a script or a subprocess (any
+context whose own stdout is piped or redirected rather than a real
+terminal) reports `tui` as `FAIL` -- correctly, since the same piped
+stdout would also make `kestrel` (no subcommand) refuse to start there.
+
 Each of the first five checks depends on the one before it; if one fails,
-every check after it reports `SKIP` naming that same original failure
-(`blocked by: <check>`) instead of re-deriving the same root cause under
-a different name. A `FAIL` line's detail is the remedy -- a missing
+every check after it in that chain reports `SKIP` naming that same
+original failure (`blocked by: <check>`) instead of re-deriving the same
+root cause under a different name. `sandbox` and `tui` are both
+unconditional -- neither depends on `config` or the registry resolving
+first, so both always run and report their own real outcome even when an
+earlier check fails. A `FAIL` line's detail is the remedy -- a missing
 config file names its path, a broken registry names the offending entry
 and field, an unset credential names the environment variable (never its
 value). `kestrel doctor` exits `0` unless at least one check `FAIL`s;

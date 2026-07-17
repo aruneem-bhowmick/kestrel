@@ -56,6 +56,7 @@ _CHECK_NAMES: tuple[str, ...] = (
     "api-key",
     "endpoint",
     "sandbox",
+    "tui",
     "ollama",
 )
 _STATUS_WIDTH = max(len(status) for status in ("OK", "FAIL", "SKIP"))
@@ -220,8 +221,30 @@ def _check_sandbox() -> CheckResult:
     return CheckResult("sandbox", CheckStatus.OK, "bwrap")
 
 
+def _check_tui() -> CheckResult:
+    """Confirm stdout is a real terminal.
+
+    `kestrel` with no subcommand mounts a full-screen Textual cockpit,
+    which has nowhere to draw into against a piped or redirected
+    stdout -- this check answers, ahead of time, the same question
+    `kestrel.cli.main`'s own guard asks right before it would otherwise
+    try. Unconditional, exactly like `_check_sandbox`: it never depends
+    on `config` or the registry resolving first, so it always runs and
+    never reports `SKIP`.
+    """
+    if sys.stdout.isatty():
+        return CheckResult("tui", CheckStatus.OK, "interactive")
+    return CheckResult(
+        "tui",
+        CheckStatus.FAIL,
+        "stdout is not a terminal; 'kestrel' (no subcommand) requires an "
+        "interactive terminal -- use 'kestrel run \"<task>\" --repo PATH' "
+        "instead",
+    )
+
+
 def run_doctor(config_path: Path | None, *, live: bool) -> list[CheckResult]:
-    """Run every flight check, in order, and return all eight results.
+    """Run every flight check, in order, and return all nine results.
 
     Checks, in order:
 
@@ -240,15 +263,18 @@ def run_doctor(config_path: Path | None, *, live: bool) -> list[CheckResult]:
        answers. Skipped with ``"pass --live"`` when ``live=False``.
     7. ``sandbox`` -- ``bwrap`` is on ``PATH`` and a smoke invocation of
        it exits ``0``; ``FAIL`` names whichever of those two failed.
-    8. ``ollama`` -- always skipped; the Ollama backend does not exist in
+    8. ``tui`` -- stdout is a real terminal, the same precondition
+       `kestrel` (no subcommand) itself requires before mounting the
+       cockpit.
+    9. ``ollama`` -- always skipped; the Ollama backend does not exist in
        this codebase yet.
 
     Checks 2 through 6 form a dependency chain: the first one to fail
     records its own ``FAIL``, and every check after it in the chain
     reports ``SKIP`` naming that same original check (not whichever check
     immediately precedes it), so the root cause is never obscured by a
-    chain of "blocked by the previous line" indirection. Checks 7 and 8
-    are unconditional and never join this chain.
+    chain of "blocked by the previous line" indirection. Checks 7, 8, and
+    9 are unconditional and never join this chain.
     """
     results: list[CheckResult] = [
         _check_python_version((sys.version_info.major, sys.version_info.minor))
@@ -308,6 +334,7 @@ def run_doctor(config_path: Path | None, *, live: bool) -> list[CheckResult]:
         results.append(_check_endpoint(registry, entry))
 
     results.append(_check_sandbox())
+    results.append(_check_tui())
     results.append(
         CheckResult("ollama", CheckStatus.SKIP, "the Ollama backend is not implemented")
     )

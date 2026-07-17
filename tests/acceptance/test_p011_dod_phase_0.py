@@ -1,11 +1,15 @@
 """Acceptance suite encoding the initial milestone's checkable
 Definition-of-Done clauses as executable scenarios.
 
-Each test below stands in for one machine-checkable clause: a REPL built
-from the packaged entry point streams a real-shaped completion, prints a
-per-turn usage/cost line in the project's canonical format, hot-swaps
-models mid-session without losing conversation history, and the Jetson
-provisioning guide walks a fresh install all the way to a running REPL.
+Each test below stands in for one machine-checkable clause: `run_repl`
+streams a real-shaped completion, prints a per-turn usage/cost line in
+the project's canonical format, hot-swaps models mid-session without
+losing conversation history, and the Jetson provisioning guide walks a
+fresh install all the way to a running REPL. The REPL scenarios drive
+`run_repl` directly, in-process, against a real `LiteLLMClient` and a
+real mock HTTP server -- the REPL is a library entry point other code
+calls, not something the `kestrel` command line itself launches, so
+that is the honest boundary for these scenarios to prove against.
 Every scenario here runs against the hermetic mock backend (see
 ``tests/fixtures/mock_openai.py``); the one clause that requires a real
 provider call has its own opt-in twin in ``tests/e2e/test_p011_dod_live.py``.
@@ -13,25 +17,42 @@ provider call has its own opt-in twin in ``tests/e2e/test_p011_dod_live.py``.
 
 from __future__ import annotations
 
+import io
 import json
-import os
 import re
-import subprocess
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
+from kestrel.config import load_config
 from kestrel.cost.meter import CostMeter, format_cost_line
 from kestrel.provider.events import UsageEvent
+from kestrel.provider.litellm_client import LiteLLMClient
+from kestrel.registry.loader import load_registry
 from kestrel.registry.model import ModelEntry
-from kestrel.repl import SYSTEM_PROMPT
+from kestrel.repl import SYSTEM_PROMPT, run_repl
 
 pytestmark = [pytest.mark.p011, pytest.mark.acceptance, pytest.mark.dod_phase_0]
 
 _CASSETTES = Path(__file__).resolve().parent.parent / "fixtures" / "cassettes"
-_TIMEOUT_S = 30.0
+
+
+def _scripted_input(*lines: str) -> Callable[[str], str]:
+    """Build an `input_fn` for `run_repl` that yields `lines` in order
+    and raises `EOFError` once exhausted -- the same contract a real
+    piped stdin gives the loop once the script runs out."""
+    iterator = iter(lines)
+
+    def _next_line(_prompt: str) -> str:
+        try:
+            return next(iterator)
+        except StopIteration:
+            raise EOFError from None
+
+    return _next_line
+
 
 _COST_LINE_RE = re.compile(
     r"in:(?P<input>\d+)(?: \(cached:(?P<cached>\d+)\))? out:(?P<output>\d+) "
@@ -105,19 +126,15 @@ models_file = "{models_toml.as_posix()}"
     return kestrel_toml
 
 
-def _repl_env(openrouter_base: str) -> dict[str, str]:
-    """Build the subprocess environment for a REPL run against the
-    hermetic mock backends: real credentials are never needed, so both
-    API key variables are set to fixed test values, and the OpenRouter
-    route is redirected at the mock server via its documented test seam.
-    """
-    env = dict(os.environ)
-    env["OPENROUTER_API_KEY"] = "sk-test-openrouter"
-    env["ZAI_API_KEY"] = "sk-test-zai"
-    env["KESTREL_OPENROUTER_BASE_URL"] = openrouter_base
-    env["PYTHONIOENCODING"] = "utf-8"
-    env.pop("KESTREL_CONFIG", None)
-    return env
+def _set_repl_env(monkeypatch: pytest.MonkeyPatch, openrouter_base: str) -> None:
+    """Set the environment a REPL run against the hermetic mock backends
+    needs: real credentials are never needed, so both API key variables
+    are set to fixed test values, and the OpenRouter route is
+    redirected at the mock server via its documented test seam."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-openrouter")
+    monkeypatch.setenv("ZAI_API_KEY", "sk-test-zai")
+    monkeypatch.setenv("KESTREL_OPENROUTER_BASE_URL", openrouter_base)
+    monkeypatch.delenv("KESTREL_CONFIG", raising=False)
 
 
 def _rate_matched_entry(*, id: str, backend: str, endpoint: str | None) -> ModelEntry:
@@ -143,11 +160,12 @@ def _rate_matched_entry(*, id: str, backend: str, endpoint: str | None) -> Model
 def test_dod_repl_streams_completion(
     tmp_path: Path,
     mock_openai_server: Callable[..., str],
-    kestrel_executable: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Given a REPL script that sends one turn and quits, when run against
-    a hermetic OpenRouter-shaped mock backend, then the streamed
-    completion text reaches stdout and the process exits cleanly.
+    """Given a REPL script that sends one turn and quits, when driven
+    through `run_repl` against a hermetic OpenRouter-shaped mock
+    backend, then the streamed completion text reaches its output and
+    the loop exits cleanly.
 
     This is the mock-backend twin of the "streams a GLM-5.2 completion via
     OpenRouter" checklist clause; the live twin proving the real
@@ -156,53 +174,63 @@ def test_dod_repl_streams_completion(
     openrouter_base = mock_openai_server(_CASSETTES / "openrouter_glm52_hello.sse")
     zai_base = mock_openai_server(_CASSETTES / "zai_glm52_hello.sse")
     config_path = _write_system_config(tmp_path, zai_endpoint=zai_base)
+    _set_repl_env(monkeypatch, openrouter_base)
 
-    result = subprocess.run(
-        [kestrel_executable, "--config", str(config_path)],
-        input="hello\n/quit\n",
-        capture_output=True,
-        encoding="utf-8",
-        env=_repl_env(openrouter_base),
-        cwd=tmp_path,
-        timeout=_TIMEOUT_S,
-        check=False,
+    config, _source = load_config(config_path)
+    registry = load_registry(config.paths.models_file)
+    client = LiteLLMClient(registry)
+    out = io.StringIO()
+
+    exit_code = run_repl(
+        config,
+        registry,
+        client,
+        "glm-5.2",
+        input_fn=_scripted_input("hello", "/quit"),
+        out=out,
     )
 
-    assert result.returncode == 0, result.stderr
-    assert "Hello from GLM-5.2" in result.stdout
+    assert exit_code == 0
+    assert "Hello from GLM-5.2" in out.getvalue()
 
 
 @pytest.mark.cost_regression
 def test_dod_prints_usage_cost_per_turn(
     tmp_path: Path,
     mock_openai_server: Callable[..., str],
-    kestrel_executable: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Given the same one-turn REPL script, when it completes, then stdout
-    carries a cost line in the project's canonical format with nonzero
-    token counts on both sides of the exchange, and that line matches
-    exactly what the real pricing functions compute from the cassette's
-    own usage figures -- not merely a line shaped like a cost line.
+    """Given the same one-turn REPL script, when it completes, then the
+    output carries a cost line in the project's canonical format with
+    nonzero token counts on both sides of the exchange, and that line
+    matches exactly what the real pricing functions compute from the
+    cassette's own usage figures -- not merely a line shaped like a
+    cost line.
     """
     openrouter_base = mock_openai_server(_CASSETTES / "openrouter_glm52_hello.sse")
     zai_base = mock_openai_server(_CASSETTES / "zai_glm52_hello.sse")
     config_path = _write_system_config(tmp_path, zai_endpoint=zai_base)
+    _set_repl_env(monkeypatch, openrouter_base)
 
-    result = subprocess.run(
-        [kestrel_executable, "--config", str(config_path)],
-        input="hello\n/quit\n",
-        capture_output=True,
-        encoding="utf-8",
-        env=_repl_env(openrouter_base),
-        cwd=tmp_path,
-        timeout=_TIMEOUT_S,
-        check=False,
+    config, _source = load_config(config_path)
+    registry = load_registry(config.paths.models_file)
+    client = LiteLLMClient(registry)
+    out = io.StringIO()
+
+    exit_code = run_repl(
+        config,
+        registry,
+        client,
+        "glm-5.2",
+        input_fn=_scripted_input("hello", "/quit"),
+        out=out,
     )
 
-    assert result.returncode == 0, result.stderr
+    assert exit_code == 0
+    stdout = out.getvalue()
 
-    match = _COST_LINE_RE.search(result.stdout)
-    assert match is not None, result.stdout
+    match = _COST_LINE_RE.search(stdout)
+    assert match is not None, stdout
     assert int(match["input"]) > 0
     assert int(match["output"]) > 0
 
@@ -211,22 +239,22 @@ def test_dod_prints_usage_cost_per_turn(
     # Token counts per openrouter_glm52_hello.sse's own usage chunk.
     turn = meter.record(UsageEvent(42, 7, 0), entry)
     expected_line = format_cost_line(turn, meter.session_usd)
-    assert expected_line in result.stdout
+    assert expected_line in stdout
 
 
 def test_dod_model_hotswap(
     tmp_path: Path,
     mock_openai_server: Callable[..., str],
-    kestrel_executable: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Given a REPL script that sends one turn, hot-swaps to the zai route
-    via ``/model``, sends a second turn, and quits, when run against two
-    hermetic mock backends, then the second turn's reply comes from the
-    zai-endpoint mock, both turns are priced under their own model's
-    rates with the session total carried across the swap, and the second
-    request's captured body shows the first exchange was sent along with
-    it -- proving history survives the hot-swap, not just that both calls
-    happened.
+    via ``/model``, sends a second turn, and quits, when driven through
+    `run_repl` against two hermetic mock backends, then the second
+    turn's reply comes from the zai-endpoint mock, both turns are
+    priced under their own model's rates with the session total carried
+    across the swap, and the second request's captured body shows the
+    first exchange was sent along with it -- proving history survives
+    the hot-swap, not just that both calls happened.
     """
     zai_requests: list[bytes] = []
     openrouter_base = mock_openai_server(_CASSETTES / "openrouter_glm52_hello.sse")
@@ -234,25 +262,27 @@ def test_dod_model_hotswap(
         _CASSETTES / "zai_glm52_hello.sse", capture=zai_requests
     )
     config_path = _write_system_config(tmp_path, zai_endpoint=zai_base)
+    _set_repl_env(monkeypatch, openrouter_base)
 
-    script = "hello\n/model glm-5.2-zai\nhello again\n/quit\n"
-    result = subprocess.run(
-        [kestrel_executable, "--config", str(config_path)],
-        input=script,
-        capture_output=True,
-        encoding="utf-8",
-        env=_repl_env(openrouter_base),
-        cwd=tmp_path,
-        timeout=_TIMEOUT_S,
-        check=False,
+    config, _source = load_config(config_path)
+    registry = load_registry(config.paths.models_file)
+    client = LiteLLMClient(registry)
+    out = io.StringIO()
+
+    exit_code = run_repl(
+        config,
+        registry,
+        client,
+        "glm-5.2",
+        input_fn=_scripted_input("hello", "/model glm-5.2-zai", "hello again", "/quit"),
+        out=out,
     )
 
-    assert result.returncode == 0, result.stderr
-    assert "Hello from GLM-5.2" in result.stdout
-    assert "Hello from Z.ai GLM" in result.stdout
-    assert result.stdout.index("Hello from GLM-5.2") < result.stdout.index(
-        "Hello from Z.ai GLM"
-    )
+    assert exit_code == 0
+    stdout = out.getvalue()
+    assert "Hello from GLM-5.2" in stdout
+    assert "Hello from Z.ai GLM" in stdout
+    assert stdout.index("Hello from GLM-5.2") < stdout.index("Hello from Z.ai GLM")
 
     meter = CostMeter()
     openrouter_entry = _rate_matched_entry(
@@ -265,8 +295,8 @@ def test_dod_model_hotswap(
     # Token counts per zai_glm52_hello.sse's own usage chunk.
     second_turn = meter.record(UsageEvent(40, 6, 0), zai_entry)
     second_line = format_cost_line(second_turn, meter.session_usd)
-    assert first_line in result.stdout
-    assert second_line in result.stdout
+    assert first_line in stdout
+    assert second_line in stdout
 
     assert len(zai_requests) == 1
     second_request_messages = json.loads(zai_requests[0])["messages"]

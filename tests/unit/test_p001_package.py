@@ -30,16 +30,19 @@ def test_version_flag_prints_version_and_exits_zero(
     assert captured.out.strip() == __version__
 
 
-def test_no_arguments_starts_the_repl_and_exits_cleanly_on_eof(
+def test_no_arguments_refuses_the_cockpit_on_a_non_interactive_stdout(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """With no subcommand, the REPL starts against the packaged default
-    configuration and registry, and returns exit code 0 as soon as stdin
-    is exhausted (mirroring a piped, non-interactive invocation)."""
+    """With no subcommand, `main` resolves the packaged default
+    configuration and registry, then refuses to mount the interactive
+    cockpit against a non-interactive stdout, returning exit code 1 and
+    printing the documented alternative instead of trying to draw a
+    full-screen interface into a pipe."""
     monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
 
     exit_code = main([])
     captured = capsys.readouterr()
 
-    assert exit_code == 0
-    assert "kestrel" in captured.out
+    assert exit_code == 1
+    assert "kestrel run" in captured.err

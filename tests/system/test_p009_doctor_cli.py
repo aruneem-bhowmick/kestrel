@@ -21,15 +21,20 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _TIMEOUT_S = 30.0
 
 
-def test_doctor_cli_all_green_non_live_exits_zero_with_eight_lines(
+def test_doctor_cli_reports_nine_lines_and_fails_tui_under_a_piped_stdout(
     kestrel_executable: str,
 ) -> None:
     """Given the committed system-test fixture config and its credential
-    env var set, when `kestrel doctor` runs against it (without --live),
-    then it prints exactly eight aligned lines and every check reports
-    the all-green non-live shape -- five OK, `endpoint`/`ollama` SKIP,
-    and `sandbox` OK on a `bwrap`-equipped runner or FAIL naming the
-    reason otherwise, with the exit code following suit."""
+    env var set, when `kestrel doctor` runs against it (without --live)
+    as a real subprocess with its stdout captured through a pipe, then it
+    prints exactly nine aligned lines: five OK checks, `endpoint`/`ollama`
+    SKIP, `sandbox` OK on a `bwrap`-equipped runner or FAIL naming the
+    reason otherwise, and `tui` FAIL -- a piped stdout is never a real
+    terminal, so this check deterministically fails under any subprocess
+    harness that captures output this way, which is exactly the failure
+    mode it exists to catch. The exit code is always 1, since at least
+    one check (`tui`, always; `sandbox`, conditionally) always FAILs
+    here."""
     env = dict(os.environ)
     env["KESTREL_SYSTEM_TEST_API_KEY"] = "sk-test-system"
     env["PYTHONIOENCODING"] = "utf-8"
@@ -51,14 +56,13 @@ def test_doctor_cli_all_green_non_live_exits_zero_with_eight_lines(
     )
 
     lines = result.stdout.splitlines()
-    assert len(lines) == 8
+    assert len(lines) == 9
 
     statuses = [line.split(None, 1)[0] for line in lines]
     actual_sandbox_status = statuses[6]
     assert actual_sandbox_status in ("OK", "FAIL")
 
-    expected_returncode = 0 if actual_sandbox_status == "OK" else 1
-    assert result.returncode == expected_returncode, result.stderr
+    assert result.returncode == 1, result.stderr
 
     assert statuses == [
         "OK",
@@ -68,6 +72,7 @@ def test_doctor_cli_all_green_non_live_exits_zero_with_eight_lines(
         "OK",
         "SKIP",
         actual_sandbox_status,
+        "FAIL",
         "SKIP",
     ]
 
@@ -80,9 +85,11 @@ def test_doctor_cli_all_green_non_live_exits_zero_with_eight_lines(
         "api-key",
         "endpoint",
         "sandbox",
+        "tui",
         "ollama",
     ]
     assert "pass --live" in lines[5]
+    assert "not a terminal" in lines[7]
 
 
 def test_doctor_cli_missing_credential_exits_one(kestrel_executable: str) -> None:
