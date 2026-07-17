@@ -16,3 +16,14 @@ ConversationPane { height: 1fr; border: solid $kestrel-panel; }
 ArtifactPane { height: 1fr; border: solid $kestrel-panel; }
 ToolLogPane { height: 1fr; }
 DiffPane { height: 1fr; border: solid $kestrel-panel; }
+ApprovalModal { align: center middle; }
+#approval_dialog {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    background: $kestrel-panel;
+    border: solid $kestrel-accent;
+    padding: 1 2;
+}
+#approval_summary { text-style: bold; margin-bottom: 1; }
+#approval_detail { margin-bottom: 1; }
