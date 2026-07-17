@@ -990,6 +990,7 @@ async def resume_task(
     task_id: str,
     deps: LoopDeps,
     *,
+    inject_message: str | None = None,
     clock_fn: Callable[[], float] = time.monotonic,
 ) -> LoopResult:
     """Reconstruct a prior task's state via
@@ -1012,6 +1013,18 @@ async def resume_task(
     immediately trip `WALL_CLOCK_CAP` from time that passed while no
     process was even running.
 
+    `inject_message`, when set, is appended as one new user-role message
+    right after the loaded history and before this call resumes driving
+    it -- `None` (the default) preserves every existing caller's exact
+    behavior. Unlike every other field this function reconstructs from
+    the session journal, `inject_message` is never itself journaled as
+    part of the *prior* task's own history; it becomes journaled the
+    ordinary way, as this call's own first new turn's input, once
+    `_drive` records that turn. This also means a task that already
+    reached `TASK_COMPLETE` can be resumed, not only one a cap or crash
+    halted mid-run -- `_drive`'s own control flow places no precondition
+    on the loaded state's prior termination reason.
+
     Raises:
         FileNotFoundError: propagated from `load_session` unchanged --
             no journal exists for `task_id` under `deps.repo_root`.
@@ -1022,6 +1035,8 @@ async def resume_task(
         [state.last_verification] if state.last_verification is not None else []
     )
     history: list[Message] = list(state.history)
+    if inject_message is not None:
+        history.append({"role": "user", "content": inject_message})
     return await _drive(
         history,
         deps,
