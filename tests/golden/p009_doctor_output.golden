@@ -5,4 +5,5 @@ OK    default-model   glm-5.2
 OK    api-key         OPENROUTER_API_KEY
 SKIP  endpoint        pass --live
 OK    sandbox         bwrap
+OK    tui             interactive
 SKIP  ollama          the Ollama backend is not implemented

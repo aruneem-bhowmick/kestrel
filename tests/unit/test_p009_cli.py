@@ -6,6 +6,7 @@ only through :func:`kestrel.doctor.run_doctor` called directly.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -47,24 +48,32 @@ def _patch_sandbox_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_doctor_prints_eight_lines_and_exits_zero_when_all_pass(
+def _patch_tui_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the ``tui`` check deterministically ``OK``, so a test
+    asserting an all-green exit code does not depend on whatever
+    ambient tty state this suite happens to run under."""
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+
+def test_doctor_prints_nine_lines_and_exits_zero_when_all_pass(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     write_config: Callable[..., Path],
 ) -> None:
     """Given a valid config with its credential set, when `doctor` runs
-    through the real CLI entry point, then it prints eight lines to
+    through the real CLI entry point, then it prints nine lines to
     stdout and returns exit code 0."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
     _patch_sandbox_ok(monkeypatch)
+    _patch_tui_ok(monkeypatch)
     config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     exit_code = main(["doctor", "--config", str(config_path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert len(captured.out.splitlines()) == 8
+    assert len(captured.out.splitlines()) == 9
 
 
 def test_doctor_exits_one_when_any_check_fails(
@@ -95,6 +104,7 @@ def test_doctor_config_flag_works_before_the_subcommand(
     against the named config rather than falling back to defaults."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
     _patch_sandbox_ok(monkeypatch)
+    _patch_tui_ok(monkeypatch)
     config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     exit_code = main(["--config", str(config_path), "doctor"])
@@ -116,6 +126,7 @@ def test_doctor_config_flag_works_after_the_subcommand(
     parsed, then it resolves identically to the flag preceding it."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
     _patch_sandbox_ok(monkeypatch)
+    _patch_tui_ok(monkeypatch)
     config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     exit_code = main(["doctor", "--config", str(config_path)])
@@ -137,6 +148,7 @@ def test_doctor_without_live_flag_skips_the_endpoint_check(
     than attempting a network call."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
     _patch_sandbox_ok(monkeypatch)
+    _patch_tui_ok(monkeypatch)
     config_path = write_config(tmp_path, _VALID_MODELS_TOML, default_model="glm-5.2")
 
     exit_code = main(["doctor", "--config", str(config_path)])
