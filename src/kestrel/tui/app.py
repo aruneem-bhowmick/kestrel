@@ -238,6 +238,7 @@ class KestrelApp(App[None]):
         self.repo_root = repo_root
         self.mode_manager = mode_manager if mode_manager is not None else ModeManager()
         self._current_task_id: str | None = None
+        self._last_completed_task_id: str | None = None
         self._last_meter: CostMeter | None = None
 
     def compose(self) -> ComposeResult:
@@ -329,12 +330,13 @@ class KestrelApp(App[None]):
         `_current_task_id` is cleared in a `finally` block so it always
         reflects reality -- including when `run_task` raises -- and a
         later submission is accepted again only once this one has
-        fully ended. `_last_meter` is set from the finished task's own
-        `TaskSetup` in that same block, but only once `_prepare_task_run`
-        has actually returned one -- an exception raised before that
-        (e.g. an unknown `active_model_id`) leaves `_last_meter` exactly
-        as `/cost` last found it, rather than clobbering it with a task
-        that never really started.
+        fully ended. `_last_meter` and `_last_completed_task_id` are set
+        from the finished task in that same block, but only once
+        `_prepare_task_run` has actually returned a `TaskSetup` -- an
+        exception raised before that (e.g. an unknown `active_model_id`)
+        leaves both exactly as `/cost` and `/undo` last found them,
+        rather than clobbering them with a task that never really
+        started.
         """
         task_id = str(uuid.uuid4())
         self._current_task_id = task_id
@@ -348,6 +350,7 @@ class KestrelApp(App[None]):
             self._current_task_id = None
             if setup is not None:
                 self._last_meter = setup.deps.meter
+                self._last_completed_task_id = task_id
 
     async def _resume_task(self, task_id: str) -> None:
         """Resume the prior task named by `task_id`: builds a fresh
@@ -357,9 +360,9 @@ class KestrelApp(App[None]):
         loaded session's own journaled history stands in for the
         `text` argument a brand new task would otherwise need.
 
-        `_current_task_id` and `_last_meter` are managed identically to
-        `_run_task`, including the same finally-block guard against a
-        `setup` that never got built.
+        `_current_task_id`, `_last_meter`, and `_last_completed_task_id`
+        are managed identically to `_run_task`, including the same
+        finally-block guard against a `setup` that never got built.
         """
         self._current_task_id = task_id
         setup: TaskSetup | None = None
@@ -372,6 +375,7 @@ class KestrelApp(App[None]):
             self._current_task_id = None
             if setup is not None:
                 self._last_meter = setup.deps.meter
+                self._last_completed_task_id = task_id
 
     def _prepare_task_run(self, task_id: str) -> TaskSetup:
         """Build `task_id`'s own `TaskSetup` via `build_task_deps`, then
@@ -473,38 +477,64 @@ class KestrelApp(App[None]):
         self.mode_manager.set_mode(mode)
         self._show_idle_status()
 
-    def action_undo_current_task(self) -> None:
-        """Revert every mutation the current task has journaled so far,
-        or warn instead when no task has run yet this session.
-
-        Runs the actual revert in `_undo_current_task`, scheduled as a
-        worker rather than performed inline here, since reverting talks
-        to the filesystem and every other filesystem-touching call in
-        this codebase's own async call sites is likewise kept off the
-        widget-handling coroutine.
+    def _reject_while_task_active(self, retry_hint: str) -> bool:
+        """Notify and return `True` when `_current_task_id` names a task
+        still in flight, so a palette action that would otherwise mutate
+        shared session state can decline cleanly instead of racing the
+        task already running. `retry_hint` names the verb the warning
+        tells the user to retry (e.g. `"undo"`, `"switch"`, `"resume"`)
+        once the running task finishes; returns `False`, notifying
+        nothing, when no task is active.
         """
         if self._current_task_id is None:
+            return False
+        self.notify(
+            f"a task is still running -- {retry_hint} once it finishes",
+            severity="warning",
+        )
+        return True
+
+    def action_undo_current_task(self) -> None:
+        """Revert the most recently *finished* task's own journaled
+        mutations, declining instead while a task is active (see
+        `_reject_while_task_active`) or when no task has finished yet
+        this session.
+
+        Reverting a still-running task's own mutations would race that
+        task's own tool calls, which may still be writing to the same
+        paths a revert would touch -- `_current_task_id` names an
+        active task, never a finished one, so undo only ever targets
+        `_last_completed_task_id`, captured here and handed to
+        `_undo_current_task` as a worker argument rather than read back
+        off shared state once that worker actually starts running.
+        Scheduled as a worker rather than performed inline, since
+        reverting talks to the filesystem and every other
+        filesystem-touching call in this codebase's own async call
+        sites is likewise kept off the widget-handling coroutine.
+        """
+        if self._reject_while_task_active("undo"):
+            return
+        task_id = self._last_completed_task_id
+        if task_id is None:
             self.notify("no task to undo yet", severity="warning")
             return
-        self.run_worker(self._undo_current_task())
+        self.run_worker(self._undo_current_task(task_id))
 
-    async def _undo_current_task(self) -> None:
-        """Revert `self._current_task_id`'s own mutations via a fresh
-        `UndoManager` and write a one-line summary to the conversation
-        pane naming how many were reverted.
+    async def _undo_current_task(self, task_id: str) -> None:
+        """Revert `task_id`'s own mutations via a fresh `UndoManager`
+        and write a one-line summary to the conversation pane naming
+        how many were reverted.
 
-        Re-reads `self._current_task_id` rather than trusting a value
-        captured at `action_undo_current_task` call time, so a task
-        that finishes (clearing the id back to `None`) between the
-        keypress and this coroutine's first await is handled by simply
-        doing nothing rather than reverting the wrong task.
-        `UndoManager.revert_task` performs real file I/O, so it runs via
-        `asyncio.to_thread` off the event loop this coroutine itself
-        runs on.
+        Takes `task_id` as a parameter, captured by
+        `action_undo_current_task` before this worker was even
+        scheduled, rather than reading `self._last_completed_task_id`
+        again once running -- the task this call reverts is always the
+        one the caller decided on, never whatever that attribute might
+        have become (e.g. a later task finishing) by the time this
+        coroutine's first await runs. `UndoManager.revert_task`
+        performs real file I/O, so it runs via `asyncio.to_thread` off
+        the event loop this coroutine itself runs on.
         """
-        task_id = self._current_task_id
-        if task_id is None:
-            return
         reverted = await asyncio.to_thread(
             UndoManager(repo_root=self.repo_root).revert_task, task_id
         )
