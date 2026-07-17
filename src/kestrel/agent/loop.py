@@ -111,11 +111,34 @@ the loop decides next. Leaving `observer` unset is a no-op by
 construction, so every caller written before this hook existed keeps
 its exact prior behavior.
 
+Which effort level a turn is sent at, and which tools it may call, are
+themselves per-task fields rather than fixed constants: `LoopDeps.effort`
+(default `"high"`) is threaded straight through to the retrying client
+wrapper on every turn, and `LoopDeps.available_tools` (default `None`,
+meaning every registered tool) both filters the schema list offered to
+the model and gates a requested tool call against that same set --
+calling anything outside it is refused with a framed result folded into
+history as an ordinary tool-role message, never raised or otherwise
+fatal to the loop. Every caller that leaves both fields at their
+defaults sees identical behavior to before either field existed; this
+module makes no decision about which effort or tool set a given task
+should actually run with, only carries whichever values it is given.
+
+`resume_task` can also fold one new instruction into a prior task's
+history before continuing it: its `inject_message` parameter, when set,
+is appended as a fresh user-role message right after the loaded history
+and before the resumed drive begins, letting a caller continue a task
+that already reached `TASK_COMPLETE` rather than only one a turn cap,
+token cap, wall-clock cap, or crash halted mid-run. Leaving it unset
+(the default) preserves the exact resume behavior every existing caller
+already relies on.
+
 Deliberately out of scope for this module, each a real gap rather than
 an oversight:
 
-- No plan/fast mode switching -- every model call runs at a single,
-  fixed effort level.
+- No plan/fast mode switching -- `LoopDeps.effort` and `available_tools`
+  are plain per-task fields this module only carries; nothing here
+  decides which value a given task should actually run with.
 - No real self-critique model call -- `LoopDeps.self_critique_fn`
   defaults to always approving; the injection point exists so a real
   cheap-model check can be plugged in later without changing this
@@ -153,7 +176,7 @@ from kestrel.managers.approval import ApprovalDenied, ApprovalManager
 from kestrel.managers.budget import BudgetManager, BudgetStatus
 from kestrel.managers.session import SessionManager, TurnRecord, load_session
 from kestrel.managers.undo import UndoManager
-from kestrel.provider.base import Message, ProviderClient
+from kestrel.provider.base import Effort, Message, ProviderClient
 from kestrel.provider.cache import build_stable_prefix, mark_cache_breakpoints
 from kestrel.provider.errors import ContextOverflowError
 from kestrel.provider.events import (
@@ -166,7 +189,7 @@ from kestrel.provider.events import (
 from kestrel.provider.retry import complete_with_retry
 from kestrel.registry.model import ModelEntry, Registry
 from kestrel.security.framing import frame_untrusted
-from kestrel.tools.registry import ToolResult, all_schemas, dispatch
+from kestrel.tools.registry import ToolResult, dispatch, schemas_for
 from kestrel.tools.verify import VerificationReport
 
 logger = logging.getLogger("kestrel.agent")
@@ -305,6 +328,12 @@ class LoopDeps:
             LoopObserver` for the full contract. Defaults to
             `NullLoopObserver`, so every caller that leaves this unset
             sees identical behavior to before this field existed.
+        effort: The reasoning-depth level every turn in this task is
+            sent at. Defaults to `"high"`, identical to every caller
+            before this field existed.
+        available_tools: The tool names this task's turns may call, or
+            `None` for every registered tool. Defaults to `None`,
+            identical to every caller before this field existed.
     """
 
     client: ProviderClient
@@ -326,6 +355,8 @@ class LoopDeps:
     spent_day_usd: Decimal = Decimal(0)
     spent_month_usd: Decimal = Decimal(0)
     observer: LoopObserver = field(default_factory=lambda: NULL_OBSERVER)
+    effort: Effort = "high"
+    available_tools: frozenset[str] | None = None
 
 
 def _split_events(
@@ -523,7 +554,23 @@ def _dispatch_tool_call(
     it escape -- a model's own tool call is never fatal to the loop,
     whether it names an unregistered tool, sends malformed arguments,
     or is turned down at the approval gate.
+
+    A name outside `deps.available_tools` (when that allowlist is set)
+    is refused the same way, before `dispatch` is ever called -- no
+    tool executor runs, so a restricted task cannot trigger that tool's
+    undo, approval, or verification side effects by having a call
+    refused rather than skipped by the model itself.
     """
+    if deps.available_tools is not None and event.name not in deps.available_tools:
+        return ToolResult(
+            tool_call_id=event.id,
+            content=frame_untrusted(
+                f"{event.name!r} is not available in this mode; only "
+                f"{sorted(deps.available_tools)} may be called.",
+                source="tool_stderr",
+                origin=event.name,
+            ),
+        )
     try:
         return dispatch(
             event,
@@ -544,8 +591,10 @@ def _dispatch_tool_call(
 async def _drain_think(
     deps: LoopDeps, history: Sequence[Message], entry: ModelEntry, model_id: str
 ) -> list[StreamEvent]:
-    """Stream one full turn from `deps.client`, offering it the full
-    tool set, and collect every event it yields.
+    """Stream one full turn from `deps.client`, offering it
+    `deps.available_tools`'s schemas (every registered tool's, when left
+    at its default `None`) at `deps.effort`, and collect every event it
+    yields.
 
     `model_id` is the turn's own actually-active model -- `deps.model_id`
     itself is never read here, since a budget-triggered degrade changes
@@ -574,7 +623,12 @@ async def _drain_think(
     messages: list[Message] = [*prefix, *history]
     events: list[StreamEvent] = []
     async for event in complete_with_retry(
-        deps.client, messages, all_schemas(), model_id, "high", stream=True
+        deps.client,
+        messages,
+        schemas_for(deps.available_tools),
+        model_id,
+        deps.effort,
+        stream=True,
     ):
         if isinstance(event, TextDelta):
             deps.observer.on_text_delta(event.text)
