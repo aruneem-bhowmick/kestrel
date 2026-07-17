@@ -8,6 +8,7 @@ $kestrel-text: #e8e2d6;
 
 Screen { background: $kestrel-background; color: $kestrel-text; }
 StatusBar { dock: top; height: 1; background: $kestrel-accent; color: $kestrel-text; }
+LoadingIndicator { dock: top; height: 1; color: $kestrel-accent; }
 #left_column { width: 2fr; }
 #right_column { width: 1fr; border-left: solid $kestrel-panel; }
 ConversationPane { height: 1fr; border: solid $kestrel-panel; }

@@ -217,11 +217,16 @@ def test_on_termination_flushes_pending_text_then_writes_a_summary(
     assert "$0.0050" in conversation.written[0]
 
 
-def test_stubbed_hooks_are_callable_and_touch_neither_pane(tmp_path: Path) -> None:
-    """Given `on_tool_call_started`/`on_tool_call_finished`/
-    `on_verification` -- no-ops this prompt -- when each is called with
-    a representative argument, then each returns `None` without raising
-    and without touching `conversation` or `status_bar`."""
+def test_tool_call_hooks_and_verification_touch_neither_conversation_nor_status_bar(
+    tmp_path: Path,
+) -> None:
+    """Given `on_tool_call_started`/`on_tool_call_finished` -- which
+    drive `tool_log`/`diff_pane`, not tested here -- and `on_verification`
+    -- still a no-op, pending a later change wiring an artifact pane to
+    it -- when each is called with a representative argument, then each
+    returns `None` without raising and without touching `conversation`
+    or `status_bar`, the two collaborators this file's own suite
+    covers."""
     conversation = _FakeConversation()
     status_bar = _FakeStatusBar()
     observer = _observer(

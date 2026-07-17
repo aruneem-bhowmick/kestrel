@@ -5,7 +5,10 @@ a conversation view, an artifact viewer, a collapsible tool log, a diff
 view, and a status bar -- in a restrained rust-and-slate default theme.
 Submitting text in the task-input box drives a real `run_task` call
 through `kestrel.task_setup.build_task_deps`: the conversation pane
-streams the assistant's own text as it arrives, the status bar updates
+streams the assistant's own text as it arrives, the tool log gains a
+started/finished line for every tool call, the diff pane renders the
+most recent `edit_file` mutation as a unified diff, a loading indicator
+shows for as long as any tool call is in flight, the status bar updates
 live after every turn, and the task's own termination prints a terse
 summary. Every pane that renders model- or tool-sourced text routes it
 through `kestrel.repl.sanitize_terminal` first, whether directly (the
@@ -14,25 +17,37 @@ conversation pane) or via `kestrel.tui.observer_bridge.TuiLoopObserver`.
 
 from __future__ import annotations
 
+import difflib
 import uuid
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
+from rich.syntax import Syntax
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Collapsible, Input, Markdown, RichLog, Static
+from textual.widgets import (
+    Collapsible,
+    Input,
+    LoadingIndicator,
+    Markdown,
+    RichLog,
+    Static,
+)
 
 from kestrel.agent.loop import run_task
 from kestrel.config import KestrelConfig
 from kestrel.kestrel_md import KestrelMd
 from kestrel.managers.mode import ModeManager
+from kestrel.provider.events import ToolCallEvent
 from kestrel.registry.model import Registry
 from kestrel.repl import sanitize_terminal
 from kestrel.task_setup import build_task_deps
 from kestrel.tui.observer_bridge import TuiLoopObserver
 from kestrel.tui.status import StatusSnapshot, render_status_line
+
+_MAX_TOOL_ARG_SUMMARY_CHARS: Final[int] = 120
 
 
 class ConversationPane(RichLog):
@@ -82,8 +97,29 @@ class ToolLogPane(RichLog):
     """Append-only log of tool calls and their outcomes, mounted inside
     a `Collapsible` by `KestrelApp.compose` -- the collapsible
     container, not this widget itself, is what makes the tool log
-    collapsible. Left empty (no placeholder text) until a later change
-    starts writing real entries to it."""
+    collapsible. Empty until the first tool call of a submitted task
+    writes its own started/finished lines here."""
+
+    def append_started(self, call: ToolCallEvent) -> None:
+        """Write a `"-> {name}({summary})"` line for a tool call that
+        just started.
+
+        `summary` is `call.arguments_json`, sanitized through
+        `sanitize_terminal` and capped at `_MAX_TOOL_ARG_SUMMARY_CHARS`
+        characters with a trailing `"..."` when longer, so a tool call
+        carrying an enormous argument payload (a large `edit_file`
+        replacement, say) never floods this pane with its full text.
+        """
+        summary = sanitize_terminal(call.arguments_json)
+        if len(summary) > _MAX_TOOL_ARG_SUMMARY_CHARS:
+            summary = summary[:_MAX_TOOL_ARG_SUMMARY_CHARS] + "..."
+        self.write(f"-> {call.name}({summary})")
+
+    def append_finished(self, call: ToolCallEvent, *, elapsed_s: float) -> None:
+        """Write a `"<- {name} ({elapsed_s:.1f}s)"` line for a tool call
+        that just finished, pairing with the `append_started` line the
+        same call already wrote."""
+        self.write(f"<- {call.name} ({elapsed_s:.1f}s)")
 
 
 class ArtifactPane(Markdown):
@@ -96,10 +132,32 @@ class ArtifactPane(Markdown):
 
 class DiffPane(Static):
     """Renders the most recent file mutation as a syntax-highlighted
-    unified diff. Shows a placeholder message until a later change
-    computes a real diff to render."""
+    unified diff. Shows a placeholder message until the first
+    `edit_file` mutation of a submitted task calls `show_diff`."""
 
     can_focus = True
+
+    def show_diff(self, path: str, before: str | None, after: str | None) -> None:
+        """Render a unified diff of `before` -> `after` and display it.
+
+        Either side may be `None` -- `before is None` means the
+        mutation created `path`, `after is None` means it deleted
+        `path` -- and is treated as empty content for the diff.
+        The rendered diff text is sanitized through `sanitize_terminal`
+        before display, since it embeds a file's own (untrusted)
+        content, then wrapped as a `rich.syntax.Syntax` object so it
+        renders with diff syntax highlighting. Only the most recent
+        mutation is ever shown; this pane keeps no history of earlier
+        diffs to browse back through.
+        """
+        diff_lines = difflib.unified_diff(
+            (before or "").splitlines(keepends=True),
+            (after or "").splitlines(keepends=True),
+            fromfile=path,
+            tofile=path,
+        )
+        diff_text = sanitize_terminal("".join(diff_lines))
+        self.update(Syntax(diff_text, "diff"))
 
 
 class StatusBar(Static):
@@ -158,8 +216,12 @@ class KestrelApp(App[None]):
     def compose(self) -> ComposeResult:
         """Lay out the status bar, docked top, above a two-column body:
         the conversation pane and its task-input box on the left, and
-        the artifact, tool-log, and diff panes stacked on the right."""
+        the artifact, tool-log, and diff panes stacked on the right.
+        A `LoadingIndicator`, docked directly under the status bar,
+        shows for as long as a submitted task has a tool call in
+        flight (see `_run_task`) and is otherwise hidden."""
         yield StatusBar(id="status_bar")
+        yield LoadingIndicator(id="loading_indicator")
         with Horizontal():
             with Vertical(id="left_column"):
                 yield ConversationPane(id="conversation", markup=False, wrap=True)
@@ -173,12 +235,14 @@ class KestrelApp(App[None]):
 
     def on_mount(self) -> None:
         """Populate every pane with its first-party placeholder content,
-        and show a real idle status line -- no turn has billed yet
+        hide the loading indicator (no tool call is in flight yet), and
+        show a real idle status line -- no turn has billed yet
         (`context_used_tokens=None`, `session_usd=Decimal(0)`), built
         from this app's own starting model and mode."""
         self.query_one("#conversation", ConversationPane).write("Kestrel ready.")
         self.query_one("#artifact", ArtifactPane).update("_no artifact yet_")
         self.query_one("#diff", DiffPane).update("no changes yet")
+        self.query_one("#loading_indicator", LoadingIndicator).display = False
 
         entry = self.registry.get(self.active_model_id)
         budget_config = self.config.managers.budget
@@ -224,8 +288,8 @@ class KestrelApp(App[None]):
         """Run `text` as a brand new task: builds this task's own
         `TaskSetup` via `build_task_deps`, then swaps in a fresh
         `TuiLoopObserver` bridging its progress onto the conversation
-        pane and status bar, and drives it to completion via
-        `run_task`.
+        pane, tool log, diff pane, loading indicator, and status bar,
+        and drives it to completion via `run_task`.
 
         The observer is built only after `build_task_deps` returns so
         it can be seeded with `setup.spent_day_usd` -- the real
@@ -236,6 +300,11 @@ class KestrelApp(App[None]):
         `run_task` is not awaited until after it is set, so the loop
         never sees the placeholder `NULL_OBSERVER` `build_task_deps`
         itself defaults to.
+
+        `_set_inflight`, a small closure over this task's own
+        `#loading_indicator`, is the observer's `on_inflight_change`
+        hook: it shows the indicator once at least one tool call is in
+        flight and hides it again the moment none are.
 
         `_current_task_id` is cleared in a `finally` block so it always
         reflects reality -- including when `run_task` raises -- and a
@@ -256,6 +325,13 @@ class KestrelApp(App[None]):
                 repo_root=self.repo_root,
                 task_id=task_id,
             )
+            loading_indicator = self.query_one("#loading_indicator", LoadingIndicator)
+
+            def _set_inflight(count: int) -> None:
+                """Show `loading_indicator` while `count` is positive,
+                hide it once it drops back to zero."""
+                loading_indicator.display = count > 0
+
             setup.deps.observer = TuiLoopObserver(
                 conversation=conversation,
                 status_bar=self.query_one("#status_bar", StatusBar),
@@ -266,6 +342,9 @@ class KestrelApp(App[None]):
                 session_cap_usd=self.config.managers.budget.session_usd,
                 day_cap_usd=self.config.managers.budget.day_usd,
                 spent_day_usd_baseline=setup.spent_day_usd,
+                on_inflight_change=_set_inflight,
+                tool_log=self.query_one("#tool_log", ToolLogPane),
+                diff_pane=self.query_one("#diff", DiffPane),
             )
             await run_task(text, setup.deps, task_id)
         finally:
