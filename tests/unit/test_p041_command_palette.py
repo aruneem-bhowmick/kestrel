@@ -1,5 +1,6 @@
 """Tests for the ctrl+p command palette: `KestrelCommandProvider.search`
-driven directly against a mounted `KestrelApp`.
+driven directly against a mounted `KestrelApp`, and one end-to-end case
+driving the real palette UI via Textual's own `Pilot`.
 
 Every case here mounts a `KestrelApp` through `run_test()` -- a
 `command.Provider` requires a real `Screen`/`App` context per Textual's
@@ -250,3 +251,22 @@ async def test_resume_query_yields_one_hit_per_journal_file(
         hits = await _hits(provider, "resume")
 
         assert [hit.text for hit in hits] == ["/resume task-abc123"]
+
+
+async def test_palette_keyboard_driven_end_to_end(tmp_path: Path) -> None:
+    """Given a freshly mounted app in its default "fast" mode, when
+    ctrl+p opens the real command palette, "/mode plan" is typed, and
+    enter is pressed, then `app.mode_manager.mode` reads back as
+    "plan" -- proving the real key binding drives this all the way
+    through, not just `KestrelCommandProvider.search` in isolation."""
+    app = _app(tmp_path, "glm-5.2")
+    async with app.run_test() as pilot:
+        await pilot.press("ctrl+p")
+        await pilot.pause()
+        await pilot.press(*"/mode plan")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert pilot.app.mode_manager.mode == "plan"
