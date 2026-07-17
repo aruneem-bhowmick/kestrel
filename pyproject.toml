@@ -130,4 +130,5 @@ markers = [
     "p037: the status bar's pure StatusSnapshot rendering and its show() widget hook",
     "p038: the shared task-deps builder and the TUI conversation pane's live task wiring",
     "p039: the tool log's live started/finished lines, the diff pane's unified-diff rendering, and the in-flight tool-call loading indicator",
+    "p040: the artifact pane's rendering of the task's most recent VerificationReport",
 ]

@@ -222,11 +222,11 @@ def test_tool_call_hooks_and_verification_touch_neither_conversation_nor_status_
 ) -> None:
     """Given `on_tool_call_started`/`on_tool_call_finished` -- which
     drive `tool_log`/`diff_pane`, not tested here -- and `on_verification`
-    -- still a no-op, pending a later change wiring an artifact pane to
-    it -- when each is called with a representative argument, then each
-    returns `None` without raising and without touching `conversation`
-    or `status_bar`, the two collaborators this file's own suite
-    covers."""
+    -- which drives `artifact_pane`, also not tested here, and stays a
+    no-op when this observer was built without one, as here -- when each
+    is called with a representative argument, then each returns `None`
+    without raising and without touching `conversation` or `status_bar`,
+    the two collaborators this file's own suite covers."""
     conversation = _FakeConversation()
     status_bar = _FakeStatusBar()
     observer = _observer(

@@ -481,8 +481,11 @@ column stacks the artifact, tool-log, and diff panes.
 
 `F1`-`F4` jump focus to the task-input box, the tool log, the diff
 pane, and the artifact pane in turn; `ctrl+q` quits. The artifact pane
-still shows static placeholder content -- wiring it to live task data
-is ongoing work that lands without touching this layout.
+shows the task's most recent `VerificationReport`, rendered as Markdown
+with `kestrel.tools.verify.render_verification_markdown` and sanitized
+before display;
+it shows static placeholder content until a task's own `verify` tool
+call produces its first report.
 
 Submitting text in the task-input box always runs a full task through
 `run_task` -- the same tool-calling agent loop `kestrel run` drives --
@@ -530,9 +533,9 @@ assistant text is sanitized and appended to the conversation pane's own
 currently streaming line; a tool call starting or finishing writes a
 line to the tool log and toggles the loading indicator; an `edit_file`
 call that actually mutated a file renders that mutation in the diff
-pane; and the task's own termination writes a terse summary line. The
-verification hook stays a no-op for now, pending the artifact pane
-picking it up.
+pane; a `verify` tool call's own `VerificationReport` renders in the
+artifact pane; and the task's own termination writes a terse summary
+line.
 
 Every tool call a running task makes writes two lines to the
 collapsible tool log: `-> {name}({summary})` when it starts, where

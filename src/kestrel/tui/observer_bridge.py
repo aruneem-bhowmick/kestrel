@@ -60,10 +60,9 @@ class TuiLoopObserver:
     `tool_log`/`diff_pane`/`artifact_pane` default to `None` -- a
     harmless no-op for any hook they would otherwise drive, the same
     optional-collaborator-with-a-safe-default pattern `LoopDeps.session`/
-    `LoopDeps.budget` already establish; `artifact_pane` stays unread
-    until a later change wires the verification hook up to it.
-    `on_inflight_change` defaults to a no-op for the same reason, for a
-    caller with no in-flight-count-tracking widget of its own.
+    `LoopDeps.budget` already establish. `on_inflight_change` defaults to
+    a no-op for the same reason, for a caller with no
+    in-flight-count-tracking widget of its own.
 
     Running spend is tracked by this bridge itself (`turn_cost.usd`
     accumulated in `on_turn_finished`) rather than read back off the
@@ -191,8 +190,12 @@ class TuiLoopObserver:
             self._diff_pane.show_diff(entry.path, entry.before, entry.after)
 
     def on_verification(self, report: VerificationReport) -> None:
-        """No-op -- a later change replaces this body once a pane is
-        wired to render verification results."""
+        """Forward `report` to `artifact_pane`'s own `show_report`, when
+        one is wired -- a harmless no-op otherwise (e.g. a unit test
+        built against stand-in panes with no `artifact_pane`
+        collaborator)."""
+        if self._artifact_pane is not None:
+            self._artifact_pane.show_report(report)
 
     def on_turn_finished(
         self, *, turn_id: int, turn_cost: TurnCost, active_model_id: str

@@ -7,12 +7,14 @@ Submitting text in the task-input box drives a real `run_task` call
 through `kestrel.task_setup.build_task_deps`: the conversation pane
 streams the assistant's own text as it arrives, the tool log gains a
 started/finished line for every tool call, the diff pane renders the
-most recent `edit_file` mutation as a unified diff, a loading indicator
-shows for as long as any tool call is in flight, the status bar updates
-live after every turn, and the task's own termination prints a terse
-summary. Every pane that renders model- or tool-sourced text routes it
-through `kestrel.repl.sanitize_terminal` first, whether directly (the
-conversation pane) or via `kestrel.tui.observer_bridge.TuiLoopObserver`.
+most recent `edit_file` mutation as a unified diff, the artifact pane
+renders the task's own most recent `VerificationReport` as markdown, a
+loading indicator shows for as long as any tool call is in flight, the
+status bar updates live after every turn, and the task's own
+termination prints a terse summary. Every pane that renders model- or
+tool-sourced text routes it through `kestrel.repl.sanitize_terminal`
+first, whether directly (the conversation pane) or via
+`kestrel.tui.observer_bridge.TuiLoopObserver`.
 """
 
 from __future__ import annotations
@@ -44,10 +46,12 @@ from kestrel.provider.events import ToolCallEvent
 from kestrel.registry.model import Registry
 from kestrel.repl import sanitize_terminal
 from kestrel.task_setup import build_task_deps
+from kestrel.tools.verify import VerificationReport, render_verification_markdown
 from kestrel.tui.observer_bridge import TuiLoopObserver
 from kestrel.tui.status import StatusSnapshot, render_status_line
 
 _MAX_TOOL_ARG_SUMMARY_CHARS: Final[int] = 120
+_ARTIFACT_PLACEHOLDER: Final[str] = "_no artifact yet_"
 
 
 class ConversationPane(RichLog):
@@ -123,11 +127,21 @@ class ToolLogPane(RichLog):
 
 
 class ArtifactPane(Markdown):
-    """Renders the task's most recently produced artifact as markdown.
-    Shows a placeholder message until a later change wires in real
-    artifact content."""
+    """Renders the task's most recently produced `VerificationReport` as
+    markdown. Shows a placeholder message until the first `verify` tool
+    call of a submitted task calls `show_report`."""
 
     can_focus = True
+
+    def show_report(self, report: VerificationReport) -> None:
+        """Render `report` via `render_verification_markdown`, sanitized
+        against hostile terminal escape sequences the same way every
+        other pane guards model- or tool-sourced text, and display it as
+        this pane's entire content. Only the most recent report is ever
+        shown; this pane keeps no history of earlier reports to browse
+        back through, matching `DiffPane`'s own "most recent only"
+        precedent."""
+        self.update(sanitize_terminal(render_verification_markdown(report)))
 
 
 class DiffPane(Static):
@@ -240,7 +254,7 @@ class KestrelApp(App[None]):
         (`context_used_tokens=None`, `session_usd=Decimal(0)`), built
         from this app's own starting model and mode."""
         self.query_one("#conversation", ConversationPane).write("Kestrel ready.")
-        self.query_one("#artifact", ArtifactPane).update("_no artifact yet_")
+        self.query_one("#artifact", ArtifactPane).update(_ARTIFACT_PLACEHOLDER)
         self.query_one("#diff", DiffPane).update("no changes yet")
         self.query_one("#loading_indicator", LoadingIndicator).display = False
 
@@ -288,8 +302,8 @@ class KestrelApp(App[None]):
         """Run `text` as a brand new task: builds this task's own
         `TaskSetup` via `build_task_deps`, then swaps in a fresh
         `TuiLoopObserver` bridging its progress onto the conversation
-        pane, tool log, diff pane, loading indicator, and status bar,
-        and drives it to completion via `run_task`.
+        pane, tool log, diff pane, artifact pane, loading indicator, and
+        status bar, and drives it to completion via `run_task`.
 
         The observer is built only after `build_task_deps` returns so
         it can be seeded with `setup.spent_day_usd` -- the real
@@ -310,6 +324,11 @@ class KestrelApp(App[None]):
         reflects reality -- including when `run_task` raises -- and a
         later submission is accepted again only once this one has
         fully ended.
+
+        The artifact pane is reset to its placeholder text before this
+        task's observer is even built, so a prior task's own
+        `VerificationReport` never lingers on screen once a new task
+        that may not itself call `verify` starts.
         """
         task_id = str(uuid.uuid4())
         self._current_task_id = task_id
@@ -332,6 +351,8 @@ class KestrelApp(App[None]):
                 hide it once it drops back to zero."""
                 loading_indicator.display = count > 0
 
+            artifact_pane = self.query_one("#artifact", ArtifactPane)
+            artifact_pane.update(_ARTIFACT_PLACEHOLDER)
             setup.deps.observer = TuiLoopObserver(
                 conversation=conversation,
                 status_bar=self.query_one("#status_bar", StatusBar),
@@ -345,6 +366,7 @@ class KestrelApp(App[None]):
                 on_inflight_change=_set_inflight,
                 tool_log=self.query_one("#tool_log", ToolLogPane),
                 diff_pane=self.query_one("#diff", DiffPane),
+                artifact_pane=artifact_pane,
             )
             await run_task(text, setup.deps, task_id)
         finally:
