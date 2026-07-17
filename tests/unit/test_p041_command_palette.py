@@ -216,3 +216,37 @@ async def test_undo_query_yields_a_hit_warning_when_no_task_is_current(
         hits[0].command()  # type: ignore[operator]
 
         assert notified == [("no task to undo yet", "warning")]
+
+
+async def test_resume_query_yields_no_hits_without_a_sessions_directory(
+    tmp_path: Path,
+) -> None:
+    """Given a repo with no `.kestrel/sessions/` directory at all, when
+    the palette is searched for "resume", then it yields zero hits."""
+    app = _app(tmp_path, "glm-5.2")
+    async with app.run_test() as pilot:
+        provider = KestrelCommandProvider(pilot.app.screen)
+
+        hits = await _hits(provider, "resume")
+
+        assert hits == []
+
+
+async def test_resume_query_yields_one_hit_per_journal_file(
+    tmp_path: Path,
+) -> None:
+    """Given a repo with exactly one session journal on disk, when the
+    palette is searched for "resume", then it yields exactly one hit
+    naming that journal's own filename stem as the task id to
+    resume."""
+    sessions_dir = tmp_path / ".kestrel" / "sessions"
+    sessions_dir.mkdir(parents=True)
+    (sessions_dir / "task-abc123.jsonl").write_text("", encoding="utf-8")
+
+    app = _app(tmp_path, "glm-5.2")
+    async with app.run_test() as pilot:
+        provider = KestrelCommandProvider(pilot.app.screen)
+
+        hits = await _hits(provider, "resume")
+
+        assert [hit.text for hit in hits] == ["/resume task-abc123"]
