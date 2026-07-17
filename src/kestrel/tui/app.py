@@ -14,11 +14,16 @@ status bar updates live after every turn, and the task's own
 termination prints a terse summary. Every pane that renders model- or
 tool-sourced text routes it through `kestrel.repl.sanitize_terminal`
 first, whether directly (the conversation pane) or via
-`kestrel.tui.observer_bridge.TuiLoopObserver`.
+`kestrel.tui.observer_bridge.TuiLoopObserver`. A `ctrl+p` command
+palette (`kestrel.tui.commands.KestrelCommandProvider`) gives keyboard
+access to model/mode switching, undo, a cost breakdown, and resuming a
+prior task, alongside two informational entries covering approval and
+knowledge-base status.
 """
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import uuid
 from decimal import Decimal
@@ -38,15 +43,18 @@ from textual.widgets import (
     Static,
 )
 
-from kestrel.agent.loop import run_task
+from kestrel.agent.loop import resume_task, run_task
 from kestrel.config import KestrelConfig
+from kestrel.cost.meter import CostMeter, format_cost_line
 from kestrel.kestrel_md import KestrelMd
-from kestrel.managers.mode import ModeManager
+from kestrel.managers.mode import Mode, ModeManager
+from kestrel.managers.undo import UndoManager
 from kestrel.provider.events import ToolCallEvent
 from kestrel.registry.model import Registry
 from kestrel.repl import sanitize_terminal
-from kestrel.task_setup import build_task_deps
+from kestrel.task_setup import TaskSetup, build_task_deps
 from kestrel.tools.verify import VerificationReport, render_verification_markdown
+from kestrel.tui.commands import KestrelCommandProvider
 from kestrel.tui.observer_bridge import TuiLoopObserver
 from kestrel.tui.status import StatusSnapshot, render_status_line
 
@@ -191,9 +199,13 @@ class KestrelApp(App[None]):
     task in `#task_input` drives it through the real tool-calling agent
     loop -- every submission runs the full `run_task`, never a plain
     chat turn -- with `kestrel.tui.observer_bridge.TuiLoopObserver`
-    bridging that task's own progress onto the panes below live."""
+    bridging that task's own progress onto the panes below live. A
+    `ctrl+p` command palette, registered via `COMMANDS` below, gives
+    keyboard access to model/mode switching, undo, a cost breakdown,
+    and resuming a prior task."""
 
     CSS_PATH = "kestrel.tcss"
+    COMMANDS = {*App.COMMANDS, KestrelCommandProvider}
     BINDINGS = [
         Binding("f1", "focus_conversation", "Conversation"),
         Binding("f2", "focus_tool_log", "Tool log"),
@@ -226,6 +238,7 @@ class KestrelApp(App[None]):
         self.repo_root = repo_root
         self.mode_manager = mode_manager if mode_manager is not None else ModeManager()
         self._current_task_id: str | None = None
+        self._last_meter: CostMeter | None = None
 
     def compose(self) -> ComposeResult:
         """Lay out the status bar, docked top, above a two-column body:
@@ -250,14 +263,24 @@ class KestrelApp(App[None]):
     def on_mount(self) -> None:
         """Populate every pane with its first-party placeholder content,
         hide the loading indicator (no tool call is in flight yet), and
-        show a real idle status line -- no turn has billed yet
-        (`context_used_tokens=None`, `session_usd=Decimal(0)`), built
-        from this app's own starting model and mode."""
+        show a real idle status line built from this app's own starting
+        model and mode."""
         self.query_one("#conversation", ConversationPane).write("Kestrel ready.")
         self.query_one("#artifact", ArtifactPane).update(_ARTIFACT_PLACEHOLDER)
         self.query_one("#diff", DiffPane).update("no changes yet")
         self.query_one("#loading_indicator", LoadingIndicator).display = False
+        self._show_idle_status()
 
+    def _show_idle_status(self) -> None:
+        """Render and show a fresh idle `StatusSnapshot` for the
+        currently active model and mode -- no turn has necessarily
+        billed under either one yet, so this always reports
+        `context_used_tokens=None` and `session_usd=Decimal(0)` rather
+        than carrying over whatever a prior task's own
+        `TuiLoopObserver` last showed. Called once on mount, and again
+        by `action_switch_model`/`action_set_mode` whenever a palette
+        selection changes the active model or mode outside of a
+        running task."""
         entry = self.registry.get(self.active_model_id)
         budget_config = self.config.managers.budget
         idle_snapshot = StatusSnapshot(
@@ -300,77 +323,120 @@ class KestrelApp(App[None]):
 
     async def _run_task(self, text: str) -> None:
         """Run `text` as a brand new task: builds this task's own
-        `TaskSetup` via `build_task_deps`, then swaps in a fresh
-        `TuiLoopObserver` bridging its progress onto the conversation
-        pane, tool log, diff pane, artifact pane, loading indicator, and
-        status bar, and drives it to completion via `run_task`.
+        `TaskSetup` and observer via `_prepare_task_run`, then drives it
+        to completion via `run_task`.
+
+        `_current_task_id` is cleared in a `finally` block so it always
+        reflects reality -- including when `run_task` raises -- and a
+        later submission is accepted again only once this one has
+        fully ended. `_last_meter` is set from the finished task's own
+        `TaskSetup` in that same block, but only once `_prepare_task_run`
+        has actually returned one -- an exception raised before that
+        (e.g. an unknown `active_model_id`) leaves `_last_meter` exactly
+        as `/cost` last found it, rather than clobbering it with a task
+        that never really started.
+        """
+        task_id = str(uuid.uuid4())
+        self._current_task_id = task_id
+        setup: TaskSetup | None = None
+        try:
+            conversation = self.query_one("#conversation", ConversationPane)
+            conversation.write(f"\n> {sanitize_terminal(text)}\n")
+            setup = self._prepare_task_run(task_id)
+            await run_task(text, setup.deps, task_id)
+        finally:
+            self._current_task_id = None
+            if setup is not None:
+                self._last_meter = setup.deps.meter
+
+    async def _resume_task(self, task_id: str) -> None:
+        """Resume the prior task named by `task_id`: builds a fresh
+        `TaskSetup` and observer via `_prepare_task_run` exactly as
+        `_run_task` does, then drives it to completion via
+        `kestrel.agent.loop.resume_task` instead of `run_task` -- the
+        loaded session's own journaled history stands in for the
+        `text` argument a brand new task would otherwise need.
+
+        `_current_task_id` and `_last_meter` are managed identically to
+        `_run_task`, including the same finally-block guard against a
+        `setup` that never got built.
+        """
+        self._current_task_id = task_id
+        setup: TaskSetup | None = None
+        try:
+            conversation = self.query_one("#conversation", ConversationPane)
+            conversation.write(f"\n> resuming task {task_id}\n")
+            setup = self._prepare_task_run(task_id)
+            await resume_task(task_id, setup.deps)
+        finally:
+            self._current_task_id = None
+            if setup is not None:
+                self._last_meter = setup.deps.meter
+
+    def _prepare_task_run(self, task_id: str) -> TaskSetup:
+        """Build `task_id`'s own `TaskSetup` via `build_task_deps`, then
+        swap in a fresh `TuiLoopObserver` bridging its progress onto the
+        conversation pane, tool log, diff pane, artifact pane, loading
+        indicator, and status bar -- the collaborator-building steps
+        `_run_task` and `_resume_task` otherwise share verbatim,
+        factored out here so a brand new task and a resumed one are
+        bridged onto the cockpit identically.
 
         The observer is built only after `build_task_deps` returns so
         it can be seeded with `setup.spent_day_usd` -- the real
         same-day spend `build_task_deps` already computed from the
         repo's own session journals -- rather than always starting the
         status bar's day figure from zero. `LoopDeps.observer` is a
-        plain mutable field for exactly this kind of late binding;
-        `run_task` is not awaited until after it is set, so the loop
-        never sees the placeholder `NULL_OBSERVER` `build_task_deps`
-        itself defaults to.
+        plain mutable field for exactly this kind of late binding; the
+        caller does not await either loop entry point until after it is
+        set, so neither one ever sees the placeholder `NULL_OBSERVER`
+        `build_task_deps` itself defaults to.
 
         `_set_inflight`, a small closure over this task's own
         `#loading_indicator`, is the observer's `on_inflight_change`
         hook: it shows the indicator once at least one tool call is in
         flight and hides it again the moment none are.
 
-        `_current_task_id` is cleared in a `finally` block so it always
-        reflects reality -- including when `run_task` raises -- and a
-        later submission is accepted again only once this one has
-        fully ended.
-
         The artifact pane is reset to its placeholder text before this
         task's observer is even built, so a prior task's own
-        `VerificationReport` never lingers on screen once a new task
-        that may not itself call `verify` starts.
+        `VerificationReport` never lingers on screen once a task that
+        may not itself call `verify` starts -- whether that task is
+        brand new or a resumed one.
         """
-        task_id = str(uuid.uuid4())
-        self._current_task_id = task_id
-        try:
-            conversation = self.query_one("#conversation", ConversationPane)
-            conversation.write(f"\n> {sanitize_terminal(text)}\n")
-            entry = self.registry.get(self.active_model_id)
-            setup = build_task_deps(
-                config=self.config,
-                registry=self.registry,
-                model_id=self.active_model_id,
-                kestrel_md=self.kestrel_md,
-                repo_root=self.repo_root,
-                task_id=task_id,
-            )
-            loading_indicator = self.query_one("#loading_indicator", LoadingIndicator)
+        entry = self.registry.get(self.active_model_id)
+        setup = build_task_deps(
+            config=self.config,
+            registry=self.registry,
+            model_id=self.active_model_id,
+            kestrel_md=self.kestrel_md,
+            repo_root=self.repo_root,
+            task_id=task_id,
+        )
+        loading_indicator = self.query_one("#loading_indicator", LoadingIndicator)
 
-            def _set_inflight(count: int) -> None:
-                """Show `loading_indicator` while `count` is positive,
-                hide it once it drops back to zero."""
-                loading_indicator.display = count > 0
+        def _set_inflight(count: int) -> None:
+            """Show `loading_indicator` while `count` is positive, hide
+            it once it drops back to zero."""
+            loading_indicator.display = count > 0
 
-            artifact_pane = self.query_one("#artifact", ArtifactPane)
-            artifact_pane.update(_ARTIFACT_PLACEHOLDER)
-            setup.deps.observer = TuiLoopObserver(
-                conversation=conversation,
-                status_bar=self.query_one("#status_bar", StatusBar),
-                undo=setup.undo,
-                model_id=self.active_model_id,
-                mode_manager=self.mode_manager,
-                context_window=entry.context_window,
-                session_cap_usd=self.config.managers.budget.session_usd,
-                day_cap_usd=self.config.managers.budget.day_usd,
-                spent_day_usd_baseline=setup.spent_day_usd,
-                on_inflight_change=_set_inflight,
-                tool_log=self.query_one("#tool_log", ToolLogPane),
-                diff_pane=self.query_one("#diff", DiffPane),
-                artifact_pane=artifact_pane,
-            )
-            await run_task(text, setup.deps, task_id)
-        finally:
-            self._current_task_id = None
+        artifact_pane = self.query_one("#artifact", ArtifactPane)
+        artifact_pane.update(_ARTIFACT_PLACEHOLDER)
+        setup.deps.observer = TuiLoopObserver(
+            conversation=self.query_one("#conversation", ConversationPane),
+            status_bar=self.query_one("#status_bar", StatusBar),
+            undo=setup.undo,
+            model_id=self.active_model_id,
+            mode_manager=self.mode_manager,
+            context_window=entry.context_window,
+            session_cap_usd=self.config.managers.budget.session_usd,
+            day_cap_usd=self.config.managers.budget.day_usd,
+            spent_day_usd_baseline=setup.spent_day_usd,
+            on_inflight_change=_set_inflight,
+            tool_log=self.query_one("#tool_log", ToolLogPane),
+            diff_pane=self.query_one("#diff", DiffPane),
+            artifact_pane=artifact_pane,
+        )
+        return setup
 
     def action_focus_conversation(self) -> None:
         """Move focus to the task-input box (F1)."""
@@ -387,3 +453,113 @@ class KestrelApp(App[None]):
     def action_focus_artifact(self) -> None:
         """Move focus to the artifact pane (F4)."""
         self.query_one("#artifact", ArtifactPane).focus()
+
+    def action_switch_model(self, model_id: str) -> None:
+        """Switch the active model to `model_id` and refresh the idle
+        status line to reflect it.
+
+        No task is running when a palette selection fires this action,
+        so `_show_idle_status` -- not a running task's own
+        `TuiLoopObserver` -- is what makes the change visible; the next
+        task submitted after this call is what actually sends a turn to
+        the new model.
+        """
+        self.active_model_id = model_id
+        self._show_idle_status()
+
+    def action_set_mode(self, mode: Mode) -> None:
+        """Switch the active PLAN/FAST mode and refresh the idle status
+        line the same way `action_switch_model` does."""
+        self.mode_manager.set_mode(mode)
+        self._show_idle_status()
+
+    def action_undo_current_task(self) -> None:
+        """Revert every mutation the current task has journaled so far,
+        or warn instead when no task has run yet this session.
+
+        Runs the actual revert in `_undo_current_task`, scheduled as a
+        worker rather than performed inline here, since reverting talks
+        to the filesystem and every other filesystem-touching call in
+        this codebase's own async call sites is likewise kept off the
+        widget-handling coroutine.
+        """
+        if self._current_task_id is None:
+            self.notify("no task to undo yet", severity="warning")
+            return
+        self.run_worker(self._undo_current_task())
+
+    async def _undo_current_task(self) -> None:
+        """Revert `self._current_task_id`'s own mutations via a fresh
+        `UndoManager` and write a one-line summary to the conversation
+        pane naming how many were reverted.
+
+        Re-reads `self._current_task_id` rather than trusting a value
+        captured at `action_undo_current_task` call time, so a task
+        that finishes (clearing the id back to `None`) between the
+        keypress and this coroutine's first await is handled by simply
+        doing nothing rather than reverting the wrong task.
+        `UndoManager.revert_task` performs real file I/O, so it runs via
+        `asyncio.to_thread` off the event loop this coroutine itself
+        runs on.
+        """
+        task_id = self._current_task_id
+        if task_id is None:
+            return
+        reverted = await asyncio.to_thread(
+            UndoManager(repo_root=self.repo_root).revert_task, task_id
+        )
+        self.query_one("#conversation", ConversationPane).write(
+            f"undo: reverted {len(reverted)} mutation(s) for task {task_id}"
+        )
+
+    def action_show_cost(self) -> None:
+        """Write the most recently run task's own cost breakdown to the
+        conversation pane: the session total, then one
+        `format_cost_line` per recorded turn, reusing the REPL's own
+        `/cost` rendering verbatim rather than reimplementing it.
+
+        Before any task has run this session, `self._last_meter` is
+        still `None`, so this writes a single "no turns recorded yet"
+        line instead of a breakdown with nothing in it.
+        """
+        conversation = self.query_one("#conversation", ConversationPane)
+        meter = self._last_meter
+        if meter is None:
+            conversation.write("no turns recorded yet")
+            return
+        conversation.write(f"session total: ${meter.session_usd:.4f}")
+        for turn in meter.turns:
+            conversation.write(format_cost_line(turn, meter.session_usd))
+
+    def action_show_approve_info(self) -> None:
+        """Tell the user approvals already happen automatically, rather
+        than opening a queue that does not exist: every destructive
+        action a running task proposes surfaces its own prompt the
+        instant it comes up, so there is never a backlog to browse."""
+        self.notify(
+            "Approvals appear automatically as a modal when a "
+            "destructive action is proposed."
+        )
+
+    def action_show_kb_info(self) -> None:
+        """Tell the user the knowledge base is not available yet,
+        rather than stubbing out storage or retrieval this codebase
+        does not otherwise implement."""
+        self.notify("Knowledge base is not available yet.")
+
+    def list_resumable_task_ids(self) -> list[str]:
+        """Every task id with a session journal on disk under this
+        repo's `.kestrel/sessions/` directory, sorted for stable,
+        deterministic ordering across repeated palette searches --
+        `[]` when that directory does not exist yet, meaning no task in
+        this repo has ever been journaled."""
+        sessions_dir = self.repo_root / ".kestrel" / "sessions"
+        if not sessions_dir.exists():
+            return []
+        return sorted(path.stem for path in sessions_dir.glob("*.jsonl"))
+
+    def action_resume_task(self, task_id: str) -> None:
+        """Resume the prior task named by `task_id` as a background
+        worker, the same way `on_input_submitted` schedules a brand new
+        one."""
+        self.run_worker(self._resume_task(task_id))
