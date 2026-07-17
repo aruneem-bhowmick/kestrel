@@ -48,6 +48,13 @@ _CASSETTES = Path(__file__).resolve().parent.parent / "fixtures" / "cassettes"
 _TOOLCALL_EXECUTE_RM = _CASSETTES / "toolcall_execute_rm.sse"
 _DONE_CASSETTE = _CASSETTES / "done_no_more_tools.sse"
 
+# A stuck thread-to-event-loop bridge (the exact failure mode this suite
+# exists to rule out) would otherwise hang `workers.wait_for_complete()`
+# forever rather than failing the run; this bounds it to a generous but
+# finite wait so a genuine deadlock surfaces as a test failure, not a
+# hung CI job.
+_WORKER_TIMEOUT_S = 30.0
+
 _MODEL_ID = "glm-5.2"
 _TARGET_NAME = "somefile"
 
@@ -156,7 +163,9 @@ async def test_approval_modal_matches_classification_and_approving_once_runs_the
 
         await pilot.press("y")
         await pilot.pause()
-        await pilot.app.workers.wait_for_complete()
+        await asyncio.wait_for(
+            pilot.app.workers.wait_for_complete(), timeout=_WORKER_TIMEOUT_S
+        )
         await pilot.pause()
 
         assert not target.exists()
@@ -199,7 +208,9 @@ async def test_denying_the_approval_leaves_the_file_and_carries_the_framed_refus
         await _wait_for_modal(pilot)
         await pilot.press("n")
         await pilot.pause()
-        await pilot.app.workers.wait_for_complete()
+        await asyncio.wait_for(
+            pilot.app.workers.wait_for_complete(), timeout=_WORKER_TIMEOUT_S
+        )
         await pilot.pause()
 
         assert target.exists()
