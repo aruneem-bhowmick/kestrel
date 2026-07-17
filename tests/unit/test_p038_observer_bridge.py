@@ -95,7 +95,9 @@ def test_on_turn_started_refreshes_status_bar_with_unbilled_context(
     has billed yet."""
     conversation = _FakeConversation()
     status_bar = _FakeStatusBar()
-    observer = _observer(conversation=conversation, status_bar=status_bar, tmp_path=tmp_path)
+    observer = _observer(
+        conversation=conversation, status_bar=status_bar, tmp_path=tmp_path
+    )
 
     observer.on_turn_started(turn_id=1, active_model_id="glm-5.2")
 
@@ -112,7 +114,9 @@ def test_on_text_delta_appends_sanitized_text(tmp_path: Path) -> None:
     sanitized, never the raw byte."""
     conversation = _FakeConversation()
     status_bar = _FakeStatusBar()
-    observer = _observer(conversation=conversation, status_bar=status_bar, tmp_path=tmp_path)
+    observer = _observer(
+        conversation=conversation, status_bar=status_bar, tmp_path=tmp_path
+    )
 
     observer.on_text_delta("hello \x1b[2Jworld")
 
@@ -126,10 +130,15 @@ def test_on_turn_finished_accumulates_cost_across_turns(tmp_path: Path) -> None:
     context-usage figure."""
     conversation = _FakeConversation()
     status_bar = _FakeStatusBar()
-    observer = _observer(conversation=conversation, status_bar=status_bar, tmp_path=tmp_path)
+    observer = _observer(
+        conversation=conversation, status_bar=status_bar, tmp_path=tmp_path
+    )
 
     first = TurnCost(
-        model_id="glm-5.2", input_tokens=100, output_tokens=20, cached_tokens=0,
+        model_id="glm-5.2",
+        input_tokens=100,
+        output_tokens=20,
+        cached_tokens=0,
         usd=Decimal("0.001"),
     )
     observer.on_turn_finished(turn_id=1, turn_cost=first, active_model_id="glm-5.2")
@@ -140,7 +149,10 @@ def test_on_turn_finished_accumulates_cost_across_turns(tmp_path: Path) -> None:
     assert status_bar.snapshots[0].day_usd == Decimal("0.001")
 
     second = TurnCost(
-        model_id="glm-5.2", input_tokens=50, output_tokens=10, cached_tokens=0,
+        model_id="glm-5.2",
+        input_tokens=50,
+        output_tokens=10,
+        cached_tokens=0,
         usd=Decimal("0.002"),
     )
     observer.on_turn_finished(turn_id=2, turn_cost=second, active_model_id="glm-5.2")
@@ -165,7 +177,10 @@ def test_on_turn_finished_adds_session_spend_on_top_of_the_day_baseline(
     )
 
     turn_cost = TurnCost(
-        model_id="glm-5.2", input_tokens=10, output_tokens=5, cached_tokens=0,
+        model_id="glm-5.2",
+        input_tokens=10,
+        output_tokens=5,
+        cached_tokens=0,
         usd=Decimal("0.0010"),
     )
     observer.on_turn_finished(turn_id=1, turn_cost=turn_cost, active_model_id="glm-5.2")
@@ -183,7 +198,9 @@ def test_on_termination_flushes_pending_text_then_writes_a_summary(
     cost is written."""
     conversation = _FakeConversation()
     status_bar = _FakeStatusBar()
-    observer = _observer(conversation=conversation, status_bar=status_bar, tmp_path=tmp_path)
+    observer = _observer(
+        conversation=conversation, status_bar=status_bar, tmp_path=tmp_path
+    )
 
     result = LoopResult(
         reason=TerminationReason.TASK_COMPLETE,
@@ -207,7 +224,9 @@ def test_stubbed_hooks_are_callable_and_touch_neither_pane(tmp_path: Path) -> No
     and without touching `conversation` or `status_bar`."""
     conversation = _FakeConversation()
     status_bar = _FakeStatusBar()
-    observer = _observer(conversation=conversation, status_bar=status_bar, tmp_path=tmp_path)
+    observer = _observer(
+        conversation=conversation, status_bar=status_bar, tmp_path=tmp_path
+    )
 
     call = ToolCallEvent(id="call-1", name="read_file", arguments_json="{}")
     result = ToolResult(tool_call_id="call-1", content="ok")
