@@ -1,0 +1,2 @@
+-> read_file({"path": "src/greet.py"})
+<- read_file (1.5s)
