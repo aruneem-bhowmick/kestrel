@@ -22,7 +22,7 @@ from textual.widgets import Input
 from kestrel.config import KestrelConfig
 from kestrel.registry.model import ModelEntry, Registry
 from kestrel.tui import app as app_module
-from kestrel.tui.app import DiffPane, KestrelApp, ToolLogPane
+from kestrel.tui.app import DiffPane, KestrelApp, LoadingIndicator, ToolLogPane
 from kestrel.tui.observer_bridge import TuiLoopObserver
 
 pytestmark = [pytest.mark.p039, pytest.mark.system, pytest.mark.ui]
@@ -69,14 +69,21 @@ def _write_fixture_repo(tmp_path: Path) -> None:
 
 
 def _spy_on_inflight_changes(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, app: KestrelApp
 ) -> list[bool]:
     """Wrap `TuiLoopObserver.__init__` so every `on_inflight_change`
-    call this test's own task makes is also recorded as a `bool`
-    (`count > 0`) into the returned list, while still calling through
-    to the real callback `KestrelApp._run_task` builds -- so the loading
-    indicator's own visibility keeps updating for real, and this test
-    can assert on the exact sequence observed."""
+    call this test's own task makes also records the loading
+    indicator's own real, post-update `display` value into the
+    returned list -- not a value merely inferred from `count` -- so
+    this test actually proves `KestrelApp`'s own closure sets that
+    widget's visibility correctly, rather than only proving the
+    observer computed the right count.
+
+    `app` is passed in (already constructed, though not yet mounted)
+    rather than queried lazily: `_wrapped` itself only ever runs once a
+    task is actually submitted, by which point `app` is mounted, so a
+    plain reference captured now resolves correctly then.
+    """
     observed: list[bool] = []
     original_init = TuiLoopObserver.__init__
 
@@ -86,12 +93,14 @@ def _spy_on_inflight_changes(
         real_callback = kwargs.pop("on_inflight_change", None)
 
         def _wrapped(count: int) -> None:
-            """Record `count > 0`, then forward `count` to the real
-            callback the app itself built, so the loading indicator's
-            own visibility still updates for real."""
-            observed.append(count > 0)
+            """Forward `count` to the real callback the app itself
+            built -- updating the loading indicator's own `display`
+            attribute for real -- then record that attribute's actual,
+            post-update value."""
             if real_callback is not None:
                 real_callback(count)  # type: ignore[operator]
+            loading_indicator = app.query_one("#loading_indicator", LoadingIndicator)
+            observed.append(loading_indicator.display)
 
         kwargs["on_inflight_change"] = _wrapped
         original_init(self, *args, **kwargs)  # type: ignore[arg-type]
@@ -116,7 +125,6 @@ async def test_tool_log_diff_pane_and_spinner_update_live(
     and is never left `True` once the task ends.
     """
     _write_fixture_repo(tmp_path)
-    inflight_observed = _spy_on_inflight_changes(monkeypatch)
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-key")
     base_url = mock_openai_server(
@@ -131,6 +139,7 @@ async def test_tool_log_diff_pane_and_spinner_update_live(
         kestrel_md=None,
         repo_root=tmp_path,
     )
+    inflight_observed = _spy_on_inflight_changes(monkeypatch, app)
 
     async with app.run_test() as pilot:
         task_input = pilot.app.query_one("#task_input", Input)
