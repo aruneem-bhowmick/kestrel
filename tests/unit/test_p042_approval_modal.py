@@ -16,11 +16,15 @@ push-and-dismiss path end to end. `compose()`'s own return value is
 inspected via Textual's pre-mount `_pending_children` bookkeeping, the
 only place a widget's children live before an app ever mounts them.
 
-Also covers the mandatory red-team case: `request.detail` carrying the
+Also covers two red-team cases: `request.detail` carrying the
 `ansi_escape_laden_payload` injection-corpus case's own hostile ANSI
 payload -- a realistic scenario, since `detail` is a model's own
 proposed argv joined verbatim -- must never survive into the rendered
-`Static`'s content.
+`Static`'s content; and a `summary`/`detail` carrying a Rich
+console-markup span (e.g. `[conceal]...[/conceal]`), which
+`sanitize_terminal` does not strip, must render as inert plain text
+rather than being interpreted, since both `Static` widgets are built
+with `markup=False`.
 """
 
 from __future__ import annotations
@@ -182,3 +186,25 @@ def test_hostile_detail_never_survives_into_the_rendered_static() -> None:
     assert "\x1b" not in content
     assert "\x9b" not in content
     assert "\x07" not in content
+
+
+@pytest.mark.redteam
+@pytest.mark.parametrize("widget_id", ["approval_summary", "approval_detail"])
+def test_rich_markup_in_request_text_is_never_interpreted(widget_id: str) -> None:
+    """Given a `summary`/`detail` carrying a Rich console-markup span --
+    `[conceal]...[/conceal]`, a realistic shape since `sanitize_terminal`
+    strips terminal escapes but never touches plain bracket syntax --
+    when the modal composes, then the rendered widget's own `visual`
+    shows the markup tags verbatim, as plain text with no style spans,
+    rather than interpreting `conceal` and hiding the enclosed text from
+    the approver."""
+    hostile = "rm [conceal]--no-preserve-root[/conceal] -rf /"
+    request = _request(summary=hostile, detail=hostile)
+
+    widgets = _widgets_by_id(request)
+    widget = widgets[widget_id]
+    assert isinstance(widget, Static)
+
+    visual = widget.visual
+    assert visual.plain == hostile
+    assert visual.spans == []

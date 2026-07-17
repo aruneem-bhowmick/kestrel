@@ -72,10 +72,30 @@ class ApprovalModal(ModalScreen[ApprovalDecision]):
     def compose(self) -> ComposeResult:
         """Lay out `request.summary` and `request.detail` (both
         sanitized) above a row of the three decision buttons, each
-        keyed to the `ApprovalDecision` its own `id` names."""
+        keyed to the `ApprovalDecision` its own `id` names.
+
+        Both `Static` widgets pass `markup=False`: `sanitize_terminal`
+        strips terminal control bytes and ANSI escapes, but never
+        touches Rich's own bracket markup syntax (`[bold]`,
+        `[conceal]`, `:emoji:` shortcodes, ...), which is built from
+        ordinary printable characters. Left enabled, a hostile
+        `summary`/`detail` could still change what actually reaches
+        the screen -- a `[conceal]...[/conceal]` span, for instance,
+        renders as invisible text -- defeating the one guarantee this
+        modal exists to make: showing the exact command or diff,
+        unmodified.
+        """
         yield Vertical(
-            Static(sanitize_terminal(self._request.summary), id="approval_summary"),
-            Static(sanitize_terminal(self._request.detail), id="approval_detail"),
+            Static(
+                sanitize_terminal(self._request.summary),
+                id="approval_summary",
+                markup=False,
+            ),
+            Static(
+                sanitize_terminal(self._request.detail),
+                id="approval_detail",
+                markup=False,
+            ),
             Horizontal(
                 Button("Approve once (y)", id="once", variant="success"),
                 Button("Always (a)", id="always", variant="warning"),
