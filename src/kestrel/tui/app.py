@@ -360,11 +360,14 @@ class KestrelApp(App[None]):
         loaded session's own journaled history stands in for the
         `text` argument a brand new task would otherwise need.
 
-        `_current_task_id`, `_last_meter`, and `_last_completed_task_id`
-        are managed identically to `_run_task`, including the same
-        finally-block guard against a `setup` that never got built.
+        `_current_task_id` is already reserved by `action_resume_task`
+        before this coroutine ever starts running, so this method never
+        assigns it itself; it is still cleared here, in a `finally`
+        block, the moment this task ends. `_last_meter` and
+        `_last_completed_task_id` are managed identically to
+        `_run_task`, including the same finally-block guard against a
+        `setup` that never got built.
         """
-        self._current_task_id = task_id
         setup: TaskSetup | None = None
         try:
             conversation = self.query_one("#conversation", ConversationPane)
@@ -599,6 +602,25 @@ class KestrelApp(App[None]):
 
     def action_resume_task(self, task_id: str) -> None:
         """Resume the prior task named by `task_id` as a background
-        worker, the same way `on_input_submitted` schedules a brand new
-        one."""
-        self.run_worker(self._resume_task(task_id))
+        worker, declining instead while another task is already active
+        (see `_reject_while_task_active`).
+
+        Reserves `_current_task_id` synchronously, before `run_worker`
+        is even called, rather than leaving `_resume_task` to set it
+        once its coroutine actually starts running: `run_worker`
+        schedules that coroutine onto the event loop but does not run
+        it immediately, so two palette selections made back to back --
+        both seeing `_current_task_id` still `None` -- would otherwise
+        each pass `_reject_while_task_active` and race two agent loops
+        over the same repo. If `run_worker` itself raises before the
+        worker ever starts, the reservation is rolled back so a later
+        attempt is not permanently blocked by a task that never began.
+        """
+        if self._reject_while_task_active("resume"):
+            return
+        self._current_task_id = task_id
+        try:
+            self.run_worker(self._resume_task(task_id))
+        except Exception:
+            self._current_task_id = None
+            raise
