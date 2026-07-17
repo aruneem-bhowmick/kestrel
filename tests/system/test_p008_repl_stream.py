@@ -1,6 +1,15 @@
-"""System test: the installed console script streams turns from a hermetic
-mock backend, prints the per-turn cost line, and hot-swaps models via
-``/model`` without losing the running session total.
+"""System test: `run_repl`, driven against a hermetic mock backend
+through a real `LiteLLMClient`, streams turns, prints the per-turn cost
+line, and hot-swaps models via ``/model`` without losing the running
+session total.
+
+Drives `run_repl` directly rather than through the packaged console
+script: the REPL is a library entry point `kestrel.tui`'s own cockpit
+(and anything else in-process) can call, not something the `kestrel`
+command line itself launches, so a real client against a real mock
+HTTP server, in-process, is the honest boundary for this suite to test
+at -- the same one `kestrel run`'s own equivalent coverage already
+draws for the agent loop.
 
 Both the config and registry fixtures used here are generated per test
 run (into ``tmp_path``) rather than committed statically, because the zai
@@ -12,17 +21,20 @@ registry-driven path rather than a special test seam.
 
 from __future__ import annotations
 
-import os
-import subprocess
+import io
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
+from kestrel.config import load_config
 from kestrel.cost.meter import CostMeter, format_cost_line
 from kestrel.provider.events import UsageEvent
+from kestrel.provider.litellm_client import LiteLLMClient
+from kestrel.registry.loader import load_registry
 from kestrel.registry.model import ModelEntry
+from kestrel.repl import run_repl
 
 pytestmark = [
     pytest.mark.p008,
@@ -32,7 +44,21 @@ pytestmark = [
 ]
 
 _CASSETTES = Path(__file__).resolve().parent.parent / "fixtures" / "cassettes"
-_TIMEOUT_S = 30.0
+
+
+def _scripted_input(*lines: str) -> Callable[[str], str]:
+    """Build an `input_fn` for `run_repl` that yields `lines` in order
+    and raises `EOFError` once exhausted -- the same contract a real
+    piped stdin gives the loop once the script runs out."""
+    iterator = iter(lines)
+
+    def _next_line(_prompt: str) -> str:
+        try:
+            return next(iterator)
+        except StopIteration:
+            raise EOFError from None
+
+    return _next_line
 
 
 def _write_system_config(tmp_path: Path, *, zai_endpoint: str) -> Path:
@@ -108,37 +134,37 @@ def _rate_matched_entry(*, id: str, backend: str, endpoint: str | None) -> Model
 def test_repl_streams_and_hot_swaps_model_preserving_session_total(
     tmp_path: Path,
     mock_openai_server: Callable[..., str],
-    kestrel_executable: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Given a REPL script that sends one turn, hot-swaps to the zai
-    route via ``/model``, sends a second turn, and quits, when run
-    against two hermetic mock backends, then both turns' streamed text
-    and exact cost lines appear in order, and the process exits 0."""
+    route via ``/model``, sends a second turn, and quits, when driven
+    through `run_repl` against two hermetic mock backends, then both
+    turns' streamed text and exact cost lines appear in order, and the
+    loop exits 0."""
     openrouter_base = mock_openai_server(_CASSETTES / "openrouter_glm52_hello.sse")
     zai_base = mock_openai_server(_CASSETTES / "zai_glm52_hello.sse")
     config_path = _write_system_config(tmp_path, zai_endpoint=zai_base)
 
-    env = dict(os.environ)
-    env["OPENROUTER_API_KEY"] = "sk-test-openrouter"
-    env["ZAI_API_KEY"] = "sk-test-zai"
-    env["KESTREL_OPENROUTER_BASE_URL"] = openrouter_base
-    env["PYTHONIOENCODING"] = "utf-8"
-    env.pop("KESTREL_CONFIG", None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-openrouter")
+    monkeypatch.setenv("ZAI_API_KEY", "sk-test-zai")
+    monkeypatch.setenv("KESTREL_OPENROUTER_BASE_URL", openrouter_base)
+    monkeypatch.delenv("KESTREL_CONFIG", raising=False)
 
-    script = "hello\n/model glm-5.2-zai\nhello again\n/quit\n"
+    config, _source = load_config(config_path)
+    registry = load_registry(config.paths.models_file)
+    client = LiteLLMClient(registry)
+    out = io.StringIO()
 
-    result = subprocess.run(
-        [kestrel_executable, "--config", str(config_path)],
-        input=script,
-        capture_output=True,
-        encoding="utf-8",
-        env=env,
-        cwd=tmp_path,
-        timeout=_TIMEOUT_S,
-        check=False,
+    exit_code = run_repl(
+        config,
+        registry,
+        client,
+        "glm-5.2",
+        input_fn=_scripted_input("hello", "/model glm-5.2-zai", "hello again", "/quit"),
+        out=out,
     )
 
-    assert result.returncode == 0, result.stderr
+    assert exit_code == 0
 
     meter = CostMeter()
     openrouter_entry = _rate_matched_entry(
@@ -150,7 +176,7 @@ def test_repl_streams_and_hot_swaps_model_preserving_session_total(
     second_turn = meter.record(UsageEvent(40, 6, 0), zai_entry)
     second_line = format_cost_line(second_turn, meter.session_usd)
 
-    stdout = result.stdout
+    stdout = out.getvalue()
     assert "Hello from GLM-5.2" in stdout
     assert first_line in stdout
     assert "Hello from Z.ai GLM" in stdout
