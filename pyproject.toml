@@ -135,4 +135,5 @@ markers = [
     "p042: the modal approval screen and its bridge from a background tool-call thread to the app's own event loop",
     "p043: the doctor tui check, the cockpit's default-entry wiring, the screenshot script, and the phase acceptance suite",
     "dod_phase_3: acceptance scenario for the assembled Textual cockpit milestone's Definition of Done",
+    "p044: effort-to-backend-native reasoning-depth mapping",
 ]
