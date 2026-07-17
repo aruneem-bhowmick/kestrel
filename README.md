@@ -230,6 +230,18 @@ Pre-approve specific kinds for an entire session via
 allowlist = ["delete"]
 ```
 
+The TUI cockpit (see below) never uses the plain terminal prompt: it
+supplies its own decision function, `kestrel.tui.approval_modal.
+make_tui_decide_fn`, which renders a real `ApprovalModal` screen naming
+the same summary and exact detail the terminal prompt would have
+printed, with `y`/`a`/`n` key bindings or button clicks standing in for
+the plain-text reply. The tool call proposing the action runs on a
+background thread, not the app's own event loop, so the decision
+function bridges the two with `asyncio.run_coroutine_threadsafe`: it
+schedules the modal onto the app's event loop and blocks the calling
+thread until the modal is dismissed with a real decision, rather than
+crashing or hanging trying to open Textual UI from the wrong thread.
+
 ## Cost
 
 Every completed turn is priced from the active model's own registry rates

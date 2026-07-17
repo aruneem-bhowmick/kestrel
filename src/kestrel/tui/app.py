@@ -18,7 +18,11 @@ first, whether directly (the conversation pane) or via
 palette (`kestrel.tui.commands.KestrelCommandProvider`) gives keyboard
 access to model/mode switching, undo, a cost breakdown, and resuming a
 prior task, alongside two informational entries covering approval and
-knowledge-base status.
+knowledge-base status. A destructive action proposed mid-task surfaces
+as a real `kestrel.tui.approval_modal.ApprovalModal` rather than
+blocking on a terminal prompt, bridged onto this app's own event loop
+from the background thread the proposing tool call actually runs on
+via `kestrel.tui.approval_modal.make_tui_decide_fn`.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import difflib
 import uuid
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Final
@@ -47,6 +52,7 @@ from kestrel.agent.loop import resume_task, run_task
 from kestrel.config import KestrelConfig
 from kestrel.cost.meter import CostMeter, format_cost_line
 from kestrel.kestrel_md import KestrelMd
+from kestrel.managers.approval import ApprovalDecision, ApprovalRequest
 from kestrel.managers.mode import Mode, ModeManager
 from kestrel.managers.undo import UndoManager
 from kestrel.provider.events import ToolCallEvent
@@ -54,6 +60,7 @@ from kestrel.registry.model import Registry
 from kestrel.repl import sanitize_terminal
 from kestrel.task_setup import TaskSetup, build_task_deps
 from kestrel.tools.verify import VerificationReport, render_verification_markdown
+from kestrel.tui.approval_modal import make_tui_decide_fn
 from kestrel.tui.commands import KestrelCommandProvider
 from kestrel.tui.observer_bridge import TuiLoopObserver
 from kestrel.tui.status import StatusSnapshot, render_status_line
@@ -327,6 +334,14 @@ class KestrelApp(App[None]):
         `TaskSetup` and observer via `_prepare_task_run`, then drives it
         to completion via `run_task`.
 
+        `loop = asyncio.get_running_loop()` is captured first, while
+        this coroutine still runs on the app's own event loop, and
+        handed to `make_tui_decide_fn` so the task's own destructive-
+        action approvals can bridge back onto that identical loop from
+        the background thread `_dispatch_tool_call` actually runs on
+        (see `kestrel.tui.approval_modal`) -- capturing it any later
+        would risk a decision needing `loop` before it was ever set.
+
         `_current_task_id` is cleared in a `finally` block so it always
         reflects reality -- including when `run_task` raises -- and a
         later submission is accepted again only once this one has
@@ -338,13 +353,16 @@ class KestrelApp(App[None]):
         rather than clobbering them with a task that never really
         started.
         """
+        loop = asyncio.get_running_loop()
         task_id = str(uuid.uuid4())
         self._current_task_id = task_id
         setup: TaskSetup | None = None
         try:
             conversation = self.query_one("#conversation", ConversationPane)
             conversation.write(f"\n> {sanitize_terminal(text)}\n")
-            setup = self._prepare_task_run(task_id)
+            setup = self._prepare_task_run(
+                task_id, decide_fn=make_tui_decide_fn(self, loop)
+            )
             await run_task(text, setup.deps, task_id)
         finally:
             self._current_task_id = None
@@ -360,6 +378,11 @@ class KestrelApp(App[None]):
         loaded session's own journaled history stands in for the
         `text` argument a brand new task would otherwise need.
 
+        `loop = asyncio.get_running_loop()` is captured first and
+        threaded into `_prepare_task_run` the same way `_run_task` does,
+        so a resumed task's own approvals bridge onto this identical
+        event loop exactly like a brand new task's do.
+
         `_current_task_id` is already reserved by `action_resume_task`
         before this coroutine ever starts running, so this method never
         assigns it itself; it is still cleared here, in a `finally`
@@ -368,11 +391,14 @@ class KestrelApp(App[None]):
         `_run_task`, including the same finally-block guard against a
         `setup` that never got built.
         """
+        loop = asyncio.get_running_loop()
         setup: TaskSetup | None = None
         try:
             conversation = self.query_one("#conversation", ConversationPane)
             conversation.write(f"\n> resuming task {task_id}\n")
-            setup = self._prepare_task_run(task_id)
+            setup = self._prepare_task_run(
+                task_id, decide_fn=make_tui_decide_fn(self, loop)
+            )
             await resume_task(task_id, setup.deps)
         finally:
             self._current_task_id = None
@@ -380,7 +406,12 @@ class KestrelApp(App[None]):
                 self._last_meter = setup.deps.meter
                 self._last_completed_task_id = task_id
 
-    def _prepare_task_run(self, task_id: str) -> TaskSetup:
+    def _prepare_task_run(
+        self,
+        task_id: str,
+        *,
+        decide_fn: Callable[[ApprovalRequest], ApprovalDecision],
+    ) -> TaskSetup:
         """Build `task_id`'s own `TaskSetup` via `build_task_deps`, then
         swap in a fresh `TuiLoopObserver` bridging its progress onto the
         conversation pane, tool log, diff pane, artifact pane, loading
@@ -388,6 +419,12 @@ class KestrelApp(App[None]):
         `_run_task` and `_resume_task` otherwise share verbatim,
         factored out here so a brand new task and a resumed one are
         bridged onto the cockpit identically.
+
+        `decide_fn` is forwarded straight to `build_task_deps`, which
+        threads it into that task's own `ApprovalManager` -- both
+        callers pass `make_tui_decide_fn(self, loop)`, so every
+        destructive action either one proposes resolves through a real
+        `ApprovalModal` rather than the CLI's own stdin prompt.
 
         The observer is built only after `build_task_deps` returns so
         it can be seeded with `setup.spent_day_usd` -- the real
@@ -418,6 +455,7 @@ class KestrelApp(App[None]):
             kestrel_md=self.kestrel_md,
             repo_root=self.repo_root,
             task_id=task_id,
+            decide_fn=decide_fn,
         )
         loading_indicator = self.query_one("#loading_indicator", LoadingIndicator)
 
