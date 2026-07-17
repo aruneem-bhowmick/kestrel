@@ -94,11 +94,14 @@ class TuiLoopObserver:
         `_context_used_tokens` stays `None` until the first turn bills,
         matching `StatusSnapshot`'s own "no turn has billed yet"
         convention. `_inflight` (the running count of tool calls
-        currently dispatched) and `_pending_started_at` (each in-flight
-        call's own start time, keyed by `call.id`) both start empty,
-        alongside `_pending_undo_len`, the undo journal's own length as
-        of the most recent `on_tool_call_started` -- used to detect
-        whether a just-finished call actually recorded a new mutation.
+        currently dispatched), `_pending_started_at` (each in-flight
+        call's own start time), and `_pending_undo_len` (the undo
+        journal's own length as of that call's own
+        `on_tool_call_started`, used to detect whether it actually
+        recorded a new mutation by the time it finishes) all start
+        empty -- each keyed by `call.id`, so two calls in flight at
+        once (were a future change to overlap tool dispatch) never
+        clobber each other's baseline.
         """
         self._conversation = conversation
         self._status_bar = status_bar
@@ -117,7 +120,7 @@ class TuiLoopObserver:
         self._context_used_tokens: int | None = None
         self._inflight = 0
         self._pending_started_at: dict[str, float] = {}
-        self._pending_undo_len = 0
+        self._pending_undo_len: dict[str, int] = {}
 
     def _show_status(self, *, active_model_id: str) -> None:
         """Rebuild a `StatusSnapshot` from this bridge's own running
@@ -156,7 +159,7 @@ class TuiLoopObserver:
         self._inflight += 1
         self._on_inflight_change(self._inflight)
         self._pending_started_at[call.id] = time.monotonic()
-        self._pending_undo_len = len(self._undo.entries)
+        self._pending_undo_len[call.id] = len(self._undo.entries)
         if self._tool_log is not None:
             self._tool_log.append_started(call)
 
@@ -169,9 +172,12 @@ class TuiLoopObserver:
         that actually grew the undo journal (a no-op `edit_file` call,
         e.g. one refused for an ambiguous anchor, records nothing),
         renders the journal's own newest entry as this task's most
-        recent diff.
+        recent diff. `call`'s own undo-length baseline is popped (not
+        just read) here so a second call sharing this observer never
+        compares against a stale, already-consumed entry.
         """
         elapsed = time.monotonic() - self._pending_started_at.pop(call.id)
+        undo_len_before = self._pending_undo_len.pop(call.id)
         self._inflight -= 1
         self._on_inflight_change(self._inflight)
         if self._tool_log is not None:
@@ -179,7 +185,7 @@ class TuiLoopObserver:
         if (
             self._diff_pane is not None
             and call.name == "edit_file"
-            and len(self._undo.entries) > self._pending_undo_len
+            and len(self._undo.entries) > undo_len_before
         ):
             entry = self._undo.entries[-1]
             self._diff_pane.show_diff(entry.path, entry.before, entry.after)

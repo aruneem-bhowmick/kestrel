@@ -228,3 +228,44 @@ def test_on_tool_call_finished_skips_the_diff_for_a_no_op_edit_file_call(
     observer.on_tool_call_finished(call, result)
 
     assert diff_pane.calls == []
+
+
+def test_on_tool_call_finished_uses_each_calls_own_undo_baseline_when_calls_overlap(
+    tmp_path: Path,
+) -> None:
+    """Given two `edit_file` calls whose hooks interleave -- `call_1`
+    starts and records a mutation, then `call_2` starts before `call_1`
+    finishes -- when each finishes, then `call_1`'s diff still renders
+    against its own start-time baseline rather than `call_2`'s later
+    one, and `call_2` -- which recorded no mutation of its own --
+    renders no diff. A single shared baseline (rather than one keyed
+    per call id) would have `call_2`'s own start silently erase
+    `call_1`'s, hiding a real mutation."""
+    diff_pane = _FakeDiffPane()
+    undo = UndoManager(repo_root=tmp_path)
+    observer = TuiLoopObserver(
+        conversation=_FakeConversation(),  # type: ignore[arg-type]
+        status_bar=_FakeStatusBar(),  # type: ignore[arg-type]
+        undo=undo,
+        model_id="glm-5.2",
+        mode_manager=ModeManager(),
+        context_window=200_000,
+        session_cap_usd=None,
+        day_cap_usd=None,
+        spent_day_usd_baseline=Decimal(0),
+        diff_pane=diff_pane,  # type: ignore[arg-type]
+    )
+    call_1 = ToolCallEvent(id="call-1", name="edit_file", arguments_json="{}")
+    call_2 = ToolCallEvent(id="call-2", name="edit_file", arguments_json="{}")
+    result_1 = ToolResult(tool_call_id="call-1", content="ok")
+    result_2 = ToolResult(tool_call_id="call-2", content="ok")
+
+    observer.on_tool_call_started(call_1)
+    undo.record(
+        UndoEntry(turn_id=1, task_id="t-1", path="a.py", before="old-a", after="new-a")
+    )
+    observer.on_tool_call_started(call_2)
+    observer.on_tool_call_finished(call_1, result_1)
+    observer.on_tool_call_finished(call_2, result_2)
+
+    assert diff_pane.calls == [("a.py", "old-a", "new-a")]
