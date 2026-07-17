@@ -4,6 +4,7 @@ pair, and the StatusBar widget's own show() hook over that rendering.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -160,13 +161,15 @@ def test_status_line_matches_golden_snapshot() -> None:
 
 
 @pytest.mark.ui
-async def test_status_bar_show_renders_via_render_status_line() -> None:
+async def test_status_bar_show_renders_via_render_status_line(
+    kestrel_app_factory: Callable[[], KestrelApp],
+) -> None:
     """Given a mounted KestrelApp, when StatusBar.show() is called with
     a hand-built StatusSnapshot, then the widget's own rendered content
     matches render_status_line's output for that same snapshot exactly."""
     sample = _snapshot(mode="plan", effort="max")
 
-    async with KestrelApp().run_test() as pilot:
+    async with kestrel_app_factory().run_test() as pilot:
         status_bar = pilot.app.query_one("#status_bar", StatusBar)
         status_bar.show(sample)
 

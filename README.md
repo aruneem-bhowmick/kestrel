@@ -480,9 +480,20 @@ holds the conversation pane above a task-input box; a 1fr-wide right
 column stacks the artifact, tool-log, and diff panes.
 
 `F1`-`F4` jump focus to the task-input box, the tool log, the diff
-pane, and the artifact pane in turn; `ctrl+q` quits. Every pane shows
-only static placeholder content today -- wiring each one to live task
-data is ongoing work that lands without touching this layout.
+pane, and the artifact pane in turn; `ctrl+q` quits. The artifact,
+tool-log, and diff panes still show static placeholder content --
+wiring each of those to live task data is ongoing work that lands
+without touching this layout.
+
+Submitting text in the task-input box always runs a full task through
+`run_task` -- the same tool-calling agent loop `kestrel run` drives --
+never a plain chat turn: the conversation pane renders the assistant's
+own text incrementally at newline boundaries as it arrives, the status
+bar refreshes after every turn, and the run ends with a terse one-line
+summary naming the termination reason, turn count, and total cost.
+`kestrel.repl`'s own `run_turn`/`ReplSession`/`run_repl` remain in the
+codebase, unchanged and still tested, for the plain non-interactive
+REPL path -- they are simply not what the cockpit itself drives.
 
 The status bar renders one line from a `StatusSnapshot` value --
 active model, mode and effort, context-window usage, and session/day
@@ -497,8 +508,29 @@ spend against their caps:
 is configured, and is omitted entirely (a bare `$X.XXXX`) when it
 isn't -- the same "`None` means no cap" convention the cost meter and
 budget manager use throughout. `StatusBar.show(snapshot)` is the
-widget's own hook onto this rendering; nothing drives it from a live
-task yet.
+widget's own hook onto this rendering; a fresh `KestrelApp` shows an
+idle snapshot on mount, and `TuiLoopObserver` (see below) keeps it
+current for the rest of a submitted task's own run.
+
+Every submitted task builds its own collaborators -- provider client,
+approval gate, undo journal, cost meter, session journal, and budget
+manager -- through `kestrel.task_setup.build_task_deps`, the same
+function `kestrel run` itself now delegates to. Extracting that
+construction out from under the CLI's own `argparse.Namespace` means
+the cockpit and the CLI build an identical bundle from one shared
+place, rather than two copies that could quietly drift apart from each
+other over time.
+
+`kestrel.tui.observer_bridge.TuiLoopObserver` is the bridge between a
+running task and the cockpit's own widgets: it is handed to
+`build_task_deps` as that task's observer, and its hooks fire
+synchronously, inline, on the same coroutine driving the task, so
+calling widget methods directly from inside them is safe. A turn
+starting or finishing refreshes the status bar; each streamed chunk of
+assistant text is sanitized and appended to the conversation pane's own
+currently streaming line; and the task's own termination writes a
+terse summary line. Tool-call and verification hooks stay no-ops for
+now, pending the tool-log and diff panes picking them up.
 
 The default theme ("kestrel") is a restrained rust-and-slate palette
 defined entirely as ordinary Textual CSS variables in
