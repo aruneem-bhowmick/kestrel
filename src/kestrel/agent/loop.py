@@ -645,6 +645,7 @@ async def _drive(
     turns_used_start: int,
     active_model_id_start: str | None = None,
     degraded_start: bool = False,
+    unjournaled_seed_len: int = 0,
 ) -> LoopResult:
     """Drive `history` through the loop until it completes or a
     termination predicate trips -- the shared engine behind both
@@ -689,9 +690,13 @@ async def _drive(
     `run_task` call) means nothing in `history` has been journaled yet,
     so the first turn's own record also captures whatever seed messages
     `history` already held when this call began; `turns_used_start > 0`
-    (a `resume_task` call) means every message currently in `history`
-    was already durably recorded by a prior call, so only what a new
-    turn itself appends is captured from here on.
+    (a `resume_task` call) means every message in `history` except its
+    last `unjournaled_seed_len` entries was already durably recorded by
+    a prior call, so the first turn's own record captures only that
+    trailing, not-yet-recorded slice on top of whatever it appends
+    itself -- `unjournaled_seed_len` defaults to `0`, meaning the entire
+    loaded history was already recorded, which is `resume_task`'s own
+    behavior whenever its `inject_message` parameter is left unset.
 
     A `ContextOverflowError` raised while streaming a turn -- or while
     streaming the compaction call itself -- ends the task with
@@ -799,11 +804,22 @@ async def _drive(
             # earlier iteration to have already journaled whatever seed
             # messages `history` started with -- true only for a fresh
             # `run_task` call (turns_used_start == 0), since a resumed
-            # call's first turn has turns_used_start >= 1. Every later
-            # turn's own boundary is simply `history`'s length as this
-            # iteration begins, since the turn before it already
-            # journaled everything up to that point.
-            turn_start_len = 0 if turns_used == 1 else len(history)
+            # call's first turn has turns_used_start >= 1. That first
+            # resumed turn instead subtracts unjournaled_seed_len, the
+            # trailing slice of the loaded history a caller appended
+            # after the prior session's own journal already covered it
+            # (resume_task's own inject_message, when set), so that
+            # slice is captured by this turn's own record rather than
+            # treated as already journaled. Every later turn's own
+            # boundary is simply `history`'s length as this iteration
+            # begins, since the turn before it already journaled
+            # everything up to that point.
+            if turns_used == 1:
+                turn_start_len = 0
+            elif turns_used == turns_used_start + 1:
+                turn_start_len = len(history) - unjournaled_seed_len
+            else:
+                turn_start_len = len(history)
             try:
                 events = await _drain_think(deps, history, entry, active_model_id)
             except ContextOverflowError:
@@ -1045,4 +1061,5 @@ async def resume_task(
         turns_used_start=state.turns_used,
         active_model_id_start=state.active_model_id,
         degraded_start=state.degraded,
+        unjournaled_seed_len=1 if inject_message is not None else 0,
     )
