@@ -24,11 +24,10 @@ from kestrel.cost.meter import CostMeter
 from kestrel.doctor import all_checks_passed, render_report, run_doctor
 from kestrel.kestrel_md import KestrelMd, KestrelMdError, load_kestrel_md
 from kestrel.managers.budget import BudgetLimits, BudgetManager
+from kestrel.managers.mode import ModeManager
 from kestrel.managers.undo import UndoConflictError, UndoManager
-from kestrel.provider.litellm_client import LiteLLMClient
 from kestrel.registry.loader import load_registry
 from kestrel.registry.model import ModelEntry, Registry, RegistryError
-from kestrel.repl import run_repl
 from kestrel.task_setup import TaskSetup, build_task_deps
 
 _DEFAULT_LIMITS = LoopLimits()
@@ -542,20 +541,24 @@ def _run_undo_command(args: Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point. Subcommands: (none)=repl, doctor [--live], run
-    (TASK | --resume TASK_ID) --repo PATH [...], undo --task-id ID --repo
-    PATH. Flags: --version, --config PATH, --model ID.
+    """Entry point. Subcommands: (none)=interactive cockpit, doctor
+    [--live], run (TASK | --resume TASK_ID) --repo PATH [...], undo
+    --task-id ID --repo PATH. Flags: --version, --config PATH, --model ID.
 
     ``doctor`` prints one aligned line per flight check and exits 0
     unless any check FAILed. ``run`` resolves config/registry/starting
-    model/KESTREL.md exactly like the REPL path, drives `run_task` (or,
-    with `--resume`, `resume_task`) to completion, prints its summary or
-    (on a budget halt) a dedicated resume hint, and exits 0 on
-    `TerminationReason.TASK_COMPLETE` or 1 on any other reason. ``undo``
-    reverts a prior run's file mutations and exits 1 only if a conflict
-    stops it partway through. Every other path either prints the version
-    or starts the REPL against the resolved configuration, registry,
-    starting model, and the working directory's own KESTREL.md.
+    model/KESTREL.md the same way every other entry point below does,
+    drives `run_task` (or, with `--resume`, `resume_task`) to
+    completion, prints its summary or (on a budget halt) a dedicated
+    resume hint, and exits 0 on `TerminationReason.TASK_COMPLETE` or 1
+    on any other reason. ``undo`` reverts a prior run's file mutations
+    and exits 1 only if a conflict stops it partway through. Every
+    other path either prints the version or mounts the interactive
+    cockpit against the resolved configuration, registry, starting
+    model, and the working directory's own KESTREL.md -- refusing,
+    with exit code 1, when stdout is not a real terminal, since a
+    full-screen Textual interface has nowhere to draw into against a
+    piped or redirected one.
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -584,8 +587,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _resume_task_command(args, config, registry, model_id, kestrel_md)
         return _run_task_command(args, config, registry, model_id, kestrel_md)
 
-    client = LiteLLMClient(registry)
-    return run_repl(config, registry, client, model_id, kestrel_md=kestrel_md)
+    if not sys.stdout.isatty():
+        print(
+            "kestrel: refusing to start the TUI against a non-interactive "
+            'stdout; use `kestrel run "<task>" --repo PATH` instead.',
+            file=sys.stderr,
+        )
+        return 1
+    from kestrel.tui.app import KestrelApp
+
+    app = KestrelApp(
+        config=config,
+        registry=registry,
+        model_id=model_id,
+        kestrel_md=kestrel_md,
+        repo_root=Path.cwd(),
+        mode_manager=ModeManager(),
+    )
+    asyncio.run(app.run_async())
+    return 0
 
 
 if __name__ == "__main__":
