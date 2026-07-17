@@ -358,7 +358,10 @@ class KestrelApp(App[None]):
                 on_inflight_change=_set_inflight,
                 tool_log=self.query_one("#tool_log", ToolLogPane),
                 diff_pane=self.query_one("#diff", DiffPane),
-                artifact_pane=self.query_one("#artifact", ArtifactPane),
+            artifact_pane = self.query_one("`#artifact`", ArtifactPane)
+            artifact_pane.update("_no artifact yet_")
+
+                artifact_pane=artifact_pane,
             )
             await run_task(text, setup.deps, task_id)
         finally:
