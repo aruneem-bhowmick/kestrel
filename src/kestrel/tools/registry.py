@@ -3,10 +3,12 @@ one dispatcher.
 
 `all_schemas()` returns every tool's `ToolSchema`, in a fixed order,
 ready to hand straight to a provider call's own `tools=` argument.
-`dispatch()` takes one `ToolCallEvent` a model produced, looks up its
-name, parses its arguments through that tool's own parser, calls its
-executor, and returns a `ToolResult` -- catching that tool's own typed
-error along the way, so a model's bad tool call becomes a normal,
+`schemas_for()` narrows that same list down to a caller-chosen subset of
+tool names, for a caller that wants to offer a model less than the full
+set. `dispatch()` takes one `ToolCallEvent` a model produced, looks up
+its name, parses its arguments through that tool's own parser, calls
+its executor, and returns a `ToolResult` -- catching that tool's own
+typed error along the way, so a model's bad tool call becomes a normal,
 recoverable result rather than a crash. Before this module existed,
 each tool's schema, parser, and executor had no single place accounting
 for all of them together; a caller wiring up a provider call or an
@@ -117,6 +119,16 @@ def all_schemas() -> tuple[ToolSchema, ...]:
     """Every registered tool's schema, in `_TOOLS`'s fixed order --
     passed straight to `ProviderClient.complete(tools=...)`."""
     return tuple(binding.schema for binding in _TOOLS)
+
+
+def schemas_for(names: frozenset[str] | None) -> tuple[ToolSchema, ...]:
+    """Every registered tool's schema whose name is in `names`, in
+    `_TOOLS`'s own fixed order; every registered schema, unfiltered,
+    when `names` is `None` -- identical to calling `all_schemas()`
+    directly, which this delegates to for that case."""
+    if names is None:
+        return all_schemas()
+    return tuple(binding.schema for binding in _TOOLS if binding.schema.name in names)
 
 
 def _frame_error(tool_name: str, message: str) -> str:
