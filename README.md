@@ -559,8 +559,8 @@ command, fuzzy-matched against whatever is typed:
   model in the loaded registry.
 - `/mode plan` / `/plan` and `/mode fast` / `/fast` -- switch the
   active PLAN/FAST mode (either spelling works).
-- `/undo` -- revert every mutation the current task has journaled so
-  far; warns instead if no task has run yet this session.
+- `/undo` -- revert the most recently *finished* task's own journaled
+  mutations; warns instead if no task has finished yet this session.
 - `/cost` -- print the most recently run task's session total and a
   per-turn cost breakdown to the conversation pane.
 - `/resume <task_id>` -- resume a prior task, one entry per session
@@ -574,7 +574,10 @@ command, fuzzy-matched against whatever is typed:
 
 Selecting `/model` or `/mode` refreshes the idle status line
 immediately; selecting `/undo` or `/resume` runs as a background
-worker exactly like submitting a task from `#task_input` does.
+worker exactly like submitting a task from `#task_input` does. All
+four of `/model`, `/mode`, `/undo`, and `/resume` decline with a
+warning instead while a task is already running, rather than mutating
+shared session state or starting a second agent loop underneath it.
 
 The default theme ("kestrel") is a restrained rust-and-slate palette
 defined entirely as ordinary Textual CSS variables in
