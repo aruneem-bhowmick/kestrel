@@ -551,6 +551,34 @@ history to browse back through; only the single most recent mutation
 is ever shown, and a fresh one simply replaces whatever the pane showed
 before.
 
+Pressing `ctrl+p` opens Textual's own command palette, populated by
+`kestrel.tui.commands.KestrelCommandProvider` with one entry per named
+command, fuzzy-matched against whatever is typed:
+
+- `/model <id>` -- switch the active model to `<id>`, one entry per
+  model in the loaded registry.
+- `/mode plan` / `/plan` and `/mode fast` / `/fast` -- switch the
+  active PLAN/FAST mode (either spelling works).
+- `/undo` -- revert the most recently *finished* task's own journaled
+  mutations; warns instead if no task has finished yet this session.
+- `/cost` -- print the most recently run task's session total and a
+  per-turn cost breakdown to the conversation pane.
+- `/resume <task_id>` -- resume a prior task, one entry per session
+  journal found under `.kestrel/sessions/`.
+- `/approve` -- informational only: approvals already surface
+  automatically as a modal the instant a destructive action is
+  proposed, so there is no queue for this entry to open.
+- `/kb` -- informational only: tells the user a persistent knowledge
+  base is not available yet, rather than pretending one exists to
+  browse.
+
+Selecting `/model` or `/mode` refreshes the idle status line
+immediately; selecting `/undo` or `/resume` runs as a background
+worker exactly like submitting a task from `#task_input` does. All
+four of `/model`, `/mode`, `/undo`, and `/resume` decline with a
+warning instead while a task is already running, rather than mutating
+shared session state or starting a second agent loop underneath it.
+
 The default theme ("kestrel") is a restrained rust-and-slate palette
 defined entirely as ordinary Textual CSS variables in
 `src/kestrel/tui/kestrel.tcss`. Customize it by editing that file's
