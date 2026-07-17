@@ -487,13 +487,13 @@ without touching this layout.
 
 Submitting text in the task-input box always runs a full task through
 `run_task` -- the same tool-calling agent loop `kestrel run` drives --
-never a plain chat turn: the conversation pane streams the assistant's
-own text token by token as it arrives, the status bar refreshes after
-every turn, and the run ends with a terse one-line summary naming the
-termination reason, turn count, and total cost. `kestrel.repl`'s own
-`run_turn`/`ReplSession`/`run_repl` remain in the codebase, unchanged
-and still tested, for the plain non-interactive REPL path -- they are
-simply not what the cockpit itself drives.
+never a plain chat turn: the conversation pane renders the assistant's
+own text incrementally at newline boundaries as it arrives, the status
+bar refreshes after every turn, and the run ends with a terse one-line
+summary naming the termination reason, turn count, and total cost.
+`kestrel.repl`'s own `run_turn`/`ReplSession`/`run_repl` remain in the
+codebase, unchanged and still tested, for the plain non-interactive
+REPL path -- they are simply not what the cockpit itself drives.
 
 The status bar renders one line from a `StatusSnapshot` value --
 active model, mode and effort, context-window usage, and session/day
