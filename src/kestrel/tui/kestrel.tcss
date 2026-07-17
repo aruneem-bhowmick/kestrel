@@ -21,9 +21,17 @@ ApprovalModal { align: center middle; }
     width: 80%;
     max-width: 100;
     height: auto;
+    max-height: 80%;
     background: $kestrel-panel;
     border: solid $kestrel-accent;
     padding: 1 2;
 }
 #approval_summary { text-style: bold; margin-bottom: 1; }
-#approval_detail { margin-bottom: 1; }
+/* `1fr`, not `auto`: an `auto`-sized child still lays out (and gets
+   clipped) at its own full natural height even once the dialog's
+   `max-height` above has clamped the dialog itself, pushing #approval_buttons
+   past the visible box for a long command/diff. `1fr` divides the
+   dialog's already-clamped space among its flexible children instead,
+   so #approval_detail_scroll always leaves #approval_buttons room. */
+#approval_detail_scroll { height: 1fr; max-height: 20; margin-bottom: 1; }
+#approval_buttons { height: auto; }

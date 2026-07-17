@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, cast
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
@@ -83,7 +83,10 @@ class ApprovalModal(ModalScreen[ApprovalDecision]):
         the screen -- a `[conceal]...[/conceal]` span, for instance,
         renders as invisible text -- defeating the one guarantee this
         modal exists to make: showing the exact command or diff,
-        unmodified.
+        unmodified. `#approval_detail` is wrapped in a `VerticalScroll`
+        so a long command or diff scrolls in place instead of growing
+        the dialog until the decision buttons are pushed off screen
+        (bounded together with `kestrel.tcss`'s own sizing rules).
         """
         yield Vertical(
             Static(
@@ -91,15 +94,19 @@ class ApprovalModal(ModalScreen[ApprovalDecision]):
                 id="approval_summary",
                 markup=False,
             ),
-            Static(
-                sanitize_terminal(self._request.detail),
-                id="approval_detail",
-                markup=False,
+            VerticalScroll(
+                Static(
+                    sanitize_terminal(self._request.detail),
+                    id="approval_detail",
+                    markup=False,
+                ),
+                id="approval_detail_scroll",
             ),
             Horizontal(
                 Button("Approve once (y)", id="once", variant="success"),
                 Button("Always (a)", id="always", variant="warning"),
                 Button("Deny (n)", id="deny", variant="error"),
+                id="approval_buttons",
             ),
             id="approval_dialog",
         )

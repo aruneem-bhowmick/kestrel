@@ -5,8 +5,8 @@ the documented widget ids, and each of its three decision paths --
 of the three button ids `compose` yields -- dismisses with the matching
 `ApprovalDecision`.
 
-Every case here constructs `ApprovalModal` directly and reads back its
-own `compose()` return value or spies on `dismiss`, without ever
+Most cases here construct `ApprovalModal` directly and read back its
+own `compose()` return value or spy on `dismiss`, without ever
 mounting a real Textual app: `Screen.dismiss` calls `self.app.pop_screen()`,
 which requires a screen actually pushed onto a running app, so the
 dismiss-mapping cases replace `dismiss` with a spy on the unmounted
@@ -15,6 +15,9 @@ test_p042_approval_modal_live.py` is what proves the real, mounted
 push-and-dismiss path end to end. `compose()`'s own return value is
 inspected via Textual's pre-mount `_pending_children` bookkeeping, the
 only place a widget's children live before an app ever mounts them.
+The one exception is the long-detail layout case below, which mounts a
+real `KestrelApp` (via `kestrel_app_factory`) since a widget's actual
+screen position only exists once Textual has laid it out for real.
 
 Also covers two red-team cases: `request.detail` carrying the
 `ansi_escape_laden_payload` injection-corpus case's own hostile ANSI
@@ -29,7 +32,7 @@ with `markup=False`.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import pytest
 from textual.widgets import Button, Static
@@ -37,6 +40,7 @@ from textual.widgets import Button, Static
 from kestrel.managers.approval import ApprovalDecision, ApprovalRequest
 from kestrel.repl import sanitize_terminal
 from kestrel.security.corpus import InjectionCase, load_corpus
+from kestrel.tui.app import KestrelApp
 from kestrel.tui.approval_modal import ApprovalModal
 
 pytestmark = [pytest.mark.p042, pytest.mark.unit, pytest.mark.sanity]
@@ -208,3 +212,27 @@ def test_rich_markup_in_request_text_is_never_interpreted(widget_id: str) -> Non
     visual = widget.visual
     assert visual.plain == hostile
     assert visual.spans == []
+
+
+@pytest.mark.ui
+async def test_long_detail_keeps_the_decision_buttons_on_screen(
+    kestrel_app_factory: Callable[[], KestrelApp],
+) -> None:
+    """Given a `request.detail` far longer than the screen (a large
+    diff, say), when the modal is pushed onto a running, real
+    `KestrelApp` -- so `kestrel.tcss`'s own rules actually apply, not
+    just Textual's built-in defaults -- then `#approval_buttons` still
+    lands within the screen's own visible rows: `#approval_detail_scroll`
+    absorbs the overflow and scrolls instead of growing the dialog
+    until the buttons are pushed off the bottom, unreachable."""
+    long_detail = "\n".join(f"line {i}: some diff content here" for i in range(200))
+    request = _request(detail=long_detail)
+
+    async with kestrel_app_factory().run_test(size=(80, 24)) as pilot:
+        await pilot.app.push_screen(ApprovalModal(request))
+        await pilot.pause()
+        await pilot.pause()
+
+        buttons = pilot.app.screen.query_one("#approval_buttons")
+        screen_height = pilot.app.screen.size.height
+        assert buttons.region.y + buttons.region.height <= screen_height
