@@ -460,20 +460,29 @@ class KestrelApp(App[None]):
 
     def action_switch_model(self, model_id: str) -> None:
         """Switch the active model to `model_id` and refresh the idle
-        status line to reflect it.
+        status line to reflect it, declining instead while a task is
+        active (see `_reject_while_task_active`).
 
-        No task is running when a palette selection fires this action,
-        so `_show_idle_status` -- not a running task's own
-        `TuiLoopObserver` -- is what makes the change visible; the next
-        task submitted after this call is what actually sends a turn to
-        the new model.
+        A running task's own `TuiLoopObserver` reads `mode_manager` and
+        the `active_model_id` it was built with fresh on every turn
+        refresh, so mutating either mid-task would show that task's
+        real, still-accumulating cost against the wrong model or mode
+        label rather than the one it is actually running under.
+        `_show_idle_status` -- not a running task's own observer -- is
+        what makes an allowed change visible; the next task submitted
+        after this call is what actually sends a turn to the new model.
         """
+        if self._reject_while_task_active("switch"):
+            return
         self.active_model_id = model_id
         self._show_idle_status()
 
     def action_set_mode(self, mode: Mode) -> None:
         """Switch the active PLAN/FAST mode and refresh the idle status
-        line the same way `action_switch_model` does."""
+        line the same way `action_switch_model` does, declining for the
+        same reason while a task is active."""
+        if self._reject_while_task_active("switch"):
+            return
         self.mode_manager.set_mode(mode)
         self._show_idle_status()
 
