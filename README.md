@@ -481,8 +481,9 @@ column stacks the artifact, tool-log, and diff panes.
 
 `F1`-`F4` jump focus to the task-input box, the tool log, the diff
 pane, and the artifact pane in turn; `ctrl+q` quits. The artifact pane
-shows the task's most recent `VerificationReport`, rendered as markdown
-by reusing `kestrel.tools.verify.render_verification_markdown` verbatim;
+shows the task's most recent `VerificationReport`, rendered as Markdown
+with `kestrel.tools.verify.render_verification_markdown` and sanitized
+before display;
 it shows static placeholder content until a task's own `verify` tool
 call produces its first report.
 
