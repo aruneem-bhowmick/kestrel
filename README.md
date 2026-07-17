@@ -480,10 +480,9 @@ holds the conversation pane above a task-input box; a 1fr-wide right
 column stacks the artifact, tool-log, and diff panes.
 
 `F1`-`F4` jump focus to the task-input box, the tool log, the diff
-pane, and the artifact pane in turn; `ctrl+q` quits. The artifact,
-tool-log, and diff panes still show static placeholder content --
-wiring each of those to live task data is ongoing work that lands
-without touching this layout.
+pane, and the artifact pane in turn; `ctrl+q` quits. The artifact pane
+still shows static placeholder content -- wiring it to live task data
+is ongoing work that lands without touching this layout.
 
 Submitting text in the task-input box always runs a full task through
 `run_task` -- the same tool-calling agent loop `kestrel run` drives --
@@ -528,9 +527,26 @@ synchronously, inline, on the same coroutine driving the task, so
 calling widget methods directly from inside them is safe. A turn
 starting or finishing refreshes the status bar; each streamed chunk of
 assistant text is sanitized and appended to the conversation pane's own
-currently streaming line; and the task's own termination writes a
-terse summary line. Tool-call and verification hooks stay no-ops for
-now, pending the tool-log and diff panes picking them up.
+currently streaming line; a tool call starting or finishing writes a
+line to the tool log and toggles the loading indicator; an `edit_file`
+call that actually mutated a file renders that mutation in the diff
+pane; and the task's own termination writes a terse summary line. The
+verification hook stays a no-op for now, pending the artifact pane
+picking it up.
+
+Every tool call a running task makes writes two lines to the
+collapsible tool log: `-> {name}({summary})` when it starts, where
+`summary` is the call's own (sanitized) JSON arguments capped at 120
+characters with a trailing `...` when longer, and `<- {name}
+({elapsed_s:.1f}s)` once it finishes. A small loading indicator, docked
+directly under the status bar, is visible for as long as at least one
+tool call is in flight and hidden the rest of the time. Whenever an
+`edit_file` call actually changes a file, the diff pane re-renders to
+show that mutation as a syntax-highlighted unified diff, built from the
+undo journal's own before/after content for the change -- there is no
+history to browse back through; only the single most recent mutation
+is ever shown, and a fresh one simply replaces whatever the pane showed
+before.
 
 The default theme ("kestrel") is a restrained rust-and-slate palette
 defined entirely as ordinary Textual CSS variables in
