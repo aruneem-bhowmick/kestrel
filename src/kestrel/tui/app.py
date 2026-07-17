@@ -51,6 +51,7 @@ from kestrel.tui.observer_bridge import TuiLoopObserver
 from kestrel.tui.status import StatusSnapshot, render_status_line
 
 _MAX_TOOL_ARG_SUMMARY_CHARS: Final[int] = 120
+_ARTIFACT_PLACEHOLDER: Final[str] = "_no artifact yet_"
 
 
 class ConversationPane(RichLog):
@@ -253,7 +254,7 @@ class KestrelApp(App[None]):
         (`context_used_tokens=None`, `session_usd=Decimal(0)`), built
         from this app's own starting model and mode."""
         self.query_one("#conversation", ConversationPane).write("Kestrel ready.")
-        self.query_one("#artifact", ArtifactPane).update("_no artifact yet_")
+        self.query_one("#artifact", ArtifactPane).update(_ARTIFACT_PLACEHOLDER)
         self.query_one("#diff", DiffPane).update("no changes yet")
         self.query_one("#loading_indicator", LoadingIndicator).display = False
 
@@ -323,6 +324,11 @@ class KestrelApp(App[None]):
         reflects reality -- including when `run_task` raises -- and a
         later submission is accepted again only once this one has
         fully ended.
+
+        The artifact pane is reset to its placeholder text before this
+        task's observer is even built, so a prior task's own
+        `VerificationReport` never lingers on screen once a new task
+        that may not itself call `verify` starts.
         """
         task_id = str(uuid.uuid4())
         self._current_task_id = task_id
@@ -345,6 +351,8 @@ class KestrelApp(App[None]):
                 hide it once it drops back to zero."""
                 loading_indicator.display = count > 0
 
+            artifact_pane = self.query_one("#artifact", ArtifactPane)
+            artifact_pane.update(_ARTIFACT_PLACEHOLDER)
             setup.deps.observer = TuiLoopObserver(
                 conversation=conversation,
                 status_bar=self.query_one("#status_bar", StatusBar),
@@ -358,9 +366,6 @@ class KestrelApp(App[None]):
                 on_inflight_change=_set_inflight,
                 tool_log=self.query_one("#tool_log", ToolLogPane),
                 diff_pane=self.query_one("#diff", DiffPane),
-            artifact_pane = self.query_one("`#artifact`", ArtifactPane)
-            artifact_pane.update("_no artifact yet_")
-
                 artifact_pane=artifact_pane,
             )
             await run_task(text, setup.deps, task_id)
