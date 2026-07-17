@@ -86,7 +86,9 @@ async def test_submitting_a_task_streams_the_conversation_pane_and_status_bar(
     `ConversationPane.clear()` is never called during the run; (3) the
     status bar's rendered line changes at least once and ends with a
     nonzero session spend and a real context-usage figure; (4) the
-    final conversation line names `TASK_COMPLETE`.
+    final conversation line names `TASK_COMPLETE`; (5) `_current_task_id`
+    is cleared once the task ends, so a later submission is accepted
+    again.
     """
     _write_fixture_repo(tmp_path)
 
@@ -142,3 +144,6 @@ async def test_submitting_a_task_streams_the_conversation_pane_and_status_bar(
         assert "ctx --%" not in final_status
 
         assert "TASK_COMPLETE" in lines[-1]
+
+        assert isinstance(pilot.app, KestrelApp)
+        assert pilot.app._current_task_id is None

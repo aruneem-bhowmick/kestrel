@@ -198,14 +198,27 @@ class KestrelApp(App[None]):
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Drive `event.value` through a full task once it is submitted
-        from `#task_input`; clears the input and ignores an empty
-        submission."""
+        from `#task_input`; ignores an empty submission.
+
+        Also declines a submission while `_current_task_id` names a
+        task still in flight: running a second agent loop concurrently
+        would have both interleave writes into the same conversation
+        pane and status bar, and both act on the same repo at once.
+        The input's own text is left in place (not cleared) so the
+        submission can simply be retried once the running task ends.
+        """
         if event.input.id != "task_input":
             return
         text = event.value.strip()
-        event.input.value = ""
         if not text:
+            event.input.value = ""
             return
+        if self._current_task_id is not None:
+            self.query_one("#conversation", ConversationPane).write(
+                "\n[busy] a task is already running -- resubmit once it finishes\n"
+            )
+            return
+        event.input.value = ""
         self.run_worker(self._run_task(text), exclusive=False)
 
     async def _run_task(self, text: str) -> None:
@@ -217,32 +230,40 @@ class KestrelApp(App[None]):
         `spent_day_usd_baseline` starts at zero -- a fresh submission
         starts a task with no prior same-day history of its own to add;
         a later resume path seeds a real baseline instead.
+
+        `_current_task_id` is cleared in a `finally` block so it always
+        reflects reality -- including when `run_task` raises -- and a
+        later submission is accepted again only once this one has
+        fully ended.
         """
         task_id = str(uuid.uuid4())
         self._current_task_id = task_id
-        conversation = self.query_one("#conversation", ConversationPane)
-        conversation.write(f"\n> {sanitize_terminal(text)}\n")
-        entry = self.registry.get(self.active_model_id)
-        setup = build_task_deps(
-            config=self.config,
-            registry=self.registry,
-            model_id=self.active_model_id,
-            kestrel_md=self.kestrel_md,
-            repo_root=self.repo_root,
-            task_id=task_id,
-            observer=TuiLoopObserver(
-                conversation=conversation,
-                status_bar=self.query_one("#status_bar", StatusBar),
-                undo=UndoManager(repo_root=self.repo_root),
+        try:
+            conversation = self.query_one("#conversation", ConversationPane)
+            conversation.write(f"\n> {sanitize_terminal(text)}\n")
+            entry = self.registry.get(self.active_model_id)
+            setup = build_task_deps(
+                config=self.config,
+                registry=self.registry,
                 model_id=self.active_model_id,
-                mode_manager=self.mode_manager,
-                context_window=entry.context_window,
-                session_cap_usd=self.config.managers.budget.session_usd,
-                day_cap_usd=self.config.managers.budget.day_usd,
-                spent_day_usd_baseline=Decimal(0),
-            ),
-        )
-        await run_task(text, setup.deps, task_id)
+                kestrel_md=self.kestrel_md,
+                repo_root=self.repo_root,
+                task_id=task_id,
+                observer=TuiLoopObserver(
+                    conversation=conversation,
+                    status_bar=self.query_one("#status_bar", StatusBar),
+                    undo=UndoManager(repo_root=self.repo_root),
+                    model_id=self.active_model_id,
+                    mode_manager=self.mode_manager,
+                    context_window=entry.context_window,
+                    session_cap_usd=self.config.managers.budget.session_usd,
+                    day_cap_usd=self.config.managers.budget.day_usd,
+                    spent_day_usd_baseline=Decimal(0),
+                ),
+            )
+            await run_task(text, setup.deps, task_id)
+        finally:
+            self._current_task_id = None
 
     def action_focus_conversation(self) -> None:
         """Move focus to the task-input box (F1)."""
