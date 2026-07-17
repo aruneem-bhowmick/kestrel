@@ -70,6 +70,12 @@ module.
   farewell"` anchor with a real `farewell` function body -- the second
   of two files a multi-file acceptance scenario edits, alongside
   `toolcall_edit_greet.sse`'s own `greet.py`.
+- `toolcall_edit_ansi_payload.sse` -- a single `edit_file` tool call,
+  whole JSON arguments in one chunk, naming `payload.txt` and replacing
+  a `"before"` anchor with `"BEFORE-EDITED"` -- for a fixture file whose
+  own content is the `ansi_escape_laden_payload` injection-corpus
+  case's payload, so the diff pane's rendering of the resulting
+  mutation can be checked for leftover raw escape bytes.
 - `cache_hit_turn1_cold.sse` -- a `read_file` tool call with `usage`
   (`prompt_tokens=100`, `completion_tokens=15`, `cached_tokens=0`),
   standing in for the first turn of a session, before any prior turn's
