@@ -91,6 +91,13 @@ the same client's OpenAI-compatible path against the entry's own
 `endpoint` directly -- no environment-variable redirection, since the
 registry itself already names where to call.
 
+`effort` is mapped onto each backend's own native reasoning-depth knob by
+`LiteLLMClient`'s internal `_effort_kwargs()`, a second per-backend switch
+next to the one that resolves routing: OpenRouter calls carry a
+`reasoning.effort` field translated from Kestrel's own `Effort` scale,
+Z.ai calls carry `thinking.effort` as a direct pass-through. A future
+backend adds its own case to that same function.
+
 `kestrel.provider.complete_with_retry()` wraps any `ProviderClient.complete()`
 call with bounded exponential backoff and full jitter, retrying only
 `RateLimitError` and `ServerError` -- never `AuthError` or

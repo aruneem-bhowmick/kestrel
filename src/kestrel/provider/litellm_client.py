@@ -9,15 +9,28 @@ into the event grammar defined in :mod:`kestrel.provider.events`. Every
 other module in the codebase reaches a model exclusively through
 :class:`~kestrel.provider.base.ProviderClient`, so this file is the only
 place a vendor name may legitimately appear.
+
+``effort`` is mapped onto each backend's own native reasoning-depth knob
+by :func:`_effort_kwargs`, a second per-backend switch alongside
+:func:`_litellm_params`, merged into the same outgoing ``litellm_params``
+dict. OpenRouter's unified ``reasoning.effort`` field only accepts
+``"low"``/``"medium"``/``"high"``, so Kestrel's own two-level ``Effort``
+scale maps onto its top two rungs; Z.ai's native ``thinking.effort``
+field already speaks Kestrel's vocabulary, so it is a direct pass-
+through. The mapping is deliberately asymmetric for ``"anthropic"`` and
+``"ollama"``: both return an empty dict, since :func:`_litellm_params`
+already raises ``ServerError`` for those two backends before a call is
+ever placed -- the case exists only so the mapping's own ``match``
+remains exhaustive, not because either backend is reachable today.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from collections.abc import AsyncIterator, Iterable, Iterator, Sequence
+from collections.abc import AsyncIterator, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, assert_never
+from typing import Any, Final, Literal, assert_never
 
 import litellm
 from litellm.exceptions import APIError as LiteLLMAPIError
@@ -125,6 +138,42 @@ def _litellm_params(entry: ModelEntry) -> dict[str, Any]:
                 model_id=entry.id,
                 backend=entry.backend,
             )
+        case _:
+            assert_never(entry.backend)
+
+
+_OPENROUTER_EFFORT_MAP: Final[Mapping[Effort, Literal["medium", "high"]]] = {
+    "high": "medium",
+    "max": "high",
+}
+
+
+def _effort_kwargs(entry: ModelEntry, effort: Effort) -> dict[str, Any]:
+    """Map ``effort`` onto ``entry.backend``'s own native reasoning-depth
+    knob, as an ``extra_body`` payload litellm merges verbatim into the
+    outgoing request JSON.
+
+    - ``"openrouter"``: OpenRouter's unified ``reasoning.effort`` field
+      only accepts ``"low"``/``"medium"``/``"high"`` -- Kestrel's own
+      two-level scale maps onto its top two rungs via
+      ``_OPENROUTER_EFFORT_MAP``, reserving ``"low"`` for a future third
+      Kestrel tier that does not exist yet.
+    - ``"zai"``: GLM's own native ``thinking`` object takes an
+      ``effort`` field already in Kestrel's own vocabulary, so this is
+      a direct pass-through with no translation table.
+    - ``"anthropic"``/``"ollama"``: empty dict -- unreachable today,
+      since ``_litellm_params`` already raises ``ServerError`` for both
+      before this function would ever be called for them.
+    """
+    match entry.backend:
+        case "openrouter":
+            return {
+                "extra_body": {"reasoning": {"effort": _OPENROUTER_EFFORT_MAP[effort]}}
+            }
+        case "zai":
+            return {"extra_body": {"thinking": {"type": "enabled", "effort": effort}}}
+        case "anthropic" | "ollama":
+            return {}
         case _:
             assert_never(entry.backend)
 
@@ -421,9 +470,9 @@ class LiteLLMClient(ProviderClient):
         """Stream (or buffer) a completion for ``model_id``, satisfying ``ProviderClient``.
 
         See :class:`kestrel.provider.base.ProviderClient` for the grammar and
-        error-handling contract this must uphold. ``effort`` is accepted and
-        logged, not yet acted on -- mapping it onto backend-specific
-        reasoning parameters is out of scope until model tiering lands.
+        error-handling contract this must uphold. ``effort`` is mapped onto
+        ``model_id``'s backend's own native reasoning-depth knob (see
+        :func:`_effort_kwargs`) and merged into the outgoing request.
         ``max_tokens`` is passed straight through to litellm's own parameter
         of the same name when given, and omitted entirely (letting the
         backend apply its own default) when ``None``.
@@ -431,11 +480,12 @@ class LiteLLMClient(ProviderClient):
         entry = self._registry.get(model_id)
         api_key = _require_api_key(entry)
         litellm_params = _litellm_params(entry)
+        litellm_params.update(_effort_kwargs(entry, effort))
+        logger.debug(
+            "effort=%r mapped to native kwargs for backend=%r", effort, entry.backend
+        )
         litellm_tools = _tool_schemas_to_litellm(tools)
         litellm_messages: list[Any] = list(messages)
-        logger.debug(
-            "effort=%r accepted for model_id=%r (not yet acted on)", effort, model_id
-        )
         if max_tokens is not None:
             litellm_params["max_tokens"] = max_tokens
 
