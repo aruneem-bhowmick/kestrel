@@ -7,12 +7,12 @@ Submitting text in the task-input box drives a real `run_task` call
 through `kestrel.task_setup.build_task_deps`: the conversation pane
 streams the assistant's own text as it arrives, the tool log gains a
 started/finished line for every tool call, the diff pane renders the
-most recent `edit_file` mutation as a unified diff, the status bar
-updates live after every turn, and the task's own termination prints a
-terse summary. Every pane that renders model- or tool-sourced text
-routes it through `kestrel.repl.sanitize_terminal` first, whether
-directly (the conversation pane) or via
-`kestrel.tui.observer_bridge.TuiLoopObserver`.
+most recent `edit_file` mutation as a unified diff, a loading indicator
+shows for as long as any tool call is in flight, the status bar updates
+live after every turn, and the task's own termination prints a terse
+summary. Every pane that renders model- or tool-sourced text routes it
+through `kestrel.repl.sanitize_terminal` first, whether directly (the
+conversation pane) or via `kestrel.tui.observer_bridge.TuiLoopObserver`.
 """
 
 from __future__ import annotations
@@ -27,7 +27,14 @@ from rich.syntax import Syntax
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Collapsible, Input, Markdown, RichLog, Static
+from textual.widgets import (
+    Collapsible,
+    Input,
+    LoadingIndicator,
+    Markdown,
+    RichLog,
+    Static,
+)
 
 from kestrel.agent.loop import run_task
 from kestrel.config import KestrelConfig
@@ -209,8 +216,12 @@ class KestrelApp(App[None]):
     def compose(self) -> ComposeResult:
         """Lay out the status bar, docked top, above a two-column body:
         the conversation pane and its task-input box on the left, and
-        the artifact, tool-log, and diff panes stacked on the right."""
+        the artifact, tool-log, and diff panes stacked on the right.
+        A `LoadingIndicator`, docked directly under the status bar,
+        shows for as long as a submitted task has a tool call in
+        flight (see `_run_task`) and is otherwise hidden."""
         yield StatusBar(id="status_bar")
+        yield LoadingIndicator(id="loading_indicator")
         with Horizontal():
             with Vertical(id="left_column"):
                 yield ConversationPane(id="conversation", markup=False, wrap=True)
@@ -224,12 +235,14 @@ class KestrelApp(App[None]):
 
     def on_mount(self) -> None:
         """Populate every pane with its first-party placeholder content,
-        and show a real idle status line -- no turn has billed yet
+        hide the loading indicator (no tool call is in flight yet), and
+        show a real idle status line -- no turn has billed yet
         (`context_used_tokens=None`, `session_usd=Decimal(0)`), built
         from this app's own starting model and mode."""
         self.query_one("#conversation", ConversationPane).write("Kestrel ready.")
         self.query_one("#artifact", ArtifactPane).update("_no artifact yet_")
         self.query_one("#diff", DiffPane).update("no changes yet")
+        self.query_one("#loading_indicator", LoadingIndicator).display = False
 
         entry = self.registry.get(self.active_model_id)
         budget_config = self.config.managers.budget
@@ -275,8 +288,8 @@ class KestrelApp(App[None]):
         """Run `text` as a brand new task: builds this task's own
         `TaskSetup` via `build_task_deps`, then swaps in a fresh
         `TuiLoopObserver` bridging its progress onto the conversation
-        pane and status bar, and drives it to completion via
-        `run_task`.
+        pane, tool log, diff pane, loading indicator, and status bar,
+        and drives it to completion via `run_task`.
 
         The observer is built only after `build_task_deps` returns so
         it can be seeded with `setup.spent_day_usd` -- the real
@@ -287,6 +300,11 @@ class KestrelApp(App[None]):
         `run_task` is not awaited until after it is set, so the loop
         never sees the placeholder `NULL_OBSERVER` `build_task_deps`
         itself defaults to.
+
+        `_set_inflight`, a small closure over this task's own
+        `#loading_indicator`, is the observer's `on_inflight_change`
+        hook: it shows the indicator once at least one tool call is in
+        flight and hides it again the moment none are.
 
         `_current_task_id` is cleared in a `finally` block so it always
         reflects reality -- including when `run_task` raises -- and a
@@ -307,6 +325,13 @@ class KestrelApp(App[None]):
                 repo_root=self.repo_root,
                 task_id=task_id,
             )
+            loading_indicator = self.query_one("#loading_indicator", LoadingIndicator)
+
+            def _set_inflight(count: int) -> None:
+                """Show `loading_indicator` while `count` is positive,
+                hide it once it drops back to zero."""
+                loading_indicator.display = count > 0
+
             setup.deps.observer = TuiLoopObserver(
                 conversation=conversation,
                 status_bar=self.query_one("#status_bar", StatusBar),
@@ -317,6 +342,9 @@ class KestrelApp(App[None]):
                 session_cap_usd=self.config.managers.budget.session_usd,
                 day_cap_usd=self.config.managers.budget.day_usd,
                 spent_day_usd_baseline=setup.spent_day_usd,
+                on_inflight_change=_set_inflight,
+                tool_log=self.query_one("#tool_log", ToolLogPane),
+                diff_pane=self.query_one("#diff", DiffPane),
             )
             await run_task(text, setup.deps, task_id)
         finally:
