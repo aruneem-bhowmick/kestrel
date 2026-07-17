@@ -136,4 +136,5 @@ markers = [
     "p043: the doctor tui check, the cockpit's default-entry wiring, the screenshot script, and the phase acceptance suite",
     "dod_phase_3: acceptance scenario for the assembled Textual cockpit milestone's Definition of Done",
     "p044: effort-to-backend-native reasoning-depth mapping",
+    "p045: per-task effort/tool-access scoping and resume-time message injection",
 ]
