@@ -133,4 +133,6 @@ markers = [
     "p040: the artifact pane's rendering of the task's most recent VerificationReport",
     "p041: the ctrl+p command palette's model/mode/undo/cost/resume/approve/kb entries",
     "p042: the modal approval screen and its bridge from a background tool-call thread to the app's own event loop",
+    "p043: the doctor tui check, the cockpit's default-entry wiring, the screenshot script, and the phase acceptance suite",
+    "dod_phase_3: acceptance scenario for the assembled Textual cockpit milestone's Definition of Done",
 ]
