@@ -28,7 +28,6 @@ from kestrel.agent.loop import run_task
 from kestrel.config import KestrelConfig
 from kestrel.kestrel_md import KestrelMd
 from kestrel.managers.mode import ModeManager
-from kestrel.managers.undo import UndoManager
 from kestrel.registry.model import Registry
 from kestrel.repl import sanitize_terminal
 from kestrel.task_setup import build_task_deps
@@ -223,13 +222,20 @@ class KestrelApp(App[None]):
 
     async def _run_task(self, text: str) -> None:
         """Run `text` as a brand new task: builds this task's own
-        `TaskSetup` via `build_task_deps`, bridging its progress onto
-        the conversation pane and status bar through a fresh
-        `TuiLoopObserver`, then drives it to completion via `run_task`.
+        `TaskSetup` via `build_task_deps`, then swaps in a fresh
+        `TuiLoopObserver` bridging its progress onto the conversation
+        pane and status bar, and drives it to completion via
+        `run_task`.
 
-        `spent_day_usd_baseline` starts at zero -- a fresh submission
-        starts a task with no prior same-day history of its own to add;
-        a later resume path seeds a real baseline instead.
+        The observer is built only after `build_task_deps` returns so
+        it can be seeded with `setup.spent_day_usd` -- the real
+        same-day spend `build_task_deps` already computed from the
+        repo's own session journals -- rather than always starting the
+        status bar's day figure from zero. `LoopDeps.observer` is a
+        plain mutable field for exactly this kind of late binding;
+        `run_task` is not awaited until after it is set, so the loop
+        never sees the placeholder `NULL_OBSERVER` `build_task_deps`
+        itself defaults to.
 
         `_current_task_id` is cleared in a `finally` block so it always
         reflects reality -- including when `run_task` raises -- and a
@@ -249,17 +255,17 @@ class KestrelApp(App[None]):
                 kestrel_md=self.kestrel_md,
                 repo_root=self.repo_root,
                 task_id=task_id,
-                observer=TuiLoopObserver(
-                    conversation=conversation,
-                    status_bar=self.query_one("#status_bar", StatusBar),
-                    undo=UndoManager(repo_root=self.repo_root),
-                    model_id=self.active_model_id,
-                    mode_manager=self.mode_manager,
-                    context_window=entry.context_window,
-                    session_cap_usd=self.config.managers.budget.session_usd,
-                    day_cap_usd=self.config.managers.budget.day_usd,
-                    spent_day_usd_baseline=Decimal(0),
-                ),
+            )
+            setup.deps.observer = TuiLoopObserver(
+                conversation=conversation,
+                status_bar=self.query_one("#status_bar", StatusBar),
+                undo=setup.undo,
+                model_id=self.active_model_id,
+                mode_manager=self.mode_manager,
+                context_window=entry.context_window,
+                session_cap_usd=self.config.managers.budget.session_usd,
+                day_cap_usd=self.config.managers.budget.day_usd,
+                spent_day_usd_baseline=setup.spent_day_usd,
             )
             await run_task(text, setup.deps, task_id)
         finally:

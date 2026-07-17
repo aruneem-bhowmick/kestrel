@@ -60,8 +60,8 @@ class TuiLoopObserver:
     Running spend is tracked by this bridge itself (`turn_cost.usd`
     accumulated in `on_turn_finished`) rather than read back off the
     task's own `CostMeter`, so the bridge stays fully independent of
-    `LoopDeps` construction order -- it is built before `build_task_deps`
-    ever creates that meter, not after.
+    exactly when, relative to `build_task_deps`, it itself gets built
+    or attached to `LoopDeps.observer`.
     """
 
     def __init__(
