@@ -158,4 +158,5 @@ markers = [
     "p048: the ImplementationPlan artifact's types, parsing, rendering, and comment-revision flow",
     "p049: ModeManager-driven effort/tool/verification scoping in build_task_deps and kestrel run's --mode flag",
     "p050: the cockpit's PLAN-mode task submission and the artifact pane's ImplementationPlan rendering",
+    "p051: the inline plan-comment modal and its revise-plan submission wiring",
 ]

@@ -35,3 +35,15 @@ ApprovalModal { align: center middle; }
    so #approval_detail_scroll always leaves #approval_buttons room. */
 #approval_detail_scroll { height: 1fr; max-height: 20; margin-bottom: 1; }
 #approval_buttons { height: auto; }
+PlanCommentModal { align: center middle; }
+#plan_comment_dialog {
+    width: 80%;
+    max-width: 100;
+    height: auto;
+    max-height: 80%;
+    background: $kestrel-panel;
+    border: solid $kestrel-accent;
+    padding: 1 2;
+}
+#plan_comment_lines_scroll { height: 1fr; max-height: 15; margin-bottom: 1; }
+#plan_comment_buttons { height: auto; }

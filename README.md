@@ -600,6 +600,22 @@ rendered the same way with `kestrel.agent.plan.render_plan_markdown`
 via `ArtifactPane.show_plan`; it shows static placeholder content until
 either one produces its first artifact.
 
+With a plan on screen, `c` opens `kestrel.tui.plan_comment_modal
+.PlanCommentModal`: a small dialog asking for a plan-line number and a
+free-text comment, dismissing into a queued `kestrel.agent.plan
+.PlanComment` once both are valid. Resubmitting the task-input box
+while at least one comment is queued -- whatever text (if any) it
+happens to carry -- drives `kestrel.agent.plan.revise_plan` against the
+same underlying task instead of starting a brand new one; the model's
+own revised reply replaces the artifact pane's plan, and the queued
+comments are cleared once it lands. A plan's own `PLAN-mode` scoping
+(restricted tools, `"max"` effort, no verification requirement) applies
+identically to a revision turn, since it runs through the same
+`_prepare_task_run` path a fresh submission does. There is no screen
+for editing or removing an already-queued comment short of submitting
+or restarting the cockpit; opening the modal again is how a second
+comment is added to the same pending batch.
+
 Submitting text in the task-input box always runs a full task through
 `run_task` -- the same tool-calling agent loop `kestrel run` drives --
 never a plain chat turn: the conversation pane renders the assistant's
