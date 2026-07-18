@@ -659,15 +659,15 @@ async def _drive(
     after; when the most recently recorded turn's own input tokens sit
     at or above 70% of the active model's context window, a
     summarize-and-fold compaction call (`kestrel.agent.compaction.
-    compact_history`) that replaces `history` with a shorter,
-    equivalent one before this iteration's own model call is ever made
-    -- itself priced, journaled, and budget-checked exactly like any
-    other turn, and capable of ending the task on its own (a hard
-    budget halt or the token cap) before that model call happens; a
-    model call offering `deps.available_tools`'s schemas (every
-    registered tool's, when left at its default `None`); a
-    `deps.self_critique_fn` pass over what was proposed, which, on
-    `False`, drops the proposal,
+    compact_history`, sent at `deps.effort` exactly like every other
+    turn) that replaces `history` with a shorter, equivalent one before
+    this iteration's own model call is ever made -- itself priced,
+    journaled, and budget-checked exactly like any other turn, and
+    capable of ending the task on its own (a hard budget halt or the
+    token cap) before that model call happens; a model call offering
+    `deps.available_tools`'s schemas (every registered tool's, when
+    left at its default `None`); a `deps.self_critique_fn` pass over
+    what was proposed, which, on `False`, drops the proposal,
     records a synthetic explanation of the skip in its place, and moves
     on to another turn instead of acting on it; dispatching every
     requested tool call in order through the shared tool registry,
@@ -772,6 +772,7 @@ async def _drive(
                             if deps.verification_reports
                             else None
                         ),
+                        effort=deps.effort,
                     )
                 except ContextOverflowError:
                     return finish(TerminationReason.CONTEXT_OVERFLOW)
