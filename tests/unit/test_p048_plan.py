@@ -60,6 +60,7 @@ class _UnreachableClient:
         pytest.fail("revise_plan must not reach the client for empty comments")
         yield  # pragma: no cover -- unreachable; satisfies the generator protocol
 
+
 _GOLDEN_DIR = Path(__file__).resolve().parent.parent / "golden"
 _MARKDOWN_GOLDEN = _GOLDEN_DIR / "p048_plan_markdown.golden"
 _COMMENTS_GOLDEN = _GOLDEN_DIR / "p048_plan_comments.golden"
@@ -193,11 +194,34 @@ def test_extract_plan_from_result_raises_when_the_last_message_is_not_assistant(
         reason=TerminationReason.TURN_CAP,
         turns_used=1,
         total_usd=Decimal("0"),
-        history=({"role": "tool", "content": "ran read_file", "tool_call_id": "call-1"},),
+        history=(
+            {"role": "tool", "content": "ran read_file", "tool_call_id": "call-1"},
+        ),
     )
 
     with pytest.raises(PlanError):
         extract_plan_from_result(result, task_id="task-tool-last")
+
+
+@pytest.mark.sanity
+@pytest.mark.parametrize("content", ["", "   ", "\n\n\t  \n"])
+def test_extract_plan_from_result_raises_on_whitespace_only_content(
+    content: str,
+) -> None:
+    """Given a `LoopResult` whose last message is a plain assistant reply
+    with empty or whitespace-only content, when extracted, then
+    `PlanError` is raised rather than silently returning a zero-line
+    plan -- an empty reply carries no plan to review, so it should not
+    be confused with one."""
+    result = LoopResult(
+        reason=TerminationReason.TASK_COMPLETE,
+        turns_used=1,
+        total_usd=Decimal("0"),
+        history=({"role": "assistant", "content": content},),
+    )
+
+    with pytest.raises(PlanError, match="task-blank"):
+        extract_plan_from_result(result, task_id="task-blank")
 
 
 # -- render_plan_markdown -------------------------------------------------
@@ -294,7 +318,9 @@ def test_persist_plan_writes_the_expected_path_and_content(tmp_path: Path) -> No
     assert written.read_text(encoding="utf-8") == render_plan_markdown(plan)
 
 
-def test_persist_plan_a_second_call_gets_the_numeric_suffix_path(tmp_path: Path) -> None:
+def test_persist_plan_a_second_call_gets_the_numeric_suffix_path(
+    tmp_path: Path,
+) -> None:
     """Given two plans persisted for the same task id, when the second is
     written, then it lands at the `-1`-suffixed path rather than
     overwriting the first -- matching `persist_verification_report`'s
