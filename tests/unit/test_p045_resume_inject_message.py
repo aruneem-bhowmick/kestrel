@@ -304,3 +304,64 @@ async def test_inject_message_left_unset_preserves_prior_resume_behavior(
     assert resumed_result.reason == TerminationReason.TASK_COMPLETE
     assert len(resumed_result.history) == len(first_result.history) + 1
     assert resumed_result.history[-1] == {"role": "assistant", "content": "done"}
+
+
+async def test_compaction_on_the_first_resumed_turn_journals_the_injected_message_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a task halted with enough recorded input tokens to trigger
+    compaction the instant it resumes, and resumed with `inject_message`
+    set, when compaction folds the loaded history (injected message
+    included) before the first new turn ever runs, then the injected
+    message is captured exactly once across the resumed session's own
+    journal -- by the compaction fold's own record, which already
+    covers the whole post-fold history -- rather than a second time by
+    the real turn that follows it."""
+    monkeypatch.setattr(loop_module, "dispatch", _fake_dispatch)
+    # Only the second turn's own recorded input tokens are large: a
+    # mid-task compaction check reads the *most recently recorded*
+    # turn's tokens, so keeping the first turn small means compaction
+    # stays quiet until TURN_CAP has already stopped this call, priming
+    # it to fire the instant the resumed call's own first pre-check runs.
+    first_client = _ScriptedLoopClient(
+        turns=[
+            _tool_turn("call-1", "read_file"),
+            _tool_turn("call-2", "read_file", input_tokens=150_000),
+        ]
+    )
+    session = SessionManager(repo_root=tmp_path, task_id="t-inject-compact")
+    first_deps = _build_deps(
+        first_client, tmp_path, limits=LoopLimits(max_turns=2), session=session
+    )
+    first_result = await run_task(
+        "do the first part", first_deps, task_id="t-inject-compact"
+    )
+    assert first_result.reason == TerminationReason.TURN_CAP
+
+    injected = "now also do the second part"
+    second_client = _ScriptedLoopClient(
+        turns=[_stop_turn("carry-forward summary"), _stop_turn("done")]
+    )
+    second_session = SessionManager(repo_root=tmp_path, task_id="t-inject-compact")
+    second_deps = _build_deps(
+        second_client,
+        tmp_path,
+        limits=LoopLimits(max_turns=10),
+        session=second_session,
+    )
+
+    resumed_result = await resume_task(
+        "t-inject-compact", second_deps, inject_message=injected
+    )
+
+    assert resumed_result.reason == TerminationReason.TASK_COMPLETE
+    # Two client calls: the compaction summary, then the real turn --
+    # proof compaction actually fired rather than taking its no-op path.
+    assert second_client.call_count == 2
+    occurrences = sum(
+        1
+        for record in second_session.records
+        for message in record.message_deltas
+        if message == {"role": "user", "content": injected}
+    )
+    assert occurrences == 1
