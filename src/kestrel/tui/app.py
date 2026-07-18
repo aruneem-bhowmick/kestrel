@@ -390,7 +390,7 @@ class KestrelApp(App[None]):
             )
             result = await run_task(text, setup.deps, task_id)
             if self.mode_manager.mode == "plan":
-                self._show_plan_from_result(result, task_id)
+                await self._show_plan_from_result(result, task_id)
             # else: no completion-time rendering for a FAST-mode task yet.
         finally:
             self._current_task_id = None
@@ -431,7 +431,7 @@ class KestrelApp(App[None]):
             )
             result = await resume_task(task_id, setup.deps)
             if self.mode_manager.mode == "plan":
-                self._show_plan_from_result(result, task_id)
+                await self._show_plan_from_result(result, task_id)
             # else: no completion-time rendering for a FAST-mode task yet.
         finally:
             self._current_task_id = None
@@ -439,17 +439,23 @@ class KestrelApp(App[None]):
                 self._last_meter = setup.deps.meter
                 self._last_completed_task_id = task_id
 
-    def _show_plan_from_result(self, result: LoopResult, task_id: str) -> None:
+    async def _show_plan_from_result(self, result: LoopResult, task_id: str) -> None:
         """Parse and persist `result`'s own plan, display it in
         `#artifact`, and record it as this session's own latest plan --
         the shared path both a fresh PLAN submission and a later plan
         revision funnel through. A `PlanError` (the task did not end on
         a plain assistant message, e.g. `TURN_CAP` mid tool-call)
         surfaces as a warning notification rather than crashing the
-        worker."""
+        worker.
+
+        `persist_plan` performs real file I/O, so it runs via
+        `asyncio.to_thread` off the event loop this coroutine itself
+        runs on, the same convention `_undo_current_task` already
+        follows for its own filesystem-touching call.
+        """
         try:
             plan = extract_plan_from_result(result, task_id=task_id)
-            persist_plan(plan, repo_root=self.repo_root)
+            await asyncio.to_thread(persist_plan, plan, repo_root=self.repo_root)
         except PlanError as exc:
             self.notify(str(exc), severity="warning")
             return
