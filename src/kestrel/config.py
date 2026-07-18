@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import tomllib
+from collections.abc import Mapping
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -23,6 +24,8 @@ import platformdirs
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from kestrel.managers.approval import DestructiveKind
+from kestrel.registry.model import Tag
+from kestrel.router.policy import TaskClass
 
 logger = logging.getLogger("kestrel.config")
 
@@ -100,6 +103,48 @@ class BudgetConfig(BaseModel):
     )
 
 
+class RouterPolicyConfig(BaseModel):
+    """Which registry `Tag` each task class routes to by default.
+
+    Attributes: one field per `kestrel.router.policy.TaskClass`
+        member, each a `Tag` -- see that module for how a class
+        resolves to a real model id.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    plan: Tag = "planner"
+    execute: Tag = "executor"
+    critique: Tag = "cheap"
+    trivial: Tag = "cheap"
+    embed: Tag = "local"
+
+    def as_mapping(self) -> Mapping[TaskClass, Tag]:
+        """This policy as a plain `Mapping[TaskClass, Tag]`, the shape
+        `resolve_model_id` reads -- mirrors
+        `kestrel.kestrel_md.VerifyCommands.as_mapping()`'s own
+        pydantic-model-to-plain-mapping precedent."""
+        return {
+            "plan": self.plan,
+            "execute": self.execute,
+            "critique": self.critique,
+            "trivial": self.trivial,
+            "embed": self.embed,
+        }
+
+
+class RouterConfig(BaseModel):
+    """Settings for task-class routing.
+
+    Attributes:
+        policy: Which `Tag` each task class routes to.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    policy: RouterPolicyConfig = RouterPolicyConfig()
+
+
 class ManagersConfig(BaseModel):
     """Settings for Kestrel's own runtime-state managers.
 
@@ -124,6 +169,7 @@ class KestrelConfig(BaseModel):
     general: GeneralConfig = GeneralConfig()
     paths: PathsConfig = PathsConfig()
     managers: ManagersConfig = ManagersConfig()
+    router: RouterConfig = RouterConfig()
 
 
 class ConfigError(Exception):
