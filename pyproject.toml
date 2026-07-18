@@ -157,4 +157,5 @@ markers = [
     "p047: routed self-critique's real model call and its [managers.self_critique] toggle",
     "p048: the ImplementationPlan artifact's types, parsing, rendering, and comment-revision flow",
     "p049: ModeManager-driven effort/tool/verification scoping in build_task_deps and kestrel run's --mode flag",
+    "p050: the cockpit's PLAN-mode task submission and the artifact pane's ImplementationPlan rendering",
 ]
