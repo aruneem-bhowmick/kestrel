@@ -332,9 +332,10 @@ task outright -- see "Compaction" below for how context-window
 pressure is recovered from before that ever happens, and why it can
 still happen despite that.
 
-Not yet implemented: mode switching (every call runs at a single,
-fixed effort level), a real self-critique model call (the default
-always approves), artifact persistence, and subagents.
+Not yet implemented: a policy deciding which effort level or tool set a
+given task should actually run with (see below for the fields
+themselves), a real self-critique model call (the default always
+approves), artifact persistence, and subagents.
 
 Whether the model's own say-so is enough to end a task is configurable
 via `LoopDeps.require_verification` (default `False`, preserving the
@@ -347,6 +348,19 @@ self-critique-skip path already uses. This never adds a new way for a
 task to end: an unbounded task still stops only via the turn, token, or
 wall-clock cap, exactly as it always could.
 
+`LoopDeps.effort` (default `"high"`) and `LoopDeps.available_tools`
+(default `None`, meaning every registered tool) are per-task fields
+rather than fixed constants: `effort` is sent on every turn in place of
+the single hardcoded level every call used before this field existed,
+and `available_tools` narrows the schema list a turn is offered via
+`kestrel.tools.registry.schemas_for` and gates a requested call against
+that same set -- a call naming a tool outside it is refused with a
+framed result folded into history as an ordinary tool-role message,
+never dispatched and never fatal to the loop. Leaving both fields at
+their defaults behaves exactly as every caller did before either field
+existed; nothing here decides which effort or tool set a task should
+actually run with, it only carries whichever values a caller supplies.
+
 Setting `LoopDeps.session` to a `kestrel.managers.SessionManager` makes
 a task resumable: every real turn is journaled as it completes, and
 `kestrel.agent.resume_task(task_id, deps)` reconstructs a prior task's
@@ -355,7 +369,13 @@ continues driving it -- picking the turn-cap counter up from where the
 journal left off, while sampling wall-clock budget fresh rather than
 inheriting elapsed time from before the process restarted. A task run
 without `session` set behaves exactly as before and cannot later be
-resumed.
+resumed. `resume_task` also takes an optional `inject_message`: when
+set, it is folded into the loaded history as one new user-role message
+before the resumed drive begins, letting a caller steer a task with new
+instructions -- and letting a task that already reached `TASK_COMPLETE`
+be resumed at all, not only one a cap or crash halted mid-run. Leaving
+`inject_message` unset preserves the exact resume behavior every
+existing caller already relies on.
 
 Setting `LoopDeps.budget` to a `kestrel.managers.BudgetManager` makes a
 task check its own spend every turn: `spent_day_usd`/`spent_month_usd`
