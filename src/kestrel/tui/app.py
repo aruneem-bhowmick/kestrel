@@ -14,7 +14,12 @@ status bar updates live after every turn, and the task's own
 termination prints a terse summary. Submitting a task while the
 cockpit's own mode is `"plan"` runs it read-only instead, and the
 artifact pane renders its resulting `ImplementationPlan` the moment it
-ends. Every pane that renders model- or
+ends. With a plan on screen, `c` opens a
+`kestrel.tui.plan_comment_modal.PlanCommentModal` asking for a plan-line
+number and a free-text comment; resubmitting the task-input box while
+comments are queued drives `kestrel.agent.plan.revise_plan` instead of
+starting a brand new task, and the artifact pane refreshes with the
+model's own revised plan. Every pane that renders model- or
 tool-sourced text routes it through `kestrel.repl.sanitize_terminal`
 first, whether directly (the conversation pane) or via
 `kestrel.tui.observer_bridge.TuiLoopObserver`. A `ctrl+p` command
@@ -59,6 +64,7 @@ from kestrel.agent.plan import (
     extract_plan_from_result,
     persist_plan,
     render_plan_markdown,
+    revise_plan,
 )
 from kestrel.config import KestrelConfig
 from kestrel.cost.meter import CostMeter, format_cost_line
@@ -74,6 +80,7 @@ from kestrel.tools.verify import VerificationReport, render_verification_markdow
 from kestrel.tui.approval_modal import make_tui_decide_fn
 from kestrel.tui.commands import KestrelCommandProvider
 from kestrel.tui.observer_bridge import TuiLoopObserver
+from kestrel.tui.plan_comment_modal import PlanCommentModal
 from kestrel.tui.status import StatusSnapshot, render_status_line
 
 _MAX_TOOL_ARG_SUMMARY_CHARS: Final[int] = 120
@@ -235,6 +242,7 @@ class KestrelApp(App[None]):
         Binding("f2", "focus_tool_log", "Tool log"),
         Binding("f3", "focus_diff", "Diff"),
         Binding("f4", "focus_artifact", "Artifact"),
+        Binding("c", "comment_on_plan", "Comment on plan"),
         Binding("ctrl+q", "quit", "Quit"),
     ]
 
@@ -334,11 +342,29 @@ class KestrelApp(App[None]):
         pane and status bar, and both act on the same repo at once.
         The input's own text is left in place (not cleared) so the
         submission can simply be retried once the running task ends.
+
+        Once at least one `PlanComment` is queued against a plan still
+        active in this session (`mode_manager.mode == "plan"` and
+        `_plan_task_id is not None`), a submission -- whatever text (if
+        any) it carries, including none at all -- drives `_revise_plan`
+        instead of starting a brand new task: the queued comments, not
+        the box's own text, are what gets sent back to the model. This
+        is why the ordinary empty-text short-circuit below is skipped
+        entirely while a revision is pending, rather than clearing the
+        box and silently dropping the queued comments; the busy guard
+        above still applies equally to both paths, since either one
+        starts a worker that would otherwise race a task already in
+        flight.
         """
         if event.input.id != "task_input":
             return
+        revising = (
+            self.mode_manager.mode == "plan"
+            and bool(self._pending_plan_comments)
+            and self._plan_task_id is not None
+        )
         text = event.value.strip()
-        if not text:
+        if not revising and not text:
             event.input.value = ""
             return
         if self._current_task_id is not None:
@@ -347,6 +373,9 @@ class KestrelApp(App[None]):
             )
             return
         event.input.value = ""
+        if revising:
+            self.run_worker(self._revise_plan(), exclusive=False)
+            return
         self.run_worker(self._run_task(text), exclusive=False)
 
     async def _run_task(self, text: str) -> None:
@@ -464,6 +493,37 @@ class KestrelApp(App[None]):
         self._pending_plan_comments = []
         self.query_one("#artifact", ArtifactPane).show_plan(plan)
 
+    async def _revise_plan(self) -> None:
+        """Continue `self._plan_task_id`'s own PLAN-mode conversation
+        with every queued comment (`kestrel.agent.plan.revise_plan`),
+        then display the model's own revised plan via
+        `_show_plan_from_result` -- the identical post-completion path
+        a fresh PLAN submission already uses.
+
+        `self.mode_manager` is still `"plan"` at this point, so
+        `_prepare_task_run`'s own `build_task_deps` call keeps
+        `effort="max"` and the restricted read-only tool set unchanged
+        from the plan's original turn, for every revision turn just as
+        much as the first.
+        """
+        task_id = self._plan_task_id
+        assert task_id is not None  # guarded by on_input_submitted's own check
+        comments = list(self._pending_plan_comments)
+        loop = asyncio.get_running_loop()
+        self._current_task_id = task_id
+        try:
+            conversation = self.query_one("#conversation", ConversationPane)
+            conversation.write(f"\n> revising plan with {len(comments)} comment(s)\n")
+            setup = self._prepare_task_run(
+                task_id, decide_fn=make_tui_decide_fn(self, loop)
+            )
+            result = await revise_plan(task_id, setup.deps, comments)
+            await self._show_plan_from_result(result, task_id)
+            self._last_meter = setup.deps.meter
+            self._last_completed_task_id = task_id
+        finally:
+            self._current_task_id = None
+
     def _prepare_task_run(
         self,
         task_id: str,
@@ -564,6 +624,27 @@ class KestrelApp(App[None]):
     def action_focus_artifact(self) -> None:
         """Move focus to the artifact pane (F4)."""
         self.query_one("#artifact", ArtifactPane).focus()
+
+    def action_comment_on_plan(self) -> None:
+        """Open `PlanCommentModal` against `self._last_plan` (`c`),
+        declining with a notification when no plan has been produced
+        yet this session."""
+        if self._last_plan is None:
+            self.notify("no plan to comment on yet", severity="warning")
+            return
+        self.push_screen(PlanCommentModal(self._last_plan), self._on_plan_comment)
+
+    def _on_plan_comment(self, comment: PlanComment | None) -> None:
+        """Queue `comment` -- a `push_screen` callback, `None` on
+        cancel and silently ignored -- and notify how many comments are
+        now pending against the current plan."""
+        if comment is None:
+            return
+        self._pending_plan_comments.append(comment)
+        self.notify(
+            f"comment queued for line {comment.line_index} "
+            f"({len(self._pending_plan_comments)} pending)"
+        )
 
     def action_switch_model(self, model_id: str) -> None:
         """Switch the active model to `model_id` and refresh the idle
