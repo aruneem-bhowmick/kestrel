@@ -14,11 +14,33 @@ from kestrel.agent.loop import (
     TerminationReason,
     run_task,
 )
+from kestrel.agent.plan import (
+    ImplementationPlan,
+    PlanComment,
+    PlanError,
+    PlanLine,
+    extract_plan_from_result,
+    parse_plan_lines,
+    persist_plan,
+    render_plan_comments,
+    render_plan_markdown,
+    revise_plan,
+)
 
 __all__ = [
+    "ImplementationPlan",
     "LoopDeps",
     "LoopLimits",
     "LoopResult",
+    "PlanComment",
+    "PlanError",
+    "PlanLine",
     "TerminationReason",
+    "extract_plan_from_result",
+    "parse_plan_lines",
+    "persist_plan",
+    "render_plan_comments",
+    "render_plan_markdown",
+    "revise_plan",
     "run_task",
 ]
