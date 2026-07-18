@@ -42,7 +42,7 @@ def _registry() -> Registry:
     return Registry(models={"glm-5.2": entry}, source=None)
 
 
-def test_a_turn_cap_result_notifies_a_warning_instead_of_crashing(
+async def test_a_turn_cap_result_notifies_a_warning_instead_of_crashing(
     tmp_path: Path,
 ) -> None:
     """Given a `LoopResult` that ended `TURN_CAP` mid tool-call -- no
@@ -76,7 +76,7 @@ def test_a_turn_cap_result_notifies_a_warning_instead_of_crashing(
         history=(),
     )
 
-    app._show_plan_from_result(result, _TASK_ID)
+    await app._show_plan_from_result(result, _TASK_ID)
 
     assert len(notifications) == 1
     message, severity = notifications[0]
