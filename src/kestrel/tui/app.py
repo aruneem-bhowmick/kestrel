@@ -11,7 +11,10 @@ most recent `edit_file` mutation as a unified diff, the artifact pane
 renders the task's own most recent `VerificationReport` as markdown, a
 loading indicator shows for as long as any tool call is in flight, the
 status bar updates live after every turn, and the task's own
-termination prints a terse summary. Every pane that renders model- or
+termination prints a terse summary. Submitting a task while the
+cockpit's own mode is `"plan"` runs it read-only instead, and the
+artifact pane renders its resulting `ImplementationPlan` the moment it
+ends. Every pane that renders model- or
 tool-sourced text routes it through `kestrel.repl.sanitize_terminal`
 first, whether directly (the conversation pane) or via
 `kestrel.tui.observer_bridge.TuiLoopObserver`. A `ctrl+p` command
@@ -48,7 +51,15 @@ from textual.widgets import (
     Static,
 )
 
-from kestrel.agent.loop import resume_task, run_task
+from kestrel.agent.loop import LoopResult, resume_task, run_task
+from kestrel.agent.plan import (
+    ImplementationPlan,
+    PlanComment,
+    PlanError,
+    extract_plan_from_result,
+    persist_plan,
+    render_plan_markdown,
+)
 from kestrel.config import KestrelConfig
 from kestrel.cost.meter import CostMeter, format_cost_line
 from kestrel.kestrel_md import KestrelMd
@@ -142,9 +153,10 @@ class ToolLogPane(RichLog):
 
 
 class ArtifactPane(Markdown):
-    """Renders the task's most recently produced `VerificationReport` as
-    markdown. Shows a placeholder message until the first `verify` tool
-    call of a submitted task calls `show_report`."""
+    """Renders the task's most recently produced `VerificationReport` or
+    `ImplementationPlan` as markdown. Shows a placeholder message until
+    the first `verify` tool call or completed PLAN-mode task of a
+    submitted task calls `show_report`/`show_plan`."""
 
     can_focus = True
 
@@ -157,6 +169,11 @@ class ArtifactPane(Markdown):
         back through, matching `DiffPane`'s own "most recent only"
         precedent."""
         self.update(sanitize_terminal(render_verification_markdown(report)))
+
+    def show_plan(self, plan: ImplementationPlan) -> None:
+        """Render `plan` via `render_plan_markdown`, sanitized identically
+        to `show_report`, and display it as this pane's entire content."""
+        self.update(sanitize_terminal(render_plan_markdown(plan)))
 
 
 class DiffPane(Static):
@@ -247,6 +264,9 @@ class KestrelApp(App[None]):
         self._current_task_id: str | None = None
         self._last_completed_task_id: str | None = None
         self._last_meter: CostMeter | None = None
+        self._last_plan: ImplementationPlan | None = None
+        self._plan_task_id: str | None = None
+        self._pending_plan_comments: list[PlanComment] = []
 
     def compose(self) -> ComposeResult:
         """Lay out the status bar, docked top, above a two-column body:
@@ -342,6 +362,11 @@ class KestrelApp(App[None]):
         (see `kestrel.tui.approval_modal`) -- capturing it any later
         would risk a decision needing `loop` before it was ever set.
 
+        Once the task ends, a cockpit whose own mode is `"plan"` renders
+        the result via `_show_plan_from_result` rather than leaving the
+        artifact pane at its placeholder text; a FAST-mode task has no
+        completion-time rendering of its own here.
+
         `_current_task_id` is cleared in a `finally` block so it always
         reflects reality -- including when `run_task` raises -- and a
         later submission is accepted again only once this one has
@@ -363,7 +388,10 @@ class KestrelApp(App[None]):
             setup = self._prepare_task_run(
                 task_id, decide_fn=make_tui_decide_fn(self, loop)
             )
-            await run_task(text, setup.deps, task_id)
+            result = await run_task(text, setup.deps, task_id)
+            if self.mode_manager.mode == "plan":
+                self._show_plan_from_result(result, task_id)
+            # else: no completion-time rendering for a FAST-mode task yet.
         finally:
             self._current_task_id = None
             if setup is not None:
@@ -389,7 +417,9 @@ class KestrelApp(App[None]):
         block, the moment this task ends. `_last_meter` and
         `_last_completed_task_id` are managed identically to
         `_run_task`, including the same finally-block guard against a
-        `setup` that never got built.
+        `setup` that never got built. The resumed task's own completion
+        is rendered exactly like `_run_task`'s: `_show_plan_from_result`
+        when the cockpit's own mode is `"plan"`, nothing otherwise.
         """
         loop = asyncio.get_running_loop()
         setup: TaskSetup | None = None
@@ -399,12 +429,34 @@ class KestrelApp(App[None]):
             setup = self._prepare_task_run(
                 task_id, decide_fn=make_tui_decide_fn(self, loop)
             )
-            await resume_task(task_id, setup.deps)
+            result = await resume_task(task_id, setup.deps)
+            if self.mode_manager.mode == "plan":
+                self._show_plan_from_result(result, task_id)
+            # else: no completion-time rendering for a FAST-mode task yet.
         finally:
             self._current_task_id = None
             if setup is not None:
                 self._last_meter = setup.deps.meter
                 self._last_completed_task_id = task_id
+
+    def _show_plan_from_result(self, result: LoopResult, task_id: str) -> None:
+        """Parse and persist `result`'s own plan, display it in
+        `#artifact`, and record it as this session's own latest plan --
+        the shared path both a fresh PLAN submission and a later plan
+        revision funnel through. A `PlanError` (the task did not end on
+        a plain assistant message, e.g. `TURN_CAP` mid tool-call)
+        surfaces as a warning notification rather than crashing the
+        worker."""
+        try:
+            plan = extract_plan_from_result(result, task_id=task_id)
+            persist_plan(plan, repo_root=self.repo_root)
+        except PlanError as exc:
+            self.notify(str(exc), severity="warning")
+            return
+        self._last_plan = plan
+        self._plan_task_id = task_id
+        self._pending_plan_comments = []
+        self.query_one("#artifact", ArtifactPane).show_plan(plan)
 
     def _prepare_task_run(
         self,
@@ -425,6 +477,13 @@ class KestrelApp(App[None]):
         callers pass `make_tui_decide_fn(self, loop)`, so every
         destructive action either one proposes resolves through a real
         `ApprovalModal` rather than the CLI's own stdin prompt.
+
+        `self.mode_manager` is also forwarded straight to
+        `build_task_deps`, so a submission made while the cockpit's own
+        mode is `"plan"` actually gets the scoped effort, restricted
+        tool set, and disabled verification requirement PLAN mode
+        implies, rather than an ordinary FAST-mode bundle that happens
+        to display a `"plan"` status label.
 
         The observer is built only after `build_task_deps` returns so
         it can be seeded with `setup.spent_day_usd` -- the real
@@ -456,6 +515,7 @@ class KestrelApp(App[None]):
             repo_root=self.repo_root,
             task_id=task_id,
             decide_fn=decide_fn,
+            mode_manager=self.mode_manager,
         )
         loading_indicator = self.query_one("#loading_indicator", LoadingIndicator)
 
