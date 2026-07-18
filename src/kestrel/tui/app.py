@@ -527,6 +527,16 @@ class KestrelApp(App[None]):
         before this coroutine ever starts running, so this method never
         assigns it itself; it is still cleared here, in a `finally`
         block, the moment the revision ends.
+
+        `_pending_plan_comments` is cleared the instant `revise_plan`
+        itself returns -- before `_show_plan_from_result` ever touches
+        the reply -- since those comments have already been spent as
+        soon as they are sent to the model. Waiting until
+        `_show_plan_from_result` succeeds to clear them would leave an
+        already-submitted batch still queued if that reply turns out to
+        be a `PlanError` (e.g. the revision ended mid tool-call), and a
+        later resubmission would then inject the exact same comments a
+        second time.
         """
         task_id = self._plan_task_id
         assert task_id is not None  # guarded by on_input_submitted's own check
@@ -539,6 +549,7 @@ class KestrelApp(App[None]):
                 task_id, decide_fn=make_tui_decide_fn(self, loop)
             )
             result = await revise_plan(task_id, setup.deps, comments)
+            self._pending_plan_comments = []
             await self._show_plan_from_result(result, task_id)
             self._last_meter = setup.deps.meter
             self._last_completed_task_id = task_id
