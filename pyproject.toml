@@ -137,4 +137,5 @@ markers = [
     "dod_phase_3: acceptance scenario for the assembled Textual cockpit milestone's Definition of Done",
     "p044: effort-to-backend-native reasoning-depth mapping",
     "p045: per-task effort/tool-access scoping and resume-time message injection",
+    "p046: the task-class-to-model-tag router policy and its resolve_model_id lookup",
 ]
