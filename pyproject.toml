@@ -155,4 +155,5 @@ markers = [
     "p045: per-task effort/tool-access scoping and resume-time message injection",
     "p046: the task-class-to-model-tag router policy and its resolve_model_id lookup",
     "p047: routed self-critique's real model call and its [managers.self_critique] toggle",
+    "p048: the ImplementationPlan artifact's types, parsing, rendering, and comment-revision flow",
 ]
