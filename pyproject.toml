@@ -159,4 +159,5 @@ markers = [
     "p049: ModeManager-driven effort/tool/verification scoping in build_task_deps and kestrel run's --mode flag",
     "p050: the cockpit's PLAN-mode task submission and the artifact pane's ImplementationPlan rendering",
     "p051: the inline plan-comment modal and its revise-plan submission wiring",
+    "p052: continuing a plan's own task as a FAST-mode execution once the cockpit switches mode",
 ]
