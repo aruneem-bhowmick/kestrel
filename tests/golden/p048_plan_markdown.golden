@@ -1,0 +1,5 @@
+# Implementation Plan: demo-task
+
+1. Read the existing config parser.
+2. Add a new field for the retry timeout.
+3. Write a regression test for the new field.
