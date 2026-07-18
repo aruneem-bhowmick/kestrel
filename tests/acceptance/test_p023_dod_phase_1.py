@@ -49,6 +49,13 @@ _TOOLCALL_EXECUTE_RM = _CASSETTES / "toolcall_execute_rm.sse"
 _TOOLCALL_READ_FILE = _CASSETTES / "toolcall_read_file.sse"
 _TOOLCALL_READ_PAYLOAD = _CASSETTES / "toolcall_read_file_payload.sse"
 _DONE_CASSETTE = _CASSETTES / "done_no_more_tools.sse"
+# `kestrel run` now routes every turn's self-critique check through its
+# own real, routed call by default (`[managers.self_critique].enabled`),
+# so every scripted scenario below must reply to it too -- one extra
+# request per real turn, interleaved right after that turn's own -- or
+# the mock server's fixed reply sequence drifts out of step with which
+# request is actually which.
+_CRITIQUE_APPROVE = _CASSETTES / "critique_approve.sse"
 
 _TIMEOUT_S = 30.0
 _TASK_ID_RE = re.compile(r"^task_id: (?P<task_id>\S+)$", re.MULTILINE)
@@ -194,8 +201,11 @@ def test_dod_task_completes_end_to_end(
     base_url = mock_openai_server(
         cassette_sequence=[
             _TOOLCALL_EDIT_GREET,
+            _CRITIQUE_APPROVE,
             _TOOLCALL_EXECUTE_PYTEST,
+            _CRITIQUE_APPROVE,
             _DONE_CASSETTE,
+            _CRITIQUE_APPROVE,
         ]
     )
     config_path = _write_run_config(tmp_path)
@@ -243,7 +253,14 @@ def test_dod_approval_gates_destructive_ops(
     target.write_text("keep me\n", encoding="utf-8")
 
     base_url = mock_openai_server(
-        cassette_sequence=[_TOOLCALL_READ_FILE, _TOOLCALL_EXECUTE_RM, _DONE_CASSETTE]
+        cassette_sequence=[
+            _TOOLCALL_READ_FILE,
+            _CRITIQUE_APPROVE,
+            _TOOLCALL_EXECUTE_RM,
+            _CRITIQUE_APPROVE,
+            _DONE_CASSETTE,
+            _CRITIQUE_APPROVE,
+        ]
     )
     config_path = _write_run_config(tmp_path)
 
@@ -290,7 +307,12 @@ def test_dod_undo_reverts_a_task(
     (repo_dir / "greet.py").write_text(_GREET_STUB, encoding="utf-8")
 
     base_url = mock_openai_server(
-        cassette_sequence=[_TOOLCALL_EDIT_GREET, _DONE_CASSETTE]
+        cassette_sequence=[
+            _TOOLCALL_EDIT_GREET,
+            _CRITIQUE_APPROVE,
+            _DONE_CASSETTE,
+            _CRITIQUE_APPROVE,
+        ]
     )
     config_path = _write_run_config(tmp_path)
 
@@ -358,7 +380,12 @@ def test_dod_injection_corpus_fails_closed(
     echo_cassette = _write_echo_cassette(tmp_path / "echo.sse", payload=case.payload)
     captured: list[bytes] = []
     base_url = mock_openai_server(
-        cassette_sequence=[_TOOLCALL_READ_PAYLOAD, echo_cassette],
+        cassette_sequence=[
+            _TOOLCALL_READ_PAYLOAD,
+            _CRITIQUE_APPROVE,
+            echo_cassette,
+            _CRITIQUE_APPROVE,
+        ],
         capture=captured,
     )
     config_path = _write_run_config(tmp_path)
@@ -383,8 +410,16 @@ def test_dod_injection_corpus_fails_closed(
     )
 
     assert result.returncode == 0, result.stderr
-    assert len(captured) >= 2
+    assert len(captured) == 4
 
-    second_request = captured[1].decode("utf-8")
+    # captured[0]/[1] are the first turn's own think call and its
+    # self-critique check; captured[2] is the second turn's think call
+    # -- the one whose request history actually carries the first turn's
+    # own framed tool result.
+    second_turn_request = captured[2].decode("utf-8")
     for marker in case.forbidden_markers:
-        assert second_request.count(marker) == 1, (case.id, marker, second_request)
+        assert second_turn_request.count(marker) == 1, (
+            case.id,
+            marker,
+            second_turn_request,
+        )
