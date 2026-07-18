@@ -86,10 +86,11 @@ def extract_plan_from_result(result: LoopResult, *, task_id: str) -> Implementat
     `ImplementationPlan`.
 
     Raises:
-        PlanError: `result.history` is empty, or its last message is
-            not a plain assistant message with no `tool_calls` (e.g.
-            the task ended `TURN_CAP` mid tool-call) -- there is no
-            plan text to parse in that case.
+        PlanError: `result.history` is empty, its last message is not a
+            plain assistant message with no `tool_calls` (e.g. the task
+            ended `TURN_CAP` mid tool-call), or that message's own
+            content is empty or whitespace-only -- there is no plan
+            text to parse in any of these cases.
     """
     if not result.history:
         raise PlanError(f"task {task_id!r} produced no history to parse a plan from")
@@ -100,6 +101,11 @@ def extract_plan_from_result(result: LoopResult, *, task_id: str) -> Implementat
             "-- no plan text to parse"
         )
     raw_text = last["content"]
+    if not raw_text.strip():
+        raise PlanError(
+            f"task {task_id!r} ended on an empty assistant message "
+            "-- no plan text to parse"
+        )
     return ImplementationPlan(
         task_id=task_id, raw_text=raw_text, lines=parse_plan_lines(raw_text)
     )
@@ -138,7 +144,12 @@ class PlanComment:
         line_index: The commented `PlanLine.index`.
         line_text: That line's own text, captured at comment time so a
             later re-render still shows what the comment was actually
-            about even if the plan itself has since changed.
+            about even if the plan itself has since changed. Unlike
+            `comment`, this is not reviewer-typed: it is a verbatim
+            quote of text the model itself already produced earlier in
+            the same conversation, which is why `render_plan_comments`
+            is free to requote it without reframing -- the model has
+            already seen and produced this exact text once.
         comment: The user's own comment text, verbatim.
     """
 
@@ -160,7 +171,9 @@ def render_plan_comments(comments: Sequence[PlanComment]) -> str:
         "reply with the complete revised plan, one step per line.",
         "",
     ]
-    lines.extend(f'- Line {c.line_index} ("{c.line_text}"): {c.comment}' for c in comments)
+    lines.extend(
+        f'- Line {c.line_index} ("{c.line_text}"): {c.comment}' for c in comments
+    )
     return "\n".join(lines)
 
 
