@@ -664,8 +664,10 @@ async def _drive(
     -- itself priced, journaled, and budget-checked exactly like any
     other turn, and capable of ending the task on its own (a hard
     budget halt or the token cap) before that model call happens; a
-    model call offering the full tool set; a `deps.self_critique_fn`
-    pass over what was proposed, which, on `False`, drops the proposal,
+    model call offering `deps.available_tools`'s schemas (every
+    registered tool's, when left at its default `None`); a
+    `deps.self_critique_fn` pass over what was proposed, which, on
+    `False`, drops the proposal,
     records a synthetic explanation of the skip in its place, and moves
     on to another turn instead of acting on it; dispatching every
     requested tool call in order through the shared tool registry,

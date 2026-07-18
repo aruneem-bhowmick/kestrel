@@ -312,11 +312,12 @@ actually changes a running task.
 
 `kestrel.agent.run_task` drives one task to completion through a
 tool-calling loop, distinct from the plain-chat REPL: each turn calls
-the model with the full tool set offered, sanity-checks what it
-proposes via an injectable self-critique function, dispatches every
-requested tool call through `kestrel.tools.registry.dispatch` (turning
-a denied approval into a framed refusal instead of raising), and folds
-the turn's usage into a running total. A turn that requests no tools at
+the model with whichever tool set `LoopDeps.available_tools` selects
+(every registered tool by default), sanity-checks what it proposes via
+an injectable self-critique function, dispatches every requested tool
+call through `kestrel.tools.registry.dispatch` (turning a denied
+approval into a framed refusal instead of raising), and folds the
+turn's usage into a running total. A turn that requests no tools at
 all is the task's natural completion.
 
 Every collaborator a task needs -- the provider client, the model
