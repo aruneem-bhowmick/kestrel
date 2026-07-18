@@ -24,6 +24,20 @@ recognized key and its default value. Secrets (API keys, tokens,
 passwords) must never be placed in this file -- set them as environment
 variables instead.
 
+### Router policy
+
+`[router.policy]` maps each of five task classes -- `plan`, `execute`,
+`critique`, `trivial`, and `embed` -- to a registry `Tag`
+(`"planner"`, `"executor"`, `"cheap"`, or `"local"`) it should route
+to. Defaults: `plan` -> `"planner"`, `execute` -> `"executor"`,
+`critique` -> `"cheap"`, `trivial` -> `"cheap"`, `embed` -> `"local"`.
+`kestrel.router.policy.resolve_model_id` turns a task class into a
+real model id by picking the first registry entry (sorted by id) that
+carries the mapped tag, falling back to a caller-supplied default id
+when no entry does. Nothing calls it yet -- it exists as a standalone,
+independently testable module ahead of the agent loop wiring that will
+consume it.
+
 ## Project memory
 
 Kestrel reads an optional `KESTREL.md` from the target repo's own root
