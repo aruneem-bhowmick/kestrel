@@ -145,6 +145,22 @@ class RouterConfig(BaseModel):
     policy: RouterPolicyConfig = RouterPolicyConfig()
 
 
+class SelfCritiqueConfig(BaseModel):
+    """Whether the self-critique phase makes a real model call.
+
+    Attributes:
+        enabled: `True` (default) routes `LoopDeps.self_critique_fn` to
+            `kestrel.agent.critique.make_self_critique_fn`'s real check;
+            `False` leaves it at `agent.loop`'s own always-approve
+            default, the exact behavior every caller had before this
+            config key existed.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    enabled: bool = True
+
+
 class ManagersConfig(BaseModel):
     """Settings for Kestrel's own runtime-state managers.
 
@@ -153,12 +169,15 @@ class ManagersConfig(BaseModel):
             approval gate.
         budget: Per-repo configuration for session/day/month USD
             budget caps.
+        self_critique: Per-repo toggle for whether the self-critique
+            phase makes a real, routed model call.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     approval: ApprovalConfig = ApprovalConfig()
     budget: BudgetConfig = BudgetConfig()
+    self_critique: SelfCritiqueConfig = SelfCritiqueConfig()
 
 
 class KestrelConfig(BaseModel):
