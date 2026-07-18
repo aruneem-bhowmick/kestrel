@@ -19,7 +19,13 @@ ends. With a plan on screen, `c` opens a
 number and a free-text comment; resubmitting the task-input box while
 comments are queued drives `kestrel.agent.plan.revise_plan` instead of
 starting a brand new task, and the artifact pane refreshes with the
-model's own revised plan. Every pane that renders model- or
+model's own revised plan. Switching mode to `"fast"` while that same
+plan is still on screen and submitting again continues it as a real
+execution instead: `_execute_plan` resumes the identical task history
+via `kestrel.agent.loop.resume_task`, now with every tool available and
+effort back at FAST's own level, so the model acts on the exact plan
+it just proposed rather than starting over from a re-summarized
+description of it. Every pane that renders model- or
 tool-sourced text routes it through `kestrel.repl.sanitize_terminal`
 first, whether directly (the conversation pane) or via
 `kestrel.tui.observer_bridge.TuiLoopObserver`. A `ctrl+p` command
@@ -367,6 +373,21 @@ class KestrelApp(App[None]):
         ever starts, the reservation is rolled back so a later
         submission is not permanently blocked by a revision that never
         began.
+
+        Switching the cockpit's own mode to `"fast"` while a plan from
+        this session is still on screen (`_plan_task_id is not None`)
+        turns the next submission into a continuation of that same
+        task instead of a brand new one: `_execute_plan` resumes it
+        with every tool available and effort back at its FAST-mode
+        level, carrying the box's own text along as what to do next.
+        This branch is checked after the revise-plan one above (the
+        two never overlap in practice, since one requires
+        `mode_manager.mode == "plan"` and the other `"fast"`) and
+        before the ordinary fresh-task path below. Like a revision, an
+        empty submission is accepted here rather than short-circuited
+        by the empty-text guard: a plan's own content already is the
+        substance of what is being asked, so blank input simply means
+        "proceed as planned."
         """
         if event.input.id != "task_input":
             return
@@ -375,8 +396,11 @@ class KestrelApp(App[None]):
             and bool(self._pending_plan_comments)
             and self._plan_task_id is not None
         )
+        executing_plan = (
+            self.mode_manager.mode == "fast" and self._plan_task_id is not None
+        )
         text = event.value.strip()
-        if not revising and not text:
+        if not revising and not executing_plan and not text:
             event.input.value = ""
             return
         if self._current_task_id is not None:
@@ -392,6 +416,9 @@ class KestrelApp(App[None]):
             except Exception:
                 self._current_task_id = None
                 raise
+            return
+        if executing_plan:
+            self.run_worker(self._execute_plan(text), exclusive=False)
             return
         self.run_worker(self._run_task(text), exclusive=False)
 
@@ -555,6 +582,45 @@ class KestrelApp(App[None]):
             self._last_completed_task_id = task_id
         finally:
             self._current_task_id = None
+
+    async def _execute_plan(self, text: str) -> None:
+        """Continue `self._plan_task_id`'s own conversation as a
+        FAST-mode execution of the plan it already produced:
+        `resume_task` with `inject_message` naming what to do (the
+        user's own freshly typed text, or a fixed default when left
+        blank), against `deps` built from this app's own
+        `mode_manager` -- already switched to `"fast"` by the time
+        this runs, so `effort="high"`/`available_tools=None`, every
+        tool available for the first time since the plan itself was
+        proposed. Clears `_plan_task_id`/`_last_plan`/
+        `_pending_plan_comments` in `finally`, regardless of outcome:
+        one plan is executed at most once end to end before the
+        cockpit returns to its ordinary "next submission starts a
+        fresh task" behavior.
+        """
+        task_id = self._plan_task_id
+        assert task_id is not None  # guarded by on_input_submitted's own check
+        inject_message = text or "Proceed to implement the approved plan above."
+        loop = asyncio.get_running_loop()
+        self._current_task_id = task_id
+        setup: TaskSetup | None = None
+        try:
+            conversation = self.query_one("#conversation", ConversationPane)
+            conversation.write(
+                f"\n> executing plan: {sanitize_terminal(inject_message)}\n"
+            )
+            setup = self._prepare_task_run(
+                task_id, decide_fn=make_tui_decide_fn(self, loop)
+            )
+            await resume_task(task_id, setup.deps, inject_message=inject_message)
+        finally:
+            self._current_task_id = None
+            self._plan_task_id = None
+            self._last_plan = None
+            self._pending_plan_comments = []
+            if setup is not None:
+                self._last_meter = setup.deps.meter
+                self._last_completed_task_id = task_id
 
     def _prepare_task_run(
         self,
