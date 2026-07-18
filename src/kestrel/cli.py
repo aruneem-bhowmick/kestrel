@@ -19,6 +19,7 @@ from kestrel.agent.loop import (
     resume_task,
     run_task,
 )
+from kestrel.agent.plan import PlanError, extract_plan_from_result, persist_plan
 from kestrel.config import ConfigError, KestrelConfig, load_config
 from kestrel.cost.meter import CostMeter
 from kestrel.doctor import all_checks_passed, render_report, run_doctor
@@ -142,6 +143,15 @@ def _build_parser() -> ArgumentParser:
         help=(
             "Withhold task completion from a no-tool-calls turn until the "
             "most recent `verify` call passed (default: enabled)."
+        ),
+    )
+    run_parser.add_argument(
+        "--mode",
+        choices=("plan", "fast"),
+        default="fast",
+        help=(
+            "PLAN (read-only, produces an ImplementationPlan artifact) or "
+            "FAST (direct execution). Default: fast."
         ),
     )
     run_parser.add_argument(
@@ -354,6 +364,18 @@ def _print_task_summary(
             print(f"  {path}")
 
 
+def _print_plan_summary(task_id: str, result: LoopResult, plan_path: Path) -> None:
+    """Print the PLAN-mode counterpart to `_print_task_summary`: task
+    id, termination reason, turn count, total cost, and the persisted
+    plan's own repo-relative path -- no `files changed:` section,
+    since a PLAN-mode task never mutates one by construction."""
+    print(f"task_id: {task_id}")
+    print(f"reason: {result.reason.name}")
+    print(f"turns: {result.turns_used}")
+    print(f"total_usd: ${result.total_usd:.4f}")
+    print(f"plan: {plan_path}")
+
+
 # Keeps the private name every existing call site in this module already
 # uses -- `build_task_deps`'s own `TaskSetup` is the exact same shape.
 _RunSetup = TaskSetup
@@ -374,14 +396,16 @@ def _build_run_deps(
     `_resume_task_command`.
 
     A thin `Namespace`-reading wrapper around `build_task_deps`: resolves
-    `args`' own budget flags via `_resolve_budget_limits`, then hands
-    everything else straight through unchanged. No behavior change to
-    any existing `kestrel run`/`--resume` invocation -- this is the same
-    construction `_build_run_deps` always did, just delegated to the
-    shared, non-CLI-coupled function the TUI also builds its own task
-    dependencies from.
+    `args`' own budget flags via `_resolve_budget_limits`, builds a
+    `ModeManager` from `args.mode`, then hands everything else straight
+    through unchanged. No behavior change to any existing `kestrel run`/
+    `--resume` invocation left at `--mode`'s default (`"fast"`) -- this
+    is the same construction `_build_run_deps` always did, just
+    delegated to the shared, non-CLI-coupled function the TUI also
+    builds its own task dependencies from.
     """
     budget_limits = _resolve_budget_limits(args, config)
+    mode_manager = ModeManager(mode=args.mode)
     return build_task_deps(
         config=config,
         registry=registry,
@@ -396,6 +420,7 @@ def _build_run_deps(
         ),
         require_verification=args.require_verification,
         budget_limits=budget_limits,
+        mode_manager=mode_manager,
     )
 
 
@@ -410,9 +435,14 @@ def _run_task_command(
     summary.
 
     Builds its collaborators via `_build_run_deps` -- nothing built
-    there is reused across separate `run` invocations. On
-    `TerminationReason.BUDGET_HALT`, prints `_print_budget_halt`'s
-    dedicated message instead of the ordinary summary; every other
+    there is reused across separate `run` invocations. When
+    `args.mode == "plan"` and the task did not end `BUDGET_HALT`, parses
+    and persists the resulting `ImplementationPlan` via
+    `extract_plan_from_result`/`persist_plan` and prints
+    `_print_plan_summary` in place of the ordinary summary, exiting `1`
+    with the parse/persist failure on `sys.stderr` if either raises
+    `PlanError`. Otherwise, on `TerminationReason.BUDGET_HALT`, prints
+    `_print_budget_halt`'s dedicated message instead; every remaining
     reason gets `_print_task_summary`. Exits `0` only on
     `TerminationReason.TASK_COMPLETE`.
     """
@@ -430,6 +460,16 @@ def _run_task_command(
 
     assert args.task is not None  # enforced by the `task`/`--resume` mutex group
     result = asyncio.run(run_task(args.task, setup.deps, task_id))
+
+    if args.mode == "plan" and result.reason is not TerminationReason.BUDGET_HALT:
+        try:
+            plan = extract_plan_from_result(result, task_id=task_id)
+            plan_path = persist_plan(plan, repo_root=repo_root)
+        except PlanError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        _print_plan_summary(task_id, result, plan_path)
+        return 0 if result.reason is TerminationReason.TASK_COMPLETE else 1
 
     if result.reason is TerminationReason.BUDGET_HALT:
         _print_budget_halt(
@@ -469,6 +509,13 @@ def _resume_task_command(
     `kestrel.agent.loop.resume_task`), overwriting whatever placeholder
     `LoopDeps.meter` `_build_run_deps` built.
 
+    `args.mode` drives the identical PLAN-mode branch
+    `_run_task_command` takes -- this invocation's own `--mode` flag,
+    not whatever mode the original `run` was started with (this
+    function has no way to know that, and does not try to); a caller
+    that resumes a PLAN-mode task without repeating `--mode plan` gets
+    the ordinary summary instead of a re-parsed plan.
+
     Raises nothing on a missing journal -- `FileNotFoundError` is caught
     and reported the same way a `ConfigError` is, exiting `1` instead of
     a raw traceback.
@@ -491,6 +538,16 @@ def _resume_task_command(
     except FileNotFoundError as exc:
         print(exc, file=sys.stderr)
         return 1
+
+    if args.mode == "plan" and result.reason is not TerminationReason.BUDGET_HALT:
+        try:
+            plan = extract_plan_from_result(result, task_id=task_id)
+            plan_path = persist_plan(plan, repo_root=repo_root)
+        except PlanError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        _print_plan_summary(task_id, result, plan_path)
+        return 0 if result.reason is TerminationReason.TASK_COMPLETE else 1
 
     if result.reason is TerminationReason.BUDGET_HALT:
         _print_budget_halt(
