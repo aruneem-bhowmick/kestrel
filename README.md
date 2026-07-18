@@ -594,9 +594,11 @@ column stacks the artifact, tool-log, and diff panes.
 pane, and the artifact pane in turn; `ctrl+q` quits. The artifact pane
 shows the task's most recent `VerificationReport`, rendered as Markdown
 with `kestrel.tools.verify.render_verification_markdown` and sanitized
-before display;
-it shows static placeholder content until a task's own `verify` tool
-call produces its first report.
+before display, or -- for a task submitted while the cockpit's own mode
+is `"plan"` -- the `ImplementationPlan` its final reply parsed into,
+rendered the same way with `kestrel.agent.plan.render_plan_markdown`
+via `ArtifactPane.show_plan`; it shows static placeholder content until
+either one produces its first artifact.
 
 Submitting text in the task-input box always runs a full task through
 `run_task` -- the same tool-calling agent loop `kestrel run` drives --
@@ -648,7 +650,12 @@ line to the tool log and toggles the loading indicator; an `edit_file`
 call that actually mutated a file renders that mutation in the diff
 pane; a `verify` tool call's own `VerificationReport` renders in the
 artifact pane; and the task's own termination writes a terse summary
-line.
+line. A PLAN-mode task's own completion is handled separately, outside
+the observer: `KestrelApp._show_plan_from_result` parses and persists
+the finished task's plan and renders it in the artifact pane itself,
+since a PLAN-mode task -- read-only, restricted to `read_file`/`search`
+-- never calls `verify` and so never reaches `TuiLoopObserver.
+on_verification` at all.
 
 Every tool call a running task makes writes two lines to the
 collapsible tool log: `-> {name}({summary})` when it starts, where
