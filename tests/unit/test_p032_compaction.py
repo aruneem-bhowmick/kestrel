@@ -46,6 +46,7 @@ class _ScriptedSummaryClient:
     output_tokens: int = 7
     call_count: int = field(default=0, init=False)
     received_messages: list[list[Message]] = field(default_factory=list, init=False)
+    received_efforts: list[Effort] = field(default_factory=list, init=False)
 
     async def complete(
         self,
@@ -56,11 +57,12 @@ class _ScriptedSummaryClient:
         stream: bool = True,
         max_tokens: int | None = None,
     ) -> AsyncIterator[StreamEvent]:
-        """Record this call's own messages, then yield one plain
-        text-only reply -- no tool calls, matching the contract
+        """Record this call's own messages and effort, then yield one
+        plain text-only reply -- no tool calls, matching the contract
         `compact_history` relies on."""
         self.call_count += 1
         self.received_messages.append(list(messages))
+        self.received_efforts.append(effort)
         yield TextDelta(text=self.reply_text)
         yield UsageEvent(
             input_tokens=self.input_tokens,
@@ -145,6 +147,33 @@ async def test_compact_history_calls_the_client_once_with_the_older_tail() -> No
     (sent,) = client.received_messages
     assert sent[0] == {"role": "system", "content": _COMPACTION_SYSTEM_PROMPT}
     assert sent[1:] == history[:-_DEFAULT_KEEP_LAST_N]
+
+
+@pytest.mark.parametrize("effort", ["high", "max"])
+async def test_compact_history_sends_the_given_effort(effort: Effort) -> None:
+    """Given an explicit `effort`, when `compact_history` calls the
+    client, then that exact value is what the client receives -- not
+    the `"high"` literal every call used before this parameter existed."""
+    client = _ScriptedSummaryClient()
+    history = _history(_DEFAULT_KEEP_LAST_N + 3)
+
+    await compact_history(
+        client, _MODEL_ID, history, last_verification=None, effort=effort
+    )
+
+    assert client.received_efforts == [effort]
+
+
+async def test_compact_history_defaults_to_high_effort() -> None:
+    """Given no explicit `effort`, when `compact_history` calls the
+    client, then it defaults to `"high"` -- identical to every caller
+    written before this parameter existed."""
+    client = _ScriptedSummaryClient()
+    history = _history(_DEFAULT_KEEP_LAST_N + 3)
+
+    await compact_history(client, _MODEL_ID, history, last_verification=None)
+
+    assert client.received_efforts == ["high"]
 
 
 async def test_summary_message_names_a_failing_verifications_failing_commands() -> None:

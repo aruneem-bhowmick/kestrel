@@ -33,7 +33,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 from typing import Final
 
-from kestrel.provider.base import Message, ProviderClient
+from kestrel.provider.base import Effort, Message, ProviderClient
 from kestrel.provider.events import TextDelta, UsageEvent
 from kestrel.provider.retry import complete_with_retry
 from kestrel.tools.verify import VerificationReport
@@ -98,10 +98,11 @@ def _render_verification_note(last_verification: VerificationReport | None) -> s
 
 
 async def _drain_summary_text(
-    client: ProviderClient, messages: Sequence[Message], model_id: str
+    client: ProviderClient, messages: Sequence[Message], model_id: str, effort: Effort
 ) -> tuple[str, UsageEvent]:
-    """Stream one non-tool-calling completion from ``client`` and fold
-    it into its rendered text and closing usage event.
+    """Stream one non-tool-calling completion from ``client``, at
+    ``effort``, and fold it into its rendered text and closing usage
+    event.
 
     No tool schema is offered on this call, so a well-behaved backend
     never emits a ``ToolCallEvent`` here; one is simply not collected
@@ -111,7 +112,7 @@ async def _drain_summary_text(
     text_chunks: list[str] = []
     usage_event: UsageEvent | None = None
     async for event in complete_with_retry(
-        client, messages, None, model_id, "high", stream=True
+        client, messages, None, model_id, effort, stream=True
     ):
         if isinstance(event, TextDelta):
             text_chunks.append(event.text)
@@ -128,6 +129,7 @@ async def compact_history(
     *,
     last_verification: VerificationReport | None,
     keep_last_n: int = _DEFAULT_KEEP_LAST_N,
+    effort: Effort = "high",
 ) -> tuple[list[Message], UsageEvent]:
     """Fold everything but the most recent ``keep_last_n`` messages of
     ``history`` into one model-generated summary.
@@ -138,18 +140,18 @@ async def compact_history(
     all, so a caller can never mistake "nothing to compact" for a
     free, zero-cost model call that actually happened.
 
-    Otherwise, asks ``client`` (at ``effort="high"``, the only level
-    this call ever uses) to summarize ``history[:-keep_last_n]`` --
-    the older tail -- via one non-tool-calling completion routed
-    through ``complete_with_retry``; the most recent ``keep_last_n``
-    messages are kept verbatim rather than folded, since the model may
-    still be actively reasoning about its own latest tool results.
-    Returns ``([summary_message, *history[-keep_last_n:]],
-    usage_event)``, where ``summary_message`` is a ``"system"``-role
-    message holding the model's rendered summary followed by a fixed
-    block naming ``last_verification``'s pass/fail -- and, when it
-    failed, the exact names of every command that failed -- or nothing
-    at all when ``last_verification`` is ``None``.
+    Otherwise, asks ``client`` (at ``effort``, default ``"high"``,
+    matching every caller from before this parameter existed) to
+    summarize ``history[:-keep_last_n]`` -- the older tail -- via one
+    non-tool-calling completion routed through ``complete_with_retry``;
+    the most recent ``keep_last_n`` messages are kept verbatim rather
+    than folded, since the model may still be actively reasoning about
+    its own latest tool results. Returns ``([summary_message,
+    *history[-keep_last_n:]], usage_event)``, where ``summary_message``
+    is a ``"system"``-role message holding the model's rendered summary
+    followed by a fixed block naming ``last_verification``'s pass/fail
+    -- and, when it failed, the exact names of every command that
+    failed -- or nothing at all when ``last_verification`` is ``None``.
 
     This function never touches a cost meter, a session journal, or a
     budget classifier itself -- ``usage_event`` is returned for the
@@ -171,7 +173,9 @@ async def compact_history(
         {"role": "system", "content": _COMPACTION_SYSTEM_PROMPT},
         *older_tail,
     ]
-    summary_text, usage_event = await _drain_summary_text(client, messages, model_id)
+    summary_text, usage_event = await _drain_summary_text(
+        client, messages, model_id, effort
+    )
     summary_content = summary_text + _render_verification_note(last_verification)
     summary_message: Message = {"role": "system", "content": summary_content}
     return [summary_message, *history[split_idx:]], usage_event
