@@ -18,7 +18,11 @@ cases (valid and invalid) do mount a real `KestrelApp` via
 Also covers one red-team case: a plan line carrying the injection
 corpus's `ansi_escape_laden_payload`, the same hostile-content shape
 `test_p042_approval_modal.py` already exercises against
-`ApprovalModal`, must render inertly in `#plan_comment_lines`.
+`ApprovalModal`, must render inertly in `#plan_comment_lines`; and one
+UI case, mirroring `test_p042_approval_modal.py`'s own long-detail
+scenario, mounting a real app to prove a plan too long to fit the
+dialog scrolls via a focusable container instead of clipping lines the
+user has no way to read.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 
 import pytest
+from textual.containers import VerticalScroll
 from textual.widgets import Button, Input, Static
 
 from kestrel.agent.plan import (
@@ -277,3 +282,36 @@ def test_hostile_plan_line_renders_inertly_in_the_documented_static() -> None:
     assert "\x1b" not in content
     assert "\x9b" not in content
     assert "\x07" not in content
+
+
+@pytest.mark.ui
+async def test_a_long_plan_scrolls_inside_a_focusable_container(
+    kestrel_app_factory: Callable[[], KestrelApp],
+) -> None:
+    """Given a plan with far more lines than fit the dialog's own
+    capped height, when the modal is pushed onto a running app, then
+    `#plan_comment_lines_scroll` is a focusable `VerticalScroll` whose
+    content genuinely overflows it -- so every line, not just the ones
+    that happen to fit on screen, is reachable by scrolling -- and
+    `#plan_comment_buttons` still lands within the screen's own visible
+    rows rather than being pushed off the bottom."""
+    plan = _plan(
+        lines=tuple(
+            PlanLine(index=i, text=f"Step {i}: do the thing.") for i in range(1, 201)
+        )
+    )
+
+    async with kestrel_app_factory().run_test(size=(80, 24)) as pilot:
+        await pilot.app.push_screen(PlanCommentModal(plan))
+        await pilot.pause()
+        await pilot.pause()
+
+        scroll = pilot.app.screen.query_one(
+            "#plan_comment_lines_scroll", VerticalScroll
+        )
+        assert scroll.can_focus
+        assert scroll.max_scroll_y > 0
+
+        buttons = pilot.app.screen.query_one("#plan_comment_buttons")
+        screen_height = pilot.app.screen.size.height
+        assert buttons.region.y + buttons.region.height <= screen_height

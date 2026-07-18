@@ -45,5 +45,5 @@ PlanCommentModal { align: center middle; }
     border: solid $kestrel-accent;
     padding: 1 2;
 }
-#plan_comment_lines { height: 1fr; max-height: 15; margin-bottom: 1; }
+#plan_comment_lines_scroll { height: 1fr; max-height: 15; margin-bottom: 1; }
 #plan_comment_buttons { height: auto; }

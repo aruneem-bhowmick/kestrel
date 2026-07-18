@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Static
 
@@ -53,13 +53,22 @@ class PlanCommentModal(ModalScreen[PlanComment | None]):
         (self._plan))` with `markup=False` -- the same hostile-content
         guard `ApprovalModal` applies to `request.summary`/`request.detail`,
         since a plan line's own text ultimately traces back to a model
-        reply, not text this modal itself controls.
+        reply, not text this modal itself controls. It is wrapped in a
+        focusable `#plan_comment_lines_scroll` (a `VerticalScroll`), the
+        same `ApprovalModal.compose` already uses for its own
+        `#approval_detail`, so a plan too long to fit the dialog scrolls
+        via the keyboard instead of clipping lines the user would
+        otherwise have no way to read -- let alone comment on by
+        number.
         """
         yield Vertical(
-            Static(
-                sanitize_terminal(render_plan_markdown(self._plan)),
-                id="plan_comment_lines",
-                markup=False,
+            VerticalScroll(
+                Static(
+                    sanitize_terminal(render_plan_markdown(self._plan)),
+                    id="plan_comment_lines",
+                    markup=False,
+                ),
+                id="plan_comment_lines_scroll",
             ),
             Input(placeholder="line number", id="plan_comment_line_number"),
             Input(placeholder="comment", id="plan_comment_text"),
