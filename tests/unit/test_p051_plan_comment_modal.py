@@ -175,6 +175,36 @@ async def test_valid_submission_dismisses_with_the_matching_plan_comment(
         ]
 
 
+async def test_valid_submission_preserves_the_comments_raw_unstripped_text(
+    kestrel_app_factory: Callable[[], KestrelApp],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given a comment typed with deliberate leading and trailing
+    whitespace, when it is submitted, then `PlanComment.comment` carries
+    that whitespace verbatim -- only the emptiness check strips it, not
+    the value that actually reaches the model."""
+    plan = _default_plan()
+    async with kestrel_app_factory().run_test() as pilot:
+        modal = PlanCommentModal(plan)
+        await pilot.app.push_screen(modal)
+        await pilot.pause()
+
+        modal.query_one("#plan_comment_line_number", Input).value = "1"
+        modal.query_one("#plan_comment_text", Input).value = "  quote: use Alembic  "
+        dismissed: list[PlanComment | None] = []
+        monkeypatch.setattr(modal, "dismiss", dismissed.append)
+
+        modal.on_button_pressed(Button.Pressed(Button("Add comment", id="submit")))
+
+        assert dismissed == [
+            PlanComment(
+                line_index=1,
+                line_text="Add an authentication middleware module.",
+                comment="  quote: use Alembic  ",
+            )
+        ]
+
+
 @pytest.mark.parametrize(
     ("line_number", "comment", "expected_fragment"),
     [

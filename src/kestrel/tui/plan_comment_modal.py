@@ -94,9 +94,16 @@ class PlanCommentModal(ModalScreen[PlanComment | None]):
         _line_number` is not a valid integer; no `PlanLine` in
         `self._plan.lines` has that `index`; or `#plan_comment_text` is
         empty after stripping surrounding whitespace.
+
+        `#plan_comment_text`'s own raw, unstripped value is what
+        `PlanComment.comment` carries -- stripping is used only to
+        decide whether the field is meaningfully empty. A comment
+        deliberately typed with leading or trailing whitespace (quoting
+        a snippet, say) reaches the model exactly as written, rather
+        than silently losing that whitespace on the way there.
         """
         number_raw = self.query_one("#plan_comment_line_number", Input).value.strip()
-        comment_text = self.query_one("#plan_comment_text", Input).value.strip()
+        comment_raw = self.query_one("#plan_comment_text", Input).value
         try:
             index = int(number_raw)
         except ValueError:
@@ -106,9 +113,9 @@ class PlanCommentModal(ModalScreen[PlanComment | None]):
         if line is None:
             self.app.notify(f"no plan line {index}", severity="error")
             return
-        if not comment_text:
+        if not comment_raw.strip():
             self.app.notify("comment must not be empty", severity="error")
             return
         self.dismiss(
-            PlanComment(line_index=line.index, line_text=line.text, comment=comment_text)
+            PlanComment(line_index=line.index, line_text=line.text, comment=comment_raw)
         )
