@@ -50,3 +50,14 @@
 # 0.8 means the soft threshold trips at 80% of whichever cap it
 # belongs to.
 # soft_threshold = 0.8
+
+[router.policy]
+# Which registry tag each task class routes to. The first registry
+# entry (sorted by id) carrying the named tag is used; a class with no
+# matching entry falls back to the caller's own default model. Each
+# value must be one of: "planner", "executor", "cheap", "local".
+# plan = "planner"
+# execute = "executor"
+# critique = "cheap"
+# trivial = "cheap"
+# embed = "local"
