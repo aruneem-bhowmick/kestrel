@@ -6,11 +6,18 @@ model call.
 flow never depends on a live model call existing. `make_self_critique_fn`
 builds the real replacement this module provides: one short, non-streamed
 completion asking whether a turn's proposed action looks reasonable,
-parsed down to a plain `bool`. It never opens a multi-turn conversation,
-never accepts a configurable prompt, and never carries a budget of its
-own -- a critique call prices and journals through the exact same
-`deps.meter`/`deps.session` every other turn does, so self-critique spend
-is real, accounted spend, never invisible.
+parsed down to a plain `bool`. It never opens a multi-turn conversation
+and never accepts a configurable prompt.
+
+A critique call goes through the exact same `ProviderClient` a task's own
+turns do, so it is billed by the backend like any other request -- never
+a free, simulated side channel. It is deliberately *not* folded into
+`deps.meter`'s running total or `deps.session`'s own turn-by-turn journal,
+though: neither collaborator reaches this module, since
+`LoopDeps.self_critique_fn`'s own call site (`agent/loop.py`) passes it
+only a turn's proposal and history, nothing else. A resumed task's
+budget/cache-hit/cost-meter figures therefore reflect its real turns
+only, not the (small, capped) critique spend alongside them.
 """
 
 from __future__ import annotations

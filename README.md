@@ -361,9 +361,12 @@ caller, routing the `"critique"` task class through
 `critique` tag (`"cheap"` by default). Set `[managers.self_critique]
 enabled = false` to skip it entirely and fall back to `agent.loop`'s own
 always-approve default instead -- the exact behavior every caller had
-before this flag existed. A critique call is priced and journaled
-exactly like any other turn, so its cost is never hidden from a task's
-own running total.
+before this flag existed. A critique call goes through the same
+provider client a task's own turns do, so it is billed by the backend
+like any other request rather than a free, simulated side channel --
+but it is deliberately not folded into the task's own `CostMeter` total
+or session journal, since `LoopDeps.self_critique_fn`'s call site passes
+it only a turn's proposal and history, nothing else.
 
 Whether the model's own say-so is enough to end a task is configurable
 via `LoopDeps.require_verification` (default `False`, preserving the
