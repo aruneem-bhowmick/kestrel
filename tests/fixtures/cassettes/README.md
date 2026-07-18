@@ -3,9 +3,13 @@
 Each `.sse` file here is a literal recording of an OpenAI-compatible chat
 completions streaming response: one `data: {json}` line per chunk, blank
 lines between them, terminated by `data: [DONE]`. `tests/fixtures/mock_openai.py`
-serves a cassette's raw bytes verbatim over HTTP with a
-`text/event-stream` content type, regardless of the request that hit it --
-it is a fixed recording, not a request-aware simulator.
+serves a cassette one of two ways depending on the request that hit it: a
+streamed request (`"stream": true`, the default) gets the cassette's raw
+bytes verbatim, as a `text/event-stream` response; a non-streaming request
+(`"stream": false`) gets those same chunks folded into one consolidated
+chat-completion JSON object instead (see "Non-streaming callers" below).
+Either way it is still a fixed recording, not a request-aware simulator --
+only the `stream` field changes how the one scripted reply is packaged.
 
 The final chunk in a cassette carries the turn's `usage` and an empty
 `choices` list, matching how OpenAI-compatible backends emit token counts
