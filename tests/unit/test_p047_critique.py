@@ -112,10 +112,10 @@ async def test_model_self_critique_rejects_via_a_real_background_thread() -> Non
 def test_hostile_critique_reply_never_crashes_parsing() -> None:
     """Given every adversarial payload in the checked-in injection
     corpus, as if each were the critique model's own reply text, when
-    `_parses_as_approve` parses it, then it never raises and always
-    returns a plain `bool` -- the token path a hostile completion could
-    reach is exactly this one function, and it must fail open, not
-    fail loud."""
+    `_parses_as_approve` parses it, then it never raises, and it reads
+    as an approval every time -- none of the corpus's own payloads are
+    crafted to start with `REJECT`, so this also confirms the fail-open
+    contract actually held for each one, not merely that parsing it
+    produced *some* `bool` without crashing."""
     for case in load_corpus():
-        result = _parses_as_approve(case.payload)
-        assert isinstance(result, bool)
+        assert _parses_as_approve(case.payload) is True
