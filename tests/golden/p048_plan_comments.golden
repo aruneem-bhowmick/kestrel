@@ -1,0 +1,4 @@
+The user has reviewed your implementation plan and left the following comments. Revise the plan to address them, then reply with the complete revised plan, one step per line.
+
+- Line 1 ("Read the existing config parser."): Also check for a legacy config path.
+- Line 3 ("Write a regression test for the new field."): Cover the legacy-path case too.
