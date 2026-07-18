@@ -145,3 +145,73 @@ async def test_effort_max_reaches_every_outgoing_model_call(
     assert result.reason == TerminationReason.TASK_COMPLETE
     assert client.call_count == 2
     assert client.recorded_efforts == ["max", "max"]
+
+
+async def test_effort_max_also_reaches_the_compaction_summary_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given `LoopDeps.effort="max"` and a task whose second turn records
+    enough input tokens to trigger compaction before a third turn ever
+    runs, when the task runs, then the compaction summary call -- not
+    just the two ordinary turns around it -- is also made at "max"."""
+
+    def _fake_dispatch(
+        event: object, *, repo_root: Path, **context: object
+    ) -> ToolResult:
+        call_id = getattr(event, "id", "unknown")
+        return ToolResult(tool_call_id=call_id, content="ran it")
+
+    monkeypatch.setattr(loop_module, "dispatch", _fake_dispatch)
+
+    def _tool_call_turn(call_id: str, *, input_tokens: int) -> _ScriptedTurn:
+        return _ScriptedTurn(
+            events=(
+                ToolCallEvent(
+                    id=call_id, name="read_file", arguments_json=json.dumps({})
+                ),
+                UsageEvent(
+                    input_tokens=input_tokens, output_tokens=20, cached_tokens=0
+                ),
+                StopEvent(reason="tool_use"),
+            )
+        )
+
+    client = _EffortRecordingClient(
+        turns=[
+            _tool_call_turn("call-1", input_tokens=100),
+            _tool_call_turn("call-2", input_tokens=150_000),
+            _ScriptedTurn(
+                events=(
+                    TextDelta(text="carry-forward summary"),
+                    UsageEvent(input_tokens=42, output_tokens=7, cached_tokens=0),
+                    StopEvent(reason="end_turn"),
+                )
+            ),
+            _ScriptedTurn(
+                events=(
+                    TextDelta(text="done"),
+                    UsageEvent(input_tokens=100, output_tokens=20, cached_tokens=0),
+                    StopEvent(reason="end_turn"),
+                )
+            ),
+        ]
+    )
+    deps = LoopDeps(
+        client=client,
+        registry=_registry(),
+        model_id=_MODEL_ID,
+        repo_root=tmp_path,
+        approval=ApprovalManager(),
+        undo=UndoManager(repo_root=tmp_path),
+        meter=CostMeter(),
+        effort="max",
+    )
+
+    result = await run_task("do something", deps, task_id="sys-p045-effort-compact")
+
+    assert result.reason == TerminationReason.TASK_COMPLETE
+    # Four calls: two ordinary turns, the compaction summary (triggered
+    # by the second turn's own huge recorded input tokens), then the
+    # real turn that completes the task.
+    assert client.call_count == 4
+    assert client.recorded_efforts == ["max", "max", "max", "max"]
