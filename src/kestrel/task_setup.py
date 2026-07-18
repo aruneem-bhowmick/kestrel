@@ -34,8 +34,10 @@ from kestrel.managers.approval import (
     _prompt_stdin,
 )
 from kestrel.managers.budget import BudgetLimits, BudgetManager
+from kestrel.managers.mode import ModeManager
 from kestrel.managers.session import SessionManager, aggregate_historical_spend
 from kestrel.managers.undo import UndoManager
+from kestrel.provider.base import Effort
 from kestrel.provider.litellm_client import LiteLLMClient
 from kestrel.registry.model import Registry
 from kestrel.router.policy import resolve_model_id
@@ -94,6 +96,7 @@ def build_task_deps(
     budget_limits: BudgetLimits | None = None,
     decide_fn: Callable[[ApprovalRequest], ApprovalDecision] = _prompt_stdin,
     observer: LoopObserver = NULL_OBSERVER,
+    mode_manager: ModeManager | None = None,
 ) -> TaskSetup:
     """Build the `LoopDeps` bundle -- and the collaborators a caller
     needs again after the run -- for one task.
@@ -114,6 +117,14 @@ def build_task_deps(
     that never overrides it sees identical behavior to before this
     function existed. `observer` defaults to `NULL_OBSERVER`, an
     identical no-op contract.
+
+    `mode_manager`, when given, drives `effort`/`available_tools` from
+    its own `mode`/`effort()` and forces `require_verification=False` in
+    PLAN mode regardless of what the caller passed -- a PLAN-mode task
+    is never offered `verify`, so requiring it would nudge the task
+    indefinitely. `None` (the default) preserves every existing caller's
+    exact behavior: `effort='high'`, `available_tools=None`,
+    `require_verification` exactly as passed.
 
     When `config.managers.self_critique.enabled` (the default), also
     resolves the `"critique"` task class via
@@ -156,6 +167,17 @@ def build_task_deps(
         )
     else:
         self_critique_fn = _default_self_critique
+    effort: Effort = mode_manager.effort() if mode_manager is not None else "high"
+    available_tools = (
+        frozenset({"read_file", "search"})
+        if mode_manager is not None and mode_manager.mode == "plan"
+        else None
+    )
+    effective_require_verification = (
+        False
+        if mode_manager is not None and mode_manager.mode == "plan"
+        else require_verification
+    )
     deps = LoopDeps(
         client=client,
         registry=registry,
@@ -169,7 +191,9 @@ def build_task_deps(
         meter=meter,
         limits=limits,
         self_critique_fn=self_critique_fn,
-        require_verification=require_verification,
+        effort=effort,
+        available_tools=available_tools,
+        require_verification=effective_require_verification,
         kestrel_md=kestrel_md,
         session=session,
         budget=BudgetManager(limits=resolved_budget_limits),

@@ -492,6 +492,9 @@ task whose repo has no configured `verify` commands, or that should
 still complete on the model's own say-so as it did before this flag
 existed.
 
+`--mode {plan,fast}` (default: **fast**) selects which mode the run
+itself executes under -- see [PLAN mode](#plan-mode) below.
+
 `--session-budget-usd`, `--day-budget-usd`, `--month-budget-usd`, and
 `--budget-soft-threshold` build the run's own `BudgetManager` (see
 [Budget](#budget)), each falling back to `kestrel.toml`'s own
@@ -537,6 +540,44 @@ prior run recorded under that id, restoring each touched path to its
 exact pre-task content and printing what it reverted. Reverting twice
 in a row is safe (see [State](#state)): the second call targets the
 first's own compensating journal entry and simply toggles the file back.
+
+### PLAN mode
+
+`--mode plan` runs the task read-only: `build_task_deps` narrows
+`LoopDeps.available_tools` to `read_file`/`search` only, raises
+`effort` to `"max"`, and forces `require_verification` off regardless
+of `--require-verification`'s own setting -- a PLAN-mode task is never
+offered `verify`, so requiring it would nudge the task forever. A tool
+call outside that pair is refused before it ever dispatches, exactly
+like any other tool-access restriction (see [Agent loop](#agent-loop)),
+so a confused model that still tries to edit a file leaves it
+untouched and simply gets nudged back toward a plain-text reply on its
+next turn.
+
+Once the task ends (on anything other than `BUDGET_HALT`), its final
+reply is parsed into an `ImplementationPlan`, written under
+`.kestrel/artifacts/plan-<task_id>.md`, and named in a `plan:` line
+printed in place of the ordinary `files changed:` summary:
+
+```text
+task_id: 3b1e7b7a-...
+reason: TASK_COMPLETE
+turns: 2
+total_usd: $0.0034
+plan: /path/to/repo/.kestrel/artifacts/plan-3b1e7b7a-....md
+```
+
+A reply the parser cannot make sense of (an empty final message, or a
+task that ended mid tool-call) exits `1` with the parse failure printed
+to stderr instead of a plan. This CLI path is a one-shot, non-interactive
+plan-then-exit flow -- reviewing a plan with line comments and asking for
+a revision is the TUI cockpit's own iterative flow, not something
+`kestrel run --mode plan` offers on its own.
+
+`--resume` re-reads `--mode` from its own invocation's flags rather than
+remembering what the original `run` was started with, so resuming a
+PLAN-mode task also needs `--mode plan` repeated -- omitting it falls
+back to the ordinary summary instead of a re-parsed plan.
 
 ## TUI
 
