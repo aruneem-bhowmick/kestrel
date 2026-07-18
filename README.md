@@ -34,9 +34,8 @@ to. Defaults: `plan` -> `"planner"`, `execute` -> `"executor"`,
 `kestrel.router.policy.resolve_model_id` turns a task class into a
 real model id by picking the first registry entry (sorted by id) that
 carries the mapped tag, falling back to a caller-supplied default id
-when no entry does. Nothing calls it yet -- it exists as a standalone,
-independently testable module ahead of the agent loop wiring that will
-consume it.
+when no entry does. `"critique"` is its first live consumer -- see
+"Agent loop" below for how the self-critique phase routes through it.
 
 ## Project memory
 
@@ -349,8 +348,22 @@ still happen despite that.
 
 Not yet implemented: a policy deciding which effort level or tool set a
 given task should actually run with (see below for the fields
-themselves), a real self-critique model call (the default always
-approves), artifact persistence, and subagents.
+themselves), artifact persistence, and subagents.
+
+Self-critique makes a real, routed model call by default:
+`kestrel.agent.critique.make_self_critique_fn` sends one short,
+non-streamed completion asking whether a turn's proposed action looks
+reasonable, parsed down to a single `APPROVE`/`REJECT` word (failing
+open -- approving -- on an empty, garbled, or otherwise unparseable
+reply). `kestrel.task_setup.build_task_deps` wires this in for every
+caller, routing the `"critique"` task class through
+`kestrel.router.policy.resolve_model_id` against `[router.policy]`'s own
+`critique` tag (`"cheap"` by default). Set `[managers.self_critique]
+enabled = false` to skip it entirely and fall back to `agent.loop`'s own
+always-approve default instead -- the exact behavior every caller had
+before this flag existed. A critique call is priced and journaled
+exactly like any other turn, so its cost is never hidden from a task's
+own running total.
 
 Whether the model's own say-so is enough to end a task is configurable
 via `LoopDeps.require_verification` (default `False`, preserving the
