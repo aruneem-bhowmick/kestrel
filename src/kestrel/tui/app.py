@@ -355,6 +355,18 @@ class KestrelApp(App[None]):
         above still applies equally to both paths, since either one
         starts a worker that would otherwise race a task already in
         flight.
+
+        A revision reserves `_current_task_id` synchronously, before
+        `run_worker` is even called, the same way `action_resume_task`
+        reserves it for a resumed task: `run_worker` schedules
+        `_revise_plan`'s coroutine onto the event loop but does not run
+        it immediately, so two submissions made back to back -- both
+        seeing `_current_task_id` still `None` -- could otherwise each
+        pass the busy guard above and race two `revise_plan` calls over
+        the same task. If `run_worker` itself raises before the worker
+        ever starts, the reservation is rolled back so a later
+        submission is not permanently blocked by a revision that never
+        began.
         """
         if event.input.id != "task_input":
             return
@@ -374,7 +386,12 @@ class KestrelApp(App[None]):
             return
         event.input.value = ""
         if revising:
-            self.run_worker(self._revise_plan(), exclusive=False)
+            self._current_task_id = self._plan_task_id
+            try:
+                self.run_worker(self._revise_plan(), exclusive=False)
+            except Exception:
+                self._current_task_id = None
+                raise
             return
         self.run_worker(self._run_task(text), exclusive=False)
 
@@ -505,12 +522,16 @@ class KestrelApp(App[None]):
         `effort="max"` and the restricted read-only tool set unchanged
         from the plan's original turn, for every revision turn just as
         much as the first.
+
+        `_current_task_id` is already reserved by `on_input_submitted`
+        before this coroutine ever starts running, so this method never
+        assigns it itself; it is still cleared here, in a `finally`
+        block, the moment the revision ends.
         """
         task_id = self._plan_task_id
         assert task_id is not None  # guarded by on_input_submitted's own check
         comments = list(self._pending_plan_comments)
         loop = asyncio.get_running_loop()
-        self._current_task_id = task_id
         try:
             conversation = self.query_one("#conversation", ConversationPane)
             conversation.write(f"\n> revising plan with {len(comments)} comment(s)\n")
