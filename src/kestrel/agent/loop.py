@@ -698,7 +698,13 @@ async def _drive(
     trailing, not-yet-recorded slice on top of whatever it appends
     itself -- `unjournaled_seed_len` defaults to `0`, meaning the entire
     loaded history was already recorded, which is `resume_task`'s own
-    behavior whenever its `inject_message` parameter is left unset.
+    behavior whenever its `inject_message` parameter is left unset. A
+    compaction fold that happens before that first resumed turn ever
+    runs already covers the whole post-fold history in its own record
+    unconditionally, so `unjournaled_seed_len` is reset to `0` the
+    moment one occurs -- otherwise the first resumed turn would count
+    the tail of that fold's own already-recorded history as new all
+    over again.
 
     A `ContextOverflowError` raised while streaming a turn -- or while
     streaming the compaction call itself -- ends the task with
@@ -770,6 +776,13 @@ async def _drive(
                 except ContextOverflowError:
                     return finish(TerminationReason.CONTEXT_OVERFLOW)
                 history = compacted_history
+                # A fold's own record (below) covers the entire post-fold
+                # history unconditionally, including any trailing slice
+                # unjournaled_seed_len was tracking (e.g. resume_task's
+                # own inject_message) -- so that slice is no longer
+                # unjournaled once this fold is recorded, and the turn
+                # that follows must not subtract it a second time.
+                unjournaled_seed_len = 0
                 compaction_cost = deps.meter.record(compaction_usage, entry)
                 # The compaction record shares its turn_id with the real turn
                 # that follows it (turns_used hasn't been incremented for
