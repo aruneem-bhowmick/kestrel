@@ -844,7 +844,9 @@ async def _drive(
             assistant_text, tool_calls, usage_event = _split_events(events)
             proposal = _proposal_summary(assistant_text, tool_calls)
 
-            if not deps.self_critique_fn(proposal, list(history)):
+            if not await asyncio.to_thread(
+                deps.self_critique_fn, proposal, list(history)
+            ):
                 if tool_calls:
                     history.append(
                         {

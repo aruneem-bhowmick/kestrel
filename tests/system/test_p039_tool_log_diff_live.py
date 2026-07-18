@@ -31,6 +31,11 @@ _CASSETTES = Path(__file__).resolve().parent.parent / "fixtures" / "cassettes"
 _TOOLCALL_READ_FILE = _CASSETTES / "toolcall_read_file.sse"
 _TOOLCALL_EDIT_GREET = _CASSETTES / "toolcall_edit_greet.sse"
 _DONE_CASSETTE = _CASSETTES / "done_no_more_tools.sse"
+# `build_task_deps` now routes every turn's self-critique check through
+# its own real, routed call by default, so the scripted sequence below
+# must reply to it too -- one extra request per real turn, interleaved
+# right after that turn's own.
+_CRITIQUE_APPROVE = _CASSETTES / "critique_approve.sse"
 
 _GREET_STUB = "# TODO: implement greet\n"
 _TASK_TEXT = "read src/greet.py, then implement greet in greet.py"
@@ -128,7 +133,14 @@ async def test_tool_log_diff_pane_and_spinner_update_live(
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-key")
     base_url = mock_openai_server(
-        cassette_sequence=[_TOOLCALL_READ_FILE, _TOOLCALL_EDIT_GREET, _DONE_CASSETTE],
+        cassette_sequence=[
+            _TOOLCALL_READ_FILE,
+            _CRITIQUE_APPROVE,
+            _TOOLCALL_EDIT_GREET,
+            _CRITIQUE_APPROVE,
+            _DONE_CASSETTE,
+            _CRITIQUE_APPROVE,
+        ],
     )
     monkeypatch.setenv("KESTREL_OPENROUTER_BASE_URL", base_url)
 

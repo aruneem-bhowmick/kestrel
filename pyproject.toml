@@ -54,10 +54,14 @@ verbose = 2
 
 [tool.mutmut]
 source_paths = ["src/kestrel"]
-only_mutate = ["src/kestrel/cost/meter.py", "src/kestrel/agent/loop.py"]
+only_mutate = [
+    "src/kestrel/cost/meter.py",
+    "src/kestrel/agent/loop.py",
+    "src/kestrel/agent/critique.py",
+]
 pytest_add_cli_args_test_selection = [
     "-m",
-    "p007 or p022 or p026 or p028 or p031 or p032 or (p033 and not live)",
+    "p007 or p022 or p026 or p028 or p031 or p032 or (p033 and not live) or p047",
 ]
 
 [tool.pytest.ini_options]
@@ -73,6 +77,18 @@ filterwarnings = [
     # Ignore deprecation warnings from test infrastructure and core libraries
     "ignore::DeprecationWarning:hypothesis.*",
     "ignore::DeprecationWarning:pytest_asyncio.*",
+    # litellm's own background logging worker is bound to whichever
+    # asyncio loop is running when it is first touched, and reinitializes
+    # (dropping whatever it had queued) the moment a call arrives on a
+    # different one -- exactly what happens every time
+    # `kestrel.agent.critique` opens its own short-lived loop via
+    # `asyncio.run()` on a `asyncio.to_thread` worker alongside a task's
+    # own longer-lived one. The dropped queue entry then surfaces here as
+    # a coroutine garbage-collected without ever being awaited; harmless
+    # (it only ever wrapped litellm's own internal telemetry, never
+    # anything this codebase reads), but real enough under this project's
+    # `filterwarnings = ["error"]` policy to need a targeted ignore.
+    "ignore:coroutine 'Logging\\..*' was never awaited:RuntimeWarning",
 ]
 markers = [
     "unit: fast, deterministic tests of pure logic with no network or filesystem side effects",
@@ -138,4 +154,5 @@ markers = [
     "p044: effort-to-backend-native reasoning-depth mapping",
     "p045: per-task effort/tool-access scoping and resume-time message injection",
     "p046: the task-class-to-model-tag router policy and its resolve_model_id lookup",
+    "p047: routed self-critique's real model call and its [managers.self_critique] toggle",
 ]

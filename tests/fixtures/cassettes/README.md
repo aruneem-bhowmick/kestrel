@@ -3,9 +3,13 @@
 Each `.sse` file here is a literal recording of an OpenAI-compatible chat
 completions streaming response: one `data: {json}` line per chunk, blank
 lines between them, terminated by `data: [DONE]`. `tests/fixtures/mock_openai.py`
-serves a cassette's raw bytes verbatim over HTTP with a
-`text/event-stream` content type, regardless of the request that hit it --
-it is a fixed recording, not a request-aware simulator.
+serves a cassette one of two ways depending on the request that hit it: a
+streamed request (`"stream": true`, the default) gets the cassette's raw
+bytes verbatim, as a `text/event-stream` response; a non-streaming request
+(`"stream": false`) gets those same chunks folded into one consolidated
+chat-completion JSON object instead (see "Non-streaming callers" below).
+Either way it is still a fixed recording, not a request-aware simulator --
+only the `stream` field changes how the one scripted reply is packaged.
 
 The final chunk in a cassette carries the turn's `usage` and an empty
 `choices` list, matching how OpenAI-compatible backends emit token counts
@@ -100,6 +104,17 @@ module.
   `completion_tokens=10`, `cached_tokens=0`), standing in for the turn
   that closes out a task after a budget degrade or a resume, priced low
   enough not to itself threaten whatever cap the scenario configured.
+- `critique_approve.sse` -- a single-word `"APPROVE"` reply with
+  `usage` (`prompt_tokens=30`, `completion_tokens=2`,
+  `cached_tokens=0`) and `finish_reason="stop"`, standing in for a
+  self-critique call approving a turn's proposed action. Served as a
+  non-streaming chat-completion object (see "Non-streaming callers"
+  below) rather than replayed as raw SSE, since `kestrel.agent.critique`
+  sends `stream=False`.
+- `critique_reject.sse` -- the same shape as `critique_approve.sse`,
+  replying `"REJECT"` instead, with `usage` (`prompt_tokens=31`,
+  `completion_tokens=2`, `cached_tokens=0`) -- standing in for a
+  self-critique call declining a turn's proposed action.
 
 ## Re-recording the zai cassette
 
@@ -152,3 +167,18 @@ JSON arguments payload can be split across as many chunks as you like --
 including a single whole-JSON chunk, since the normalizer handles both.
 Follow the tool-call chunks with the usual `finish_reason: "tool_calls"`
 chunk and the closing usage chunk, exactly as for a text completion.
+
+### Non-streaming callers
+
+A cassette is always authored as a streamed chunk sequence, but not
+every caller streams -- `kestrel.agent.critique` sends `stream=False`,
+since a one-word critique reply has no need to arrive incrementally.
+`tests/fixtures/mock_openai.py` reads the request's own `"stream"` field
+and, when it is `false`, folds the same cassette's chunks into one
+non-streaming chat-completion JSON object instead of replaying the raw
+SSE text verbatim: a real OpenAI-compatible backend never answers a
+non-streaming request with an `event-stream` body, and litellm's own
+client raises trying to parse one as plain JSON. No separate cassette
+format is needed for a non-streaming caller -- write the `.sse` file the
+same way as any other, and a `stream=False` request against it is
+served correctly without any extra step.

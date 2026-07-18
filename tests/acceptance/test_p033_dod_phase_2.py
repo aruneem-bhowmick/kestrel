@@ -49,6 +49,15 @@ _CACHE_HIT_TURN2 = _CASSETTES / "cache_hit_turn2_warm.sse"
 _CACHE_HIT_TURN3 = _CASSETTES / "cache_hit_turn3_done.sse"
 _BUDGET_TOOLCALL_BIG = _CASSETTES / "budget_toolcall_big.sse"
 _BUDGET_DONE_SMALL = _CASSETTES / "budget_done_small.sse"
+# `kestrel run` now routes every turn's self-critique check through its
+# own real, routed call by default (`[managers.self_critique].enabled`),
+# so every scripted scenario below must reply to it too -- one extra
+# request per real turn, interleaved right after that turn's own -- or
+# the mock server's fixed reply sequence drifts out of step with which
+# request is actually which. Self-critique itself never touches
+# `deps.meter`/the session journal, so none of this suite's own cost,
+# cache-hit, or budget-degradation math changes.
+_CRITIQUE_APPROVE = _CASSETTES / "critique_approve.sse"
 
 _TIMEOUT_S = 60.0
 _TASK_ID_RE = re.compile(r"^task_id: (?P<task_id>\S+)$", re.MULTILINE)
@@ -238,10 +247,15 @@ def test_dod_verification_is_the_exit_criterion(
     base_url = mock_openai_server(
         cassette_sequence=[
             _TOOLCALL_EDIT_GREET,
+            _CRITIQUE_APPROVE,
             _TOOLCALL_EDIT_FAREWELL,
+            _CRITIQUE_APPROVE,
             _DONE_CASSETTE,
+            _CRITIQUE_APPROVE,
             _TOOLCALL_VERIFY,
+            _CRITIQUE_APPROVE,
             _DONE_CASSETTE,
+            _CRITIQUE_APPROVE,
         ],
         capture=captured,
     )
@@ -271,7 +285,7 @@ def test_dod_verification_is_the_exit_criterion(
         f"{_render_verification_reports(repo_dir)}"
     )
     assert "TASK_COMPLETE" in result.stdout
-    assert len(captured) == 5, (
+    assert len(captured) == 10, (
         "the premature 'done' attempt must not have ended the task"
     )
     assert "def greet" in (repo_dir / "greet.py").read_text(encoding="utf-8")
@@ -304,7 +318,14 @@ def test_dod_cache_hit_ratio_meets_threshold(
     )
 
     base_url = mock_openai_server(
-        cassette_sequence=[_CACHE_HIT_TURN1, _CACHE_HIT_TURN2, _CACHE_HIT_TURN3]
+        cassette_sequence=[
+            _CACHE_HIT_TURN1,
+            _CRITIQUE_APPROVE,
+            _CACHE_HIT_TURN2,
+            _CRITIQUE_APPROVE,
+            _CACHE_HIT_TURN3,
+            _CRITIQUE_APPROVE,
+        ]
     )
     config_path = _write_run_config(tmp_path)
 
@@ -366,8 +387,11 @@ def test_dod_budget_soft_degrades_and_hard_halts_then_resumes(
     soft_base_url = mock_openai_server(
         cassette_sequence=[
             _BUDGET_TOOLCALL_BIG,
+            _CRITIQUE_APPROVE,
             _BUDGET_TOOLCALL_BIG,
+            _CRITIQUE_APPROVE,
             _BUDGET_DONE_SMALL,
+            _CRITIQUE_APPROVE,
         ]
     )
     soft_config = _write_budget_config(tmp_path / "cfg-soft")
@@ -417,7 +441,12 @@ def test_dod_budget_soft_degrades_and_hard_halts_then_resumes(
     (hard_repo / "src" / "greet.py").write_text("# marker\n", encoding="utf-8")
 
     hard_base_url = mock_openai_server(
-        cassette_sequence=[_BUDGET_TOOLCALL_BIG, _BUDGET_TOOLCALL_BIG]
+        cassette_sequence=[
+            _BUDGET_TOOLCALL_BIG,
+            _CRITIQUE_APPROVE,
+            _BUDGET_TOOLCALL_BIG,
+            _CRITIQUE_APPROVE,
+        ]
     )
     hard_config = _write_budget_config(tmp_path / "cfg-hard")
 
@@ -450,7 +479,9 @@ def test_dod_budget_soft_degrades_and_hard_halts_then_resumes(
     assert resume_match is not None, hard_result.stdout
     assert resume_match["task_id"] not in (None, "")
 
-    resumed_base_url = mock_openai_server(cassette_sequence=[_BUDGET_DONE_SMALL])
+    resumed_base_url = mock_openai_server(
+        cassette_sequence=[_BUDGET_DONE_SMALL, _CRITIQUE_APPROVE]
+    )
     resume_result = subprocess.run(
         [
             kestrel_executable,

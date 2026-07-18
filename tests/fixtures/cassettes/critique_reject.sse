@@ -1,0 +1,7 @@
+data: {"id": "chatcmpl-critique-reject", "object": "chat.completion.chunk", "created": 1700000005, "model": "z-ai/glm-5.2-cheap", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "REJECT"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-critique-reject", "object": "chat.completion.chunk", "created": 1700000005, "model": "z-ai/glm-5.2-cheap", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"id": "chatcmpl-critique-reject", "object": "chat.completion.chunk", "created": 1700000005, "model": "z-ai/glm-5.2-cheap", "choices": [], "usage": {"prompt_tokens": 31, "completion_tokens": 2, "total_tokens": 33, "prompt_tokens_details": {"cached_tokens": 0}}}
+
+data: [DONE]

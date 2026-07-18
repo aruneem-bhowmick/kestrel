@@ -21,7 +21,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-from kestrel.agent.loop import LoopDeps, LoopLimits
+from kestrel.agent.critique import make_self_critique_fn
+from kestrel.agent.loop import LoopDeps, LoopLimits, _default_self_critique
 from kestrel.agent.observer import NULL_OBSERVER, LoopObserver
 from kestrel.config import KestrelConfig
 from kestrel.cost.meter import CostMeter
@@ -37,6 +38,7 @@ from kestrel.managers.session import SessionManager, aggregate_historical_spend
 from kestrel.managers.undo import UndoManager
 from kestrel.provider.litellm_client import LiteLLMClient
 from kestrel.registry.model import Registry
+from kestrel.router.policy import resolve_model_id
 
 # Time windows `aggregate_historical_spend` sums a task's day/month
 # spend baseline over. The month window is a fixed 30-day approximation
@@ -112,6 +114,14 @@ def build_task_deps(
     that never overrides it sees identical behavior to before this
     function existed. `observer` defaults to `NULL_OBSERVER`, an
     identical no-op contract.
+
+    When `config.managers.self_critique.enabled` (the default), also
+    resolves the `"critique"` task class via
+    `kestrel.router.policy.resolve_model_id` against `config.router.policy`
+    and wires `LoopDeps.self_critique_fn` to
+    `kestrel.agent.critique.make_self_critique_fn`'s real, routed check;
+    disabling the flag leaves it at `agent.loop`'s own always-approve
+    default instead.
     """
     if budget_limits is not None:
         resolved_budget_limits = budget_limits
@@ -133,8 +143,21 @@ def build_task_deps(
         repo_root, now=now, window_s=_MONTH_WINDOW_S, exclude_task_id=task_id
     )
     meter = CostMeter()
+    client = LiteLLMClient(registry)
+    if config.managers.self_critique.enabled:
+        critique_model_id = resolve_model_id(
+            "critique",
+            registry=registry,
+            policy=config.router.policy.as_mapping(),
+            fallback_model_id=model_id,
+        )
+        self_critique_fn = make_self_critique_fn(
+            client=client, model_id=critique_model_id
+        )
+    else:
+        self_critique_fn = _default_self_critique
     deps = LoopDeps(
-        client=LiteLLMClient(registry),
+        client=client,
         registry=registry,
         model_id=model_id,
         repo_root=repo_root,
@@ -145,6 +168,7 @@ def build_task_deps(
         undo=undo,
         meter=meter,
         limits=limits,
+        self_critique_fn=self_critique_fn,
         require_verification=require_verification,
         kestrel_md=kestrel_md,
         session=session,
