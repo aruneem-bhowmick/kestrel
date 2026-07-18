@@ -659,8 +659,25 @@ class KestrelApp(App[None]):
 
     def action_comment_on_plan(self) -> None:
         """Open `PlanCommentModal` against `self._last_plan` (`c`),
-        declining with a notification when no plan has been produced
-        yet this session."""
+        declining instead while a task is active (see
+        `_reject_while_task_active`), while the cockpit's own mode is
+        not `"plan"`, or when no plan has been produced yet this
+        session.
+
+        The mode check exists because `_pending_plan_comments` is only
+        ever drained by a `"plan"`-mode resubmission
+        (`on_input_submitted`'s own `revising` branch): queuing a
+        comment while some other mode is active would leave it sitting
+        unused, then surface unexpectedly -- against whatever plan
+        happens to be `_last_plan` by then, not necessarily the one it
+        was written against -- the next time mode switches back to
+        `"plan"` and the task box is resubmitted.
+        """
+        if self._reject_while_task_active("comment"):
+            return
+        if self.mode_manager.mode != "plan":
+            self.notify("comments are only available in PLAN mode", severity="warning")
+            return
         if self._last_plan is None:
             self.notify("no plan to comment on yet", severity="warning")
             return
