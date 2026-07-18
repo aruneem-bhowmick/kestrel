@@ -17,19 +17,30 @@ mix cassette files with bare status codes, so a script can express
 "fail with 429, then succeed" as a single sequence. See
 ``tests/fixtures/cassettes/README.md`` for how the cassette files
 themselves are structured and re-recorded.
+
+Every cassette is authored once, as a streamed chunk sequence -- but not
+every caller streams. A request whose own JSON body sets ``"stream":
+false`` gets the same cassette folded into one non-streaming
+chat-completion object instead of replayed verbatim, since a real
+OpenAI-compatible backend never answers a non-streaming request with an
+``event-stream`` body: litellm's own client raises trying to parse one as
+plain JSON. This keeps one checked-in fixture format serving both kinds
+of call rather than maintaining a second cassette shape.
 """
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse, Response
+from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 
 _STARTUP_POLL_INTERVAL_S = 0.005
@@ -140,16 +151,18 @@ class MockOpenAIServer:
 
     async def _handle(self, request: Request) -> Response:
         """Record the request body (if configured to), then reply with the
-        cassette or status code selected for this call -- the request
-        otherwise plays no role in what gets replayed."""
+        cassette or status code selected for this call -- everything but
+        the request's own ``stream`` field plays no role in what gets
+        replayed."""
+        body = await request.body()
         if self._capture is not None:
-            self._capture.append(await request.body())
+            self._capture.append(body)
         reply = self._next_reply()
         if isinstance(reply, int):
             return self._error_response(reply)
         if reply is None:
             return self._error_response(self._status_code)
-        return self._cassette_response(reply)
+        return self._cassette_response(reply, stream=_wants_stream(body))
 
     def _error_response(self, status_code: int) -> Response:
         """Render the fixed mock-provider-error JSON body at ``status_code``."""
@@ -160,13 +173,23 @@ class MockOpenAIServer:
             headers=self._extra_headers,
         )
 
-    def _cassette_response(self, cassette_path: Path) -> Response:
-        """Render ``cassette_path``'s raw bytes as an SSE response."""
-        body = cassette_path.read_text(encoding="utf-8")
-        return PlainTextResponse(
-            body,
+    def _cassette_response(self, cassette_path: Path, *, stream: bool) -> Response:
+        """Render ``cassette_path`` the way this request asked for: its raw
+        bytes verbatim as an SSE response when ``stream`` is True, or the
+        same chunks folded into one non-streaming chat-completion JSON
+        object via :func:`_consolidate_cassette_chunks` when it is False.
+        """
+        cassette_text = cassette_path.read_text(encoding="utf-8")
+        if stream:
+            return PlainTextResponse(
+                cassette_text,
+                status_code=self._status_code,
+                media_type="text/event-stream",
+                headers=self._extra_headers,
+            )
+        return JSONResponse(
+            _consolidate_cassette_chunks(cassette_text),
             status_code=self._status_code,
-            media_type="text/event-stream",
             headers=self._extra_headers,
         )
 
@@ -190,3 +213,75 @@ class MockOpenAIServer:
             index = min(self._call_index, len(self._cassette_sequence) - 1)
             self._call_index += 1
         return self._cassette_sequence[index]
+
+
+def _wants_stream(body: bytes) -> bool:
+    """Whether the request's own JSON body asked for a streamed reply.
+
+    Defaults to True -- matching every request this suite sent before a
+    non-streaming caller ever existed -- when ``body`` is not valid JSON
+    or simply omits the field, exactly like the real backends this
+    server stands in for.
+    """
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        return True
+    if not isinstance(parsed, dict):
+        return True
+    return bool(parsed.get("stream", True))
+
+
+def _consolidate_cassette_chunks(cassette_text: str) -> dict[str, Any]:
+    """Fold a cassette's own streamed chunk sequence into one
+    non-streaming chat-completion response object -- the shape litellm
+    expects back for a request whose own body set ``"stream": false``.
+
+    Concatenates every chunk's ``delta.content`` in arrival order into
+    the reply's own ``message.content``, keeps the last non-null
+    ``finish_reason`` seen, and carries the final chunk's own populated
+    ``usage`` object through unchanged. Only plain-text completions are
+    supported -- no cassette in this suite scripts a tool call for a
+    non-streaming caller, so tool-call deltas are not folded here.
+    """
+    content_parts: list[str] = []
+    finish_reason: str | None = None
+    usage: dict[str, Any] | None = None
+    completion_id = ""
+    created = 0
+    model = ""
+    for line in cassette_text.splitlines():
+        if not line.startswith("data: "):
+            continue
+        payload = line[len("data: ") :]
+        if payload == "[DONE]":
+            continue
+        chunk = json.loads(payload)
+        completion_id = chunk.get("id") or completion_id
+        created = chunk.get("created") or created
+        model = chunk.get("model") or model
+        choices = chunk.get("choices") or []
+        if choices:
+            delta = choices[0].get("delta") or {}
+            content = delta.get("content")
+            if content:
+                content_parts.append(content)
+            reason = choices[0].get("finish_reason")
+            if reason is not None:
+                finish_reason = reason
+        if chunk.get("usage") is not None:
+            usage = chunk["usage"]
+    return {
+        "id": completion_id,
+        "object": "chat.completion",
+        "created": created,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "".join(content_parts)},
+                "finish_reason": finish_reason or "stop",
+            }
+        ],
+        "usage": usage or {"prompt_tokens": 0, "completion_tokens": 0},
+    }
