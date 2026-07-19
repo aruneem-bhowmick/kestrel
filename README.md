@@ -616,6 +616,19 @@ for editing or removing an already-queued comment short of submitting
 or restarting the cockpit; opening the modal again is how a second
 comment is added to the same pending batch.
 
+A typical PLAN-mode session, start to finish, looks like: propose a
+task while mode is `"plan"` and review the resulting plan in the
+artifact pane; comment on any line and resubmit to revise it, as many
+rounds as needed; once it looks right, switch mode to `"fast"`
+(`/mode fast` or `ctrl+p`); then submit again -- blank input is fine,
+and means "proceed as planned" -- to execute it. That final submission
+does not start a new task: it continues the plan's own conversation,
+with every tool now available and effort restored to FAST's own level,
+so the model acts from the exact history that produced the plan rather
+than a fresh, contextless restatement of it. `_plan_task_id` and
+`_last_plan` are cleared once execution ends, so the cockpit's next
+submission after that behaves as an ordinary new task.
+
 Submitting text in the task-input box always runs a full task through
 `run_task` -- the same tool-calling agent loop `kestrel run` drives --
 never a plain chat turn: the conversation pane renders the assistant's
