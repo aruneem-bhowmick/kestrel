@@ -387,7 +387,15 @@ class KestrelApp(App[None]):
         empty submission is accepted here rather than short-circuited
         by the empty-text guard: a plan's own content already is the
         substance of what is being asked, so blank input simply means
-        "proceed as planned."
+        "proceed as planned." It also reserves `_current_task_id`
+        synchronously the same way a revision does, and for the same
+        reason: without it, two rapid submissions could both pass the
+        busy guard and schedule `_execute_plan` twice over the same
+        task, and a mode or model switch slipped in before the worker
+        actually starts would let `_prepare_task_run` build that
+        continuation's dependencies from whatever `mode_manager` state
+        happens to be current by then rather than the FAST-mode state
+        this submission was actually made under.
         """
         if event.input.id != "task_input":
             return
@@ -418,7 +426,12 @@ class KestrelApp(App[None]):
                 raise
             return
         if executing_plan:
-            self.run_worker(self._execute_plan(text), exclusive=False)
+            self._current_task_id = self._plan_task_id
+            try:
+                self.run_worker(self._execute_plan(text), exclusive=False)
+            except Exception:
+                self._current_task_id = None
+                raise
             return
         self.run_worker(self._run_task(text), exclusive=False)
 
@@ -597,12 +610,16 @@ class KestrelApp(App[None]):
         one plan is executed at most once end to end before the
         cockpit returns to its ordinary "next submission starts a
         fresh task" behavior.
+
+        `_current_task_id` is already reserved by `on_input_submitted`
+        before this coroutine ever starts running, so this method never
+        assigns it itself; it is still cleared here, in the `finally`
+        block below, the moment execution ends.
         """
         task_id = self._plan_task_id
         assert task_id is not None  # guarded by on_input_submitted's own check
         inject_message = text or "Proceed to implement the approved plan above."
         loop = asyncio.get_running_loop()
-        self._current_task_id = task_id
         setup: TaskSetup | None = None
         try:
             conversation = self.query_one("#conversation", ConversationPane)
