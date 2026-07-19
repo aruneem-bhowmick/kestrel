@@ -192,19 +192,36 @@ def _spy_on_loop_entry_points(
     return observed
 
 
+@pytest.mark.parametrize(
+    ("execute_text", "expected_injected_message"),
+    [
+        pytest.param(_EXECUTE_TEXT, _EXECUTE_TEXT, id="typed-text"),
+        pytest.param(
+            "",
+            "Proceed to implement the approved plan above.",
+            id="blank-input",
+        ),
+    ],
+)
 async def test_switching_to_fast_and_resubmitting_executes_the_plan(
     tmp_path: Path,
     mock_openai_server: Callable[..., str],
     monkeypatch: pytest.MonkeyPatch,
+    execute_text: str,
+    expected_injected_message: str,
 ) -> None:
     """Given a completed PLAN-mode task on screen, when the cockpit's
-    mode switches to `"fast"` and `#task_input` is resubmitted, then:
-    (1) the diff pane shows the real `edit_file` mutation the execution
-    turn made; (2) the turn-id sequence observed across the plan task
-    and its execution continues `1, 2, 3, 4` with no reset back to `1`;
-    (3) `_plan_task_id` and `_last_plan` are both `None` afterward; and
-    (4) a further, unrelated FAST submission starts a genuinely new task
-    via `run_task` -- never another `resume_task` call against the
+    mode switches to `"fast"` and `#task_input` is resubmitted with
+    `execute_text` (either freshly typed text or, in the `blank-input`
+    case, nothing at all), then: (1) the diff pane shows the real
+    `edit_file` mutation the execution turn made; (2) the turn-id
+    sequence observed across the plan task and its execution continues
+    `1, 2, 3, 4` with no reset back to `1`; (3) `_plan_task_id` and
+    `_last_plan` are both `None` afterward; (4) the conversation pane
+    names `expected_injected_message` as what was sent -- the box's own
+    text when non-empty, else the fixed "proceed as planned" default;
+    and (5) a further, unrelated FAST submission starts a genuinely new
+    task via `run_task` -- never another `resume_task` call against the
     already-executed plan -- proving the one-shot clearing actually
     took effect rather than leaving the plan re-executable.
     """
@@ -269,7 +286,7 @@ async def test_switching_to_fast_and_resubmitting_executes_the_plan(
         await pilot.pause()
 
         task_input.focus()
-        task_input.value = _EXECUTE_TEXT
+        task_input.value = execute_text
         await pilot.press("enter")
         await pilot.pause()
         await pilot.app.workers.wait_for_complete()
@@ -291,7 +308,7 @@ async def test_switching_to_fast_and_resubmitting_executes_the_plan(
 
         conversation = pilot.app.query_one("#conversation", ConversationPane)
         content = "\n".join(strip.text for strip in conversation.lines)
-        assert f"executing plan: {_EXECUTE_TEXT}" in content
+        assert f"executing plan: {expected_injected_message}" in content
 
         task_input.focus()
         task_input.value = _FOLLOWUP_TEXT
