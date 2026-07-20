@@ -1,0 +1,27 @@
+# Walkthrough: demo-task
+
+## Result
+- reason: TASK_COMPLETE
+- turns: 3
+- total_usd: $0.0456
+
+## Files changed
+- src/kestrel/agent/walkthrough.py
+- tests/unit/test_p053_walkthrough.py
+
+## Verification
+# Verification: PASSED
+
+## test: `pytest -q`
+- exit_code: 0
+- timed_out: False
+
+stdout:
+```
+5 passed in 0.42s
+```
+
+stderr:
+```
+
+```

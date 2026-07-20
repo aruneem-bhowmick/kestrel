@@ -26,6 +26,13 @@ from kestrel.agent.plan import (
     render_plan_markdown,
     revise_plan,
 )
+from kestrel.agent.walkthrough import (
+    Walkthrough,
+    WalkthroughError,
+    build_walkthrough,
+    persist_walkthrough,
+    render_walkthrough_markdown,
+)
 
 __all__ = [
     "ImplementationPlan",
@@ -36,11 +43,16 @@ __all__ = [
     "PlanError",
     "PlanLine",
     "TerminationReason",
+    "Walkthrough",
+    "WalkthroughError",
+    "build_walkthrough",
     "extract_plan_from_result",
     "parse_plan_lines",
     "persist_plan",
+    "persist_walkthrough",
     "render_plan_comments",
     "render_plan_markdown",
+    "render_walkthrough_markdown",
     "revise_plan",
     "run_task",
 ]
