@@ -162,4 +162,6 @@ markers = [
     "p052: continuing a plan's own task as a FAST-mode execution once the cockpit switches mode",
     "p053: the Walkthrough artifact's type, build, render, and persist flow",
     "p054: wiring the Walkthrough artifact into the CLI's run summary and the TUI's artifact pane",
+    "p055: the assembled propose/review/comment/execute/walkthrough acceptance suite and its per-backend effort proof",
+    "dod_phase_4: acceptance scenario for the plan-review-execute-walkthrough workflow's Definition of Done",
 ]
