@@ -502,7 +502,7 @@ class KestrelApp(App[None]):
             if self.mode_manager.mode == "plan":
                 await self._show_plan_from_result(result, task_id)
             else:
-                self._show_walkthrough_from_result(result, task_id, setup)
+                await self._show_walkthrough_from_result(result, task_id, setup)
         finally:
             self._current_task_id = None
             if setup is not None:
@@ -545,14 +545,14 @@ class KestrelApp(App[None]):
             if self.mode_manager.mode == "plan":
                 await self._show_plan_from_result(result, task_id)
             else:
-                self._show_walkthrough_from_result(result, task_id, setup)
+                await self._show_walkthrough_from_result(result, task_id, setup)
         finally:
             self._current_task_id = None
             if setup is not None:
                 self._last_meter = setup.deps.meter
                 self._last_completed_task_id = task_id
 
-    def _show_walkthrough_from_result(
+    async def _show_walkthrough_from_result(
         self, result: LoopResult, task_id: str, setup: TaskSetup
     ) -> None:
         """Build `task_id`'s own `Walkthrough` from `result` and
@@ -561,6 +561,12 @@ class KestrelApp(App[None]):
         FAST-mode task reaches from `_run_task`, `_resume_task`, and
         `_execute_plan` alike, mirroring `_show_plan_from_result`'s own
         role for a PLAN-mode one.
+
+        `persist_walkthrough` performs real file I/O, so it runs via
+        `asyncio.to_thread` off the event loop this coroutine itself
+        runs on, the same convention `_show_plan_from_result`/
+        `_undo_current_task` already follow for their own filesystem-
+        touching calls.
 
         A `WalkthroughError` (e.g. a hostile `.kestrel/artifacts`
         symlink) surfaces as a warning notification rather than raising
@@ -574,7 +580,9 @@ class KestrelApp(App[None]):
             verification_reports=setup.deps.verification_reports,
         )
         try:
-            persist_walkthrough(walkthrough, repo_root=self.repo_root)
+            await asyncio.to_thread(
+                persist_walkthrough, walkthrough, repo_root=self.repo_root
+            )
         except WalkthroughError as exc:
             self.notify(str(exc), severity="warning")
         self.query_one("#artifact", ArtifactPane).show_walkthrough(walkthrough)
@@ -690,7 +698,7 @@ class KestrelApp(App[None]):
             result = await resume_task(
                 task_id, setup.deps, inject_message=inject_message
             )
-            self._show_walkthrough_from_result(result, task_id, setup)
+            await self._show_walkthrough_from_result(result, task_id, setup)
         finally:
             self._current_task_id = None
             self._plan_task_id = None
