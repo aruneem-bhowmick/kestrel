@@ -45,7 +45,10 @@ From the TUI, that plan is the start of a review loop: press `c` to
 leave a comment against any line, resubmit, and the model replies with
 a revised plan against that exact same task -- continuing its own
 conversation rather than starting over -- for as many rounds as it
-takes to get right. `kestrel run --mode plan` on the CLI is a one-shot
+takes to get right. Each revision is persisted as its own new numbered
+`plan-<task_id>-<n>.md` artifact alongside the original under
+`.kestrel/artifacts/`, rather than overwriting it, so every round of the
+loop stays on disk. `kestrel run --mode plan` on the CLI is a one-shot
 version of this same first stage; the iterative comment-and-revise loop
 is a cockpit-only affordance today.
 
