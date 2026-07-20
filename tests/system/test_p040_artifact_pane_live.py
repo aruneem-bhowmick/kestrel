@@ -2,7 +2,9 @@
 real, trivially-passing command through the actual `bwrap` sandbox
 drives the artifact pane's live rendering -- proving `TuiLoopObserver.
 on_verification`/`ArtifactPane.show_report` against the real cockpit and
-a genuine `VerificationReport`, not a stand-in one.
+a genuine `VerificationReport`, not a stand-in one, mid-task; once the
+task itself ends, that report is embedded in the task's own persisted
+`Walkthrough`, which the pane shows in its place.
 
 Reuses `test_p038_tui_conversation_stream.py`'s own mock-server-plus-
 fixture-repo pattern and `test_p026_verification_gate_scripted.py`'s own
@@ -95,9 +97,11 @@ async def test_artifact_pane_renders_the_real_verification_report(
     """Given a fixture repo whose KESTREL.md configures a trivially-
     passing `test` command, and a mock server scripted to reply with a
     `verify` tool call followed by a plain no-more-tools reply, when a
-    task is submitted through `#task_input`, then the artifact pane's
-    rendered content matches `sanitize_terminal` of the exact markdown
-    the `verify` tool actually persisted to `.kestrel/artifacts/`."""
+    task is submitted through `#task_input` and runs to completion, then
+    the artifact pane's rendered content matches `sanitize_terminal` of
+    the exact markdown the task's own `Walkthrough` was persisted with,
+    which itself embeds the real, passing `VerificationReport` the
+    `verify` tool call actually persisted to `.kestrel/artifacts/`."""
     _write_kestrel_md(tmp_path, test_command="true")
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-key")
@@ -124,10 +128,16 @@ async def test_artifact_pane_renders_the_real_verification_report(
         await pilot.pause()
 
         artifacts_dir = tmp_path / ".kestrel" / "artifacts"
-        persisted = list(artifacts_dir.glob("verification-*.md"))
-        assert len(persisted) == 1
-        persisted_text = persisted[0].read_text(encoding="utf-8")
+        verification_persisted = list(artifacts_dir.glob("verification-*.md"))
+        assert len(verification_persisted) == 1
+        assert "# Verification: PASSED" in verification_persisted[0].read_text(
+            encoding="utf-8"
+        )
+
+        walkthrough_persisted = list(artifacts_dir.glob("walkthrough-*.md"))
+        assert len(walkthrough_persisted) == 1
+        walkthrough_text = walkthrough_persisted[0].read_text(encoding="utf-8")
 
         artifact_pane = pilot.app.query_one("#artifact", ArtifactPane)
-        assert artifact_pane.source == sanitize_terminal(persisted_text)
+        assert artifact_pane.source == sanitize_terminal(walkthrough_text)
         assert "# Verification: PASSED" in artifact_pane.source

@@ -8,10 +8,14 @@ through `kestrel.task_setup.build_task_deps`: the conversation pane
 streams the assistant's own text as it arrives, the tool log gains a
 started/finished line for every tool call, the diff pane renders the
 most recent `edit_file` mutation as a unified diff, the artifact pane
-renders the task's own most recent `VerificationReport` as markdown, a
-loading indicator shows for as long as any tool call is in flight, the
-status bar updates live after every turn, and the task's own
-termination prints a terse summary. Submitting a task while the
+renders the task's own most recent `VerificationReport` as markdown
+while the task runs, a loading indicator shows for as long as any tool
+call is in flight, and the status bar updates live after every turn.
+Once a FAST-mode task ends (on any reason but `BUDGET_HALT`), its own
+auto-generated `Walkthrough` -- what changed, which files, its most
+recent verification, and its total cost -- replaces whatever the
+artifact pane showed mid-run, and the task's own termination prints a
+terse summary. Submitting a task while the
 cockpit's own mode is `"plan"` runs it read-only instead, and the
 artifact pane renders its resulting `ImplementationPlan` the moment it
 ends. With a plan on screen, `c` opens a
@@ -25,7 +29,9 @@ execution instead: `_execute_plan` resumes the identical task history
 via `kestrel.agent.loop.resume_task`, now with every tool available and
 effort back at FAST's own level, so the model acts on the exact plan
 it just proposed rather than starting over from a re-summarized
-description of it. Every pane that renders model- or
+description of it; that execution's own end renders a `Walkthrough`
+exactly like any other FAST-mode task's does. Every pane that renders
+model- or
 tool-sourced text routes it through `kestrel.repl.sanitize_terminal`
 first, whether directly (the conversation pane) or via
 `kestrel.tui.observer_bridge.TuiLoopObserver`. A `ctrl+p` command
@@ -71,6 +77,13 @@ from kestrel.agent.plan import (
     persist_plan,
     render_plan_markdown,
     revise_plan,
+)
+from kestrel.agent.walkthrough import (
+    Walkthrough,
+    WalkthroughError,
+    build_walkthrough,
+    persist_walkthrough,
+    render_walkthrough_markdown,
 )
 from kestrel.config import KestrelConfig
 from kestrel.cost.meter import CostMeter, format_cost_line
@@ -187,6 +200,17 @@ class ArtifactPane(Markdown):
         """Render `plan` via `render_plan_markdown`, sanitized identically
         to `show_report`, and display it as this pane's entire content."""
         self.update(sanitize_terminal(render_plan_markdown(plan)))
+
+    def show_walkthrough(self, walkthrough: Walkthrough) -> None:
+        """Render `walkthrough` via `render_walkthrough_markdown`,
+        sanitized identically to `show_report`/`show_plan`, and display
+        it as this pane's entire content. Shown once a FAST-mode task
+        ends, replacing whatever `VerificationReport` a mid-task
+        `verify` call last rendered here -- the richer `Walkthrough`
+        embeds that same report, so the "most recent artifact wins"
+        contract this pane already keeps for `show_report`/`show_plan`
+        holds here too."""
+        self.update(sanitize_terminal(render_walkthrough_markdown(walkthrough)))
 
 
 class DiffPane(Static):
@@ -449,9 +473,9 @@ class KestrelApp(App[None]):
         would risk a decision needing `loop` before it was ever set.
 
         Once the task ends, a cockpit whose own mode is `"plan"` renders
-        the result via `_show_plan_from_result` rather than leaving the
-        artifact pane at its placeholder text; a FAST-mode task has no
-        completion-time rendering of its own here.
+        the result via `_show_plan_from_result`; otherwise (an ordinary
+        FAST-mode task) `_show_walkthrough_from_result` builds, persists,
+        and displays the task's own `Walkthrough` in its place.
 
         `_current_task_id` is cleared in a `finally` block so it always
         reflects reality -- including when `run_task` raises -- and a
@@ -477,7 +501,8 @@ class KestrelApp(App[None]):
             result = await run_task(text, setup.deps, task_id)
             if self.mode_manager.mode == "plan":
                 await self._show_plan_from_result(result, task_id)
-            # else: no completion-time rendering for a FAST-mode task yet.
+            else:
+                await self._show_walkthrough_from_result(result, task_id, setup)
         finally:
             self._current_task_id = None
             if setup is not None:
@@ -505,7 +530,8 @@ class KestrelApp(App[None]):
         `_run_task`, including the same finally-block guard against a
         `setup` that never got built. The resumed task's own completion
         is rendered exactly like `_run_task`'s: `_show_plan_from_result`
-        when the cockpit's own mode is `"plan"`, nothing otherwise.
+        when the cockpit's own mode is `"plan"`,
+        `_show_walkthrough_from_result` otherwise.
         """
         loop = asyncio.get_running_loop()
         setup: TaskSetup | None = None
@@ -518,12 +544,48 @@ class KestrelApp(App[None]):
             result = await resume_task(task_id, setup.deps)
             if self.mode_manager.mode == "plan":
                 await self._show_plan_from_result(result, task_id)
-            # else: no completion-time rendering for a FAST-mode task yet.
+            else:
+                await self._show_walkthrough_from_result(result, task_id, setup)
         finally:
             self._current_task_id = None
             if setup is not None:
                 self._last_meter = setup.deps.meter
                 self._last_completed_task_id = task_id
+
+    async def _show_walkthrough_from_result(
+        self, result: LoopResult, task_id: str, setup: TaskSetup
+    ) -> None:
+        """Build `task_id`'s own `Walkthrough` from `result` and
+        `setup`'s own `undo`/`verification_reports`, persist it, and
+        display it in `#artifact` -- the shared completion path a
+        FAST-mode task reaches from `_run_task`, `_resume_task`, and
+        `_execute_plan` alike, mirroring `_show_plan_from_result`'s own
+        role for a PLAN-mode one.
+
+        `persist_walkthrough` performs real file I/O, so it runs via
+        `asyncio.to_thread` off the event loop this coroutine itself
+        runs on, the same convention `_show_plan_from_result`/
+        `_undo_current_task` already follow for their own filesystem-
+        touching calls.
+
+        A `WalkthroughError` (e.g. a hostile `.kestrel/artifacts`
+        symlink) surfaces as a warning notification rather than raising
+        -- only the on-disk persistence can fail this way, so the
+        artifact pane still shows the walkthrough either way.
+        """
+        walkthrough = build_walkthrough(
+            result,
+            task_id=task_id,
+            undo=setup.undo,
+            verification_reports=setup.deps.verification_reports,
+        )
+        try:
+            await asyncio.to_thread(
+                persist_walkthrough, walkthrough, repo_root=self.repo_root
+            )
+        except WalkthroughError as exc:
+            self.notify(str(exc), severity="warning")
+        self.query_one("#artifact", ArtifactPane).show_walkthrough(walkthrough)
 
     async def _show_plan_from_result(self, result: LoopResult, task_id: str) -> None:
         """Parse and persist `result`'s own plan, display it in
@@ -605,7 +667,11 @@ class KestrelApp(App[None]):
         `mode_manager` -- already switched to `"fast"` by the time
         this runs, so `effort="high"`/`available_tools=None`, every
         tool available for the first time since the plan itself was
-        proposed. Clears `_plan_task_id`/`_last_plan`/
+        proposed. Once execution ends, `_show_walkthrough_from_result`
+        builds, persists, and displays this task's own `Walkthrough` --
+        unconditionally, unlike `_run_task`/`_resume_task`'s own mode
+        check, since reaching this method at all already means the
+        cockpit's mode is `"fast"`. Clears `_plan_task_id`/`_last_plan`/
         `_pending_plan_comments` in `finally`, regardless of outcome:
         one plan is executed at most once end to end before the
         cockpit returns to its ordinary "next submission starts a
@@ -629,7 +695,10 @@ class KestrelApp(App[None]):
             setup = self._prepare_task_run(
                 task_id, decide_fn=make_tui_decide_fn(self, loop)
             )
-            await resume_task(task_id, setup.deps, inject_message=inject_message)
+            result = await resume_task(
+                task_id, setup.deps, inject_message=inject_message
+            )
+            await self._show_walkthrough_from_result(result, task_id, setup)
         finally:
             self._current_task_id = None
             self._plan_task_id = None
