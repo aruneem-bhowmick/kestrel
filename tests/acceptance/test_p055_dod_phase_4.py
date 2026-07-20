@@ -596,25 +596,6 @@ def test_dod_walkthrough_artifact_generated_with_verification_and_cost(
 # --- DoD: effort levels map correctly per backend (GLM max/high verified) ---
 
 
-def _openrouter_registry() -> Registry:
-    """A single-entry `Registry` mirroring the packaged default's own
-    OpenRouter-routed GLM entry."""
-    entry = ModelEntry(
-        id="glm-5.2",
-        backend="openrouter",
-        provider_model="z-ai/glm-5.2",
-        api_key_env="OPENROUTER_API_KEY",
-        context_window=200_000,
-        max_output=16_384,
-        usd_per_mtok_input=Decimal("0.60"),
-        usd_per_mtok_output=Decimal("2.20"),
-        usd_per_mtok_cached=Decimal("0.11"),
-        supports_tools=True,
-        supports_cache=True,
-    )
-    return Registry(models={"glm-5.2": entry}, source=None)
-
-
 def _zai_registry(*, endpoint: str) -> Registry:
     """A single-entry `Registry` mirroring the packaged default's own
     zai-routed GLM entry, pointed at `endpoint` in place of Z.ai's real
@@ -676,7 +657,7 @@ async def test_dod_effort_levels_map_correctly_per_backend_glm_max_high_verified
         monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-key")
         base_url = mock_openai_server(_DONE_CASSETTE, capture=captured)
         monkeypatch.setenv("KESTREL_OPENROUTER_BASE_URL", base_url)
-        registry = _openrouter_registry()
+        registry = _registry()
     else:
         monkeypatch.setenv("ZAI_API_KEY", "sk-test-key")
         base_url = mock_openai_server(_DONE_CASSETTE, capture=captured)
