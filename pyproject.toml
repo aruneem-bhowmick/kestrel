@@ -161,4 +161,5 @@ markers = [
     "p051: the inline plan-comment modal and its revise-plan submission wiring",
     "p052: continuing a plan's own task as a FAST-mode execution once the cockpit switches mode",
     "p053: the Walkthrough artifact's type, build, render, and persist flow",
+    "p054: wiring the Walkthrough artifact into the CLI's run summary and the TUI's artifact pane",
 ]
