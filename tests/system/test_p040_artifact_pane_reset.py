@@ -1,6 +1,8 @@
 """System test: a fresh task must never leave a prior task's own
 `VerificationReport` lingering in the artifact pane once it starts,
-even when the fresh task never calls `verify` itself.
+even when the fresh task never calls `verify` itself -- and once that
+fresh task ends, the pane shows its own `Walkthrough` rather than
+either the stale report or the placeholder text a fresh app starts with.
 
 Seeds the artifact pane directly via `ArtifactPane.show_report` rather
 than driving a real `verify` call through the `bwrap` sandbox for a
@@ -26,6 +28,7 @@ from textual.widgets import Input
 
 from kestrel.config import KestrelConfig
 from kestrel.registry.model import ModelEntry, Registry
+from kestrel.repl import sanitize_terminal
 from kestrel.tools.verify import VerificationCommandResult, VerificationReport
 from kestrel.tui.app import ArtifactPane, KestrelApp
 
@@ -92,10 +95,12 @@ async def test_a_fresh_task_resets_the_artifact_pane_even_without_its_own_verify
 ) -> None:
     """Given the artifact pane already shows an earlier task's own
     `VerificationReport`, when a fresh task that never calls `verify`
-    is submitted through `#task_input`, then the pane no longer shows
-    that stale report once the new task starts -- it reverts to the
-    same placeholder text `on_mount` shows before any task has ever
-    run."""
+    is submitted through `#task_input` and runs to completion, then the
+    pane no longer shows that stale report -- it shows this task's own
+    `Walkthrough` instead, reading `_no verification ran_`, never
+    reverting to the placeholder text `on_mount` shows before any task
+    has ever run, since a completed FAST-mode task now always leaves a
+    real artifact behind."""
     _write_fixture_repo(tmp_path)
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-key")
@@ -126,4 +131,12 @@ async def test_a_fresh_task_resets_the_artifact_pane_even_without_its_own_verify
         await pilot.pause()
 
         assert "# Verification: PASSED" not in artifact_pane.source
-        assert artifact_pane.source == "_no artifact yet_"
+        assert artifact_pane.source != "_no artifact yet_"
+
+        walkthrough_persisted = list(
+            (tmp_path / ".kestrel" / "artifacts").glob("walkthrough-*.md")
+        )
+        assert len(walkthrough_persisted) == 1
+        walkthrough_text = walkthrough_persisted[0].read_text(encoding="utf-8")
+        assert artifact_pane.source == sanitize_terminal(walkthrough_text)
+        assert "_no verification ran_" in artifact_pane.source
