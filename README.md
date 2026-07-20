@@ -507,12 +507,18 @@ usual `kestrel run "<task>" --repo PATH` invocation -- same flags
 otherwise, continuing the halted task's own history, cost, and turn
 count rather than starting over.
 
-When it finishes, `kestrel run` prints a terse summary -- the task id
-(needed to undo this run later), the termination reason, the turn
-count, the total priced cost, a cache-hit line once at least one turn
-has recorded real usage, and every distinct path the run's own undo
-journal recorded a mutation for -- then exits `0` if the task reached
-`TASK_COMPLETE` and `1` for every other termination reason:
+When it finishes on any reason but `BUDGET_HALT`, `kestrel run` builds
+and persists a `Walkthrough` -- what changed, which files, the task's
+own most recent verification result (or a note that none ran), and its
+total cost -- under `.kestrel/artifacts/walkthrough-<task_id>.md`, via
+`kestrel.agent.walkthrough.build_walkthrough`/`persist_walkthrough`.
+It then prints a terse summary -- the task id (needed to undo this run
+later), the termination reason, the turn count, the total priced cost,
+a cache-hit line once at least one turn has recorded real usage, every
+distinct path the run's own undo journal recorded a mutation for, and
+a final `walkthrough:` line naming where that artifact landed -- then
+exits `0` if the task reached `TASK_COMPLETE` and `1` for every other
+termination reason:
 
 ```text
 task_id: 3b1e7b7a-...
@@ -522,7 +528,13 @@ total_usd: $0.0071
 cache_hit: 62%
 files changed:
   src/greet.py
+walkthrough: /path/to/repo/.kestrel/artifacts/walkthrough-3b1e7b7a-....md
 ```
+
+A walkthrough that fails to persist (e.g. a hostile `.kestrel/artifacts`
+symlink) prints its own remedy to stderr but never changes this
+command's exit code -- whether the task itself succeeded is never
+masked by an artifact-writing failure.
 
 A `BUDGET_HALT` termination prints an abbreviated summary instead --
 still the task id and reason line, but the turn count, cost, cache-hit,
@@ -592,13 +604,22 @@ column stacks the artifact, tool-log, and diff panes.
 
 `F1`-`F4` jump focus to the task-input box, the tool log, the diff
 pane, and the artifact pane in turn; `ctrl+q` quits. The artifact pane
-shows the task's most recent `VerificationReport`, rendered as Markdown
-with `kestrel.tools.verify.render_verification_markdown` and sanitized
-before display, or -- for a task submitted while the cockpit's own mode
-is `"plan"` -- the `ImplementationPlan` its final reply parsed into,
-rendered the same way with `kestrel.agent.plan.render_plan_markdown`
-via `ArtifactPane.show_plan`; it shows static placeholder content until
-either one produces its first artifact.
+shows the task's most recent `VerificationReport` while it runs,
+rendered as Markdown with `kestrel.tools.verify.render_verification_markdown`
+and sanitized before display, or -- for a task submitted while the
+cockpit's own mode is `"plan"` -- the `ImplementationPlan` its final
+reply parsed into, rendered the same way with `kestrel.agent.plan
+.render_plan_markdown` via `ArtifactPane.show_plan`; it shows static
+placeholder content until either one produces its first artifact. Once
+a FAST-mode task ends (an ordinary submission, a resumed task, or a
+plan's own FAST-mode execution alike), its auto-generated `Walkthrough`
+-- what changed, which files, the task's own most recent verification
+result, and its total cost -- replaces whatever the pane showed while
+the task was running, rendered with `kestrel.agent.walkthrough
+.render_walkthrough_markdown` via `ArtifactPane.show_walkthrough` and
+persisted under `.kestrel/artifacts/walkthrough-<task_id>.md`, exactly
+like `kestrel run` does. A walkthrough that fails to persist surfaces
+as a warning notification rather than blocking the pane from showing it.
 
 With a plan on screen, `c` opens `kestrel.tui.plan_comment_modal
 .PlanCommentModal`: a small dialog asking for a plan-line number and a
@@ -679,12 +700,15 @@ line to the tool log and toggles the loading indicator; an `edit_file`
 call that actually mutated a file renders that mutation in the diff
 pane; a `verify` tool call's own `VerificationReport` renders in the
 artifact pane; and the task's own termination writes a terse summary
-line. A PLAN-mode task's own completion is handled separately, outside
-the observer: `KestrelApp._show_plan_from_result` parses and persists
-the finished task's plan and renders it in the artifact pane itself,
-since a PLAN-mode task -- read-only, restricted to `read_file`/`search`
--- never calls `verify` and so never reaches `TuiLoopObserver.
-on_verification` at all.
+line. A task's own completion is handled separately, outside the
+observer: a PLAN-mode task's `KestrelApp._show_plan_from_result` parses
+and persists its plan and renders it in the artifact pane itself, since
+a PLAN-mode task -- read-only, restricted to `read_file`/`search` --
+never calls `verify` and so never reaches `TuiLoopObserver
+.on_verification` at all; a FAST-mode task's `_show_walkthrough_from_result`
+builds, persists, and renders its `Walkthrough` the same way, replacing
+whatever `VerificationReport` the observer's own `on_verification` hook
+last rendered mid-run.
 
 Every tool call a running task makes writes two lines to the
 collapsible tool log: `-> {name}({summary})` when it starts, where
