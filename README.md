@@ -4,6 +4,23 @@
   <img src="assets/kestrel.svg" alt="Pixel-art kestrel perched on a branch: blinking, shaking, and flapping">
 </p>
 
+Kestrel is a tool-calling coding agent with a terminal cockpit:
+
+- A tool-calling agent loop (`read_file`, `search`, `edit_file`,
+  `execute`, `verify`) that gates task completion on a real command's
+  own exit code, not the model's own say-so.
+- `PLAN`/`FAST` modes: propose a read-only plan, review and revise it
+  with inline line comments, then switch to `FAST` to execute it as a
+  continuation of the exact same task.
+- An auto-generated `Walkthrough` artifact -- what changed, its
+  verification result, and its total cost -- for every completed run,
+  CLI or TUI alike.
+- A Textual-based cockpit with a live conversation pane, tool log, diff
+  view, and status bar, alongside a plain `kestrel run` CLI for
+  scripted, non-interactive use.
+- OpenRouter and Z.ai backends today, both behind one
+  provider-agnostic event contract.
+
 ## Install (dev)
 
 ```sh
@@ -12,6 +29,45 @@ cd kestrel
 uv sync
 uv run pytest -m "not live and not e2e"
 ```
+
+## Workflow
+
+A Kestrel session typically moves through five stages: propose, review,
+comment, execute, and walkthrough.
+
+Start a task in `PLAN` mode (`kestrel run --mode plan` from the CLI, or
+`/mode plan` in the cockpit) to get back a read-only `ImplementationPlan`
+instead of a mutated repo -- the model explores the codebase with
+`read_file`/`search` only, then replies with a numbered plan, persisted
+under `.kestrel/artifacts/plan-<task_id>.md`.
+
+From the TUI, that plan is the start of a review loop: press `c` to
+leave a comment against any line, resubmit, and the model replies with
+a revised plan against that exact same task -- continuing its own
+conversation rather than starting over -- for as many rounds as it
+takes to get right. Each revision is persisted as its own new numbered
+`plan-<task_id>-<n>.md` artifact alongside the original under
+`.kestrel/artifacts/`, rather than overwriting it, so every round of the
+loop stays on disk. `kestrel run --mode plan` on the CLI is a one-shot
+version of this same first stage; the iterative comment-and-revise loop
+is a cockpit-only affordance today.
+
+Once a plan looks right, switch to `FAST` mode and resubmit -- blank
+input is fine, and means "proceed as planned." That submission does not
+start a new task: it continues the plan's own conversation with every
+tool now available, so the model acts from the exact history that
+produced the plan instead of a fresh, contextless restatement of it.
+
+Every run that finishes outside a budget halt -- whether it went
+through a plan first or was a plain `FAST`-mode task from the start --
+ends with an auto-generated `Walkthrough`: what changed, which files,
+the run's own most recent verification result, and its total priced
+cost, persisted under `.kestrel/artifacts/walkthrough-<task_id>.md` and
+printed (CLI) or rendered in the artifact pane (TUI) as the run's own
+closing summary.
+
+See [Running a task](#running-a-task), [PLAN mode](#plan-mode), and
+[TUI](#tui) below for the full mechanics of each stage.
 
 ## Configuration
 
