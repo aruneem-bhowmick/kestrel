@@ -20,6 +20,11 @@ from kestrel.agent.loop import (
     run_task,
 )
 from kestrel.agent.plan import PlanError, extract_plan_from_result, persist_plan
+from kestrel.agent.walkthrough import (
+    WalkthroughError,
+    build_walkthrough,
+    persist_walkthrough,
+)
 from kestrel.config import ConfigError, KestrelConfig, load_config
 from kestrel.cost.meter import CostMeter
 from kestrel.doctor import all_checks_passed, render_report, run_doctor
@@ -30,6 +35,7 @@ from kestrel.managers.undo import UndoConflictError, UndoManager
 from kestrel.registry.loader import load_registry
 from kestrel.registry.model import ModelEntry, Registry, RegistryError
 from kestrel.task_setup import TaskSetup, build_task_deps
+from kestrel.tools.verify import VerificationReport
 
 _DEFAULT_LIMITS = LoopLimits()
 
@@ -334,6 +340,7 @@ def _print_task_summary(
     undo: UndoManager,
     meter: CostMeter,
     active_entry: ModelEntry,
+    walkthrough_path: Path | None = None,
 ) -> None:
     """Print the terse summary `run` and `--resume` alike end on once a
     task reaches any termination reason other than `BUDGET_HALT` (that
@@ -342,7 +349,9 @@ def _print_task_summary(
     reason (by its enum member name, e.g. `TASK_COMPLETE`), the turn
     count, the total priced cost, a cache-hit line once at least one
     turn has recorded real usage, and every distinct path the task's own
-    `UndoManager` journal recorded a mutation for.
+    `UndoManager` journal recorded a mutation for. When `walkthrough_path`
+    is not `None`, a final `walkthrough: {walkthrough_path}` line names
+    where the task's own auto-generated `Walkthrough` artifact landed.
     """
     print(f"task_id: {task_id}")
     print(f"reason: {result.reason.name}")
@@ -362,6 +371,40 @@ def _print_task_summary(
         print("files changed:")
         for path in touched_paths:
             print(f"  {path}")
+
+    if walkthrough_path is not None:
+        print(f"walkthrough: {walkthrough_path}")
+
+
+def _build_and_persist_walkthrough(
+    result: LoopResult,
+    *,
+    task_id: str,
+    undo: UndoManager,
+    verification_reports: Sequence[VerificationReport],
+    repo_root: Path,
+) -> Path | None:
+    """Build `result`'s own `Walkthrough` and persist it under
+    `repo_root`, returning the path it landed at.
+
+    A `WalkthroughError` -- `persist_walkthrough`'s own failure mode,
+    e.g. a hostile `.kestrel/artifacts` symlink -- is printed to
+    `sys.stderr` and swallowed, returning `None` in its place, rather
+    than propagating: a walkthrough that fails to persist must never
+    mask whether the underlying task itself actually succeeded, so
+    every caller here always still reaches its own ordinary summary.
+    """
+    walkthrough = build_walkthrough(
+        result,
+        task_id=task_id,
+        undo=undo,
+        verification_reports=verification_reports,
+    )
+    try:
+        return persist_walkthrough(walkthrough, repo_root=repo_root)
+    except WalkthroughError as exc:
+        print(str(exc), file=sys.stderr)
+        return None
 
 
 def _print_plan_summary(task_id: str, result: LoopResult, plan_path: Path) -> None:
@@ -443,8 +486,14 @@ def _run_task_command(
     with the parse/persist failure on `sys.stderr` if either raises
     `PlanError`. Otherwise, on `TerminationReason.BUDGET_HALT`, prints
     `_print_budget_halt`'s dedicated message instead; every remaining
-    reason gets `_print_task_summary`. Exits `0` only on
-    `TerminationReason.TASK_COMPLETE`.
+    reason gets a `Walkthrough` built and persisted via
+    `build_walkthrough`/`persist_walkthrough` before `_print_task_summary`
+    prints it alongside the rest of the summary. A `WalkthroughError`
+    (e.g. a hostile `.kestrel/artifacts` symlink) is printed to
+    `sys.stderr` and otherwise ignored -- it never changes this
+    function's own return code, since a walkthrough that fails to
+    persist must not mask whether the task itself actually succeeded.
+    Exits `0` only on `TerminationReason.TASK_COMPLETE`.
     """
     repo_root = Path(args.repo)
     task_id = str(uuid.uuid4())
@@ -482,8 +531,20 @@ def _run_task_command(
         )
         return 1
 
+    walkthrough_path = _build_and_persist_walkthrough(
+        result,
+        task_id=task_id,
+        undo=setup.undo,
+        verification_reports=setup.deps.verification_reports,
+        repo_root=repo_root,
+    )
     _print_task_summary(
-        task_id, result, setup.undo, setup.meter, registry.get(model_id)
+        task_id,
+        result,
+        setup.undo,
+        setup.meter,
+        registry.get(model_id),
+        walkthrough_path=walkthrough_path,
     )
     return 0 if result.reason is TerminationReason.TASK_COMPLETE else 1
 
@@ -514,7 +575,12 @@ def _resume_task_command(
     not whatever mode the original `run` was started with (this
     function has no way to know that, and does not try to); a caller
     that resumes a PLAN-mode task without repeating `--mode plan` gets
-    the ordinary summary instead of a re-parsed plan.
+    the ordinary summary instead of a re-parsed plan. Every remaining
+    reason builds and persists a `Walkthrough` exactly like
+    `_run_task_command` does, reading `setup.deps.meter` (not
+    `setup.meter`) for the summary's cost figures -- `resume_task`
+    replaces `deps.meter` with one seeded from the loaded session, so
+    only that field reflects the resumed run's own real totals.
 
     Raises nothing on a missing journal -- `FileNotFoundError` is caught
     and reported the same way a `ConfigError` is, exiting `1` instead of
@@ -560,8 +626,20 @@ def _resume_task_command(
         )
         return 1
 
+    walkthrough_path = _build_and_persist_walkthrough(
+        result,
+        task_id=task_id,
+        undo=setup.undo,
+        verification_reports=setup.deps.verification_reports,
+        repo_root=repo_root,
+    )
     _print_task_summary(
-        task_id, result, setup.undo, setup.deps.meter, registry.get(model_id)
+        task_id,
+        result,
+        setup.undo,
+        setup.deps.meter,
+        registry.get(model_id),
+        walkthrough_path=walkthrough_path,
     )
     return 0 if result.reason is TerminationReason.TASK_COMPLETE else 1
 
