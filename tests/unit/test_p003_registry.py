@@ -64,13 +64,19 @@ def _isolated_environment(
 
 
 @pytest.mark.sanity
-def test_packaged_default_loads_both_ids_with_decimal_rates() -> None:
+def test_packaged_default_loads_every_route_with_decimal_rates() -> None:
     """Given no models.toml in any layer, when load_registry runs, then
     the packaged default registry loads with both GLM-5.2 routes, its
-    cheap-tier route, and Decimal-typed rates throughout."""
+    cheap-tier route, its local embedding route, and Decimal-typed rates
+    throughout."""
     registry = load_registry()
 
-    assert registry.ids() == ["glm-5.2", "glm-5.2-air", "glm-5.2-zai"]
+    assert registry.ids() == [
+        "glm-5.2",
+        "glm-5.2-air",
+        "glm-5.2-zai",
+        "nomic-embed-text",
+    ]
     for model_id in registry.ids():
         entry = registry.get(model_id)
         assert isinstance(entry.usd_per_mtok_input, Decimal)
