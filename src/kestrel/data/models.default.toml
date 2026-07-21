@@ -50,3 +50,19 @@ usd_per_mtok_cached = 0.02
 supports_tools = true
 supports_cache = true
 tags = ["cheap"]
+
+# Local embedding model served by Ollama on the operator's own GPU.
+# No api_key_env -- Ollama's local REST API takes no credential.
+[[models]]
+id = "nomic-embed-text"
+backend = "ollama"
+provider_model = "nomic-embed-text"
+endpoint = "http://localhost:11434"
+context_window = 8192
+max_output = 1
+usd_per_mtok_input = 0
+usd_per_mtok_output = 0
+usd_per_mtok_cached = 0
+supports_tools = false
+supports_cache = false
+tags = ["local"]

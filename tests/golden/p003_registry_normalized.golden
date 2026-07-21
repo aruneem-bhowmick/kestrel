@@ -58,6 +58,25 @@
       "usd_per_mtok_cached": "0.11",
       "usd_per_mtok_input": "0.6",
       "usd_per_mtok_output": "2.2"
+    },
+    "nomic-embed-text": {
+      "api_key_env": null,
+      "backend": "ollama",
+      "context_window": 8192,
+      "endpoint": "http://localhost:11434",
+      "id": "nomic-embed-text",
+      "max_output": 1,
+      "precision_pin": null,
+      "provider_model": "nomic-embed-text",
+      "requires_explicit_cache_breakpoint": false,
+      "supports_cache": false,
+      "supports_tools": false,
+      "tags": [
+        "local"
+      ],
+      "usd_per_mtok_cached": "0",
+      "usd_per_mtok_input": "0",
+      "usd_per_mtok_output": "0"
     }
   },
   "source": null

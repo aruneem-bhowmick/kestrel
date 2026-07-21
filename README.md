@@ -195,6 +195,18 @@ is `ModelEntry.requires_explicit_cache_breakpoint`, a plain per-entry
 flag rather than a hardcoded backend name -- onboarding a backend that
 needs one is a registry change, not a code change.
 
+## Knowledge base
+
+Kestrel computes text embeddings locally, through a real Ollama server,
+rather than calling out to a hosted embedding API.
+`kestrel.kb.embeddings.OllamaEmbeddingClient` batches a list of strings
+into one `litellm.aembedding` call against its `"ollama/"` route and
+returns one vector per input, in the same order. The packaged default
+registry ships a `nomic-embed-text` entry (`backend = "ollama"`, tagged
+`"local"`) naming the concrete model this and future embedding-consuming
+features resolve to. Nothing yet stores or searches the vectors this
+client produces -- that lands as this section grows.
+
 ## Tools
 
 Kestrel offers a model a small, fixed set of capabilities -- read,

@@ -6,7 +6,7 @@ import logging
 import os
 import shutil
 import sys
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 
@@ -18,6 +18,8 @@ import pytest
 # require -- or wait on -- a network round trip.
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
+import litellm  # noqa: E402
+from fixtures.mock_ollama import MockOllamaServer  # noqa: E402
 from fixtures.mock_openai import MockOpenAIServer  # noqa: E402
 
 logger = logging.getLogger("tests.conftest")
@@ -92,6 +94,93 @@ def mock_openai_server() -> Iterator[MockOpenAIServerFactory]:
             # One server failing to shut down cleanly shouldn't leave the
             # rest of the test session's servers running.
             logger.exception("mock_openai_server: server.stop() failed")
+
+
+class MockOllamaServerFactory(Protocol):
+    """Callable returned by the ``mock_ollama_server`` fixture."""
+
+    def __call__(
+        self,
+        *,
+        embeddings: Sequence[Sequence[float]] | None = None,
+        status_code: int = 200,
+        capture: list[bytes] | None = None,
+    ) -> str:
+        """Start a mock Ollama embedding server for one canned behavior; return its base_url.
+
+        Pass ``embeddings`` to script a successful ``{"embeddings": [...]}``
+        reply; omit it to always answer with the fixed mock-provider-error
+        body at ``status_code`` instead. Pass ``capture`` to also record
+        every request's raw body into that list, in arrival order --
+        mirroring ``mock_openai_server``'s own ``capture`` parameter.
+        """
+        ...
+
+
+async def _close_litellm_module_level_aclient() -> None:
+    """Close and drop litellm's own lazily-created, process-wide async HTTP
+    client, if this test caused one to exist.
+
+    litellm creates this client on first use and caches it directly on its
+    own module (``litellm.module_level_aclient``), reusing that same
+    instance -- and its pooled connections -- for the rest of the process.
+    A test that embeds against a `mock_ollama_server` leaves that pool
+    holding a connection to a server this fixture is about to tear down;
+    left alone, the dead socket is only noticed whenever Python happens to
+    garbage-collect it, which can land during an unrelated, later test and
+    fail it under this suite's strict unraisable-exception handling.
+    Dropping the cached attribute (rather than merely closing the client)
+    lets litellm's own lazy-import machinery build a fresh one the next
+    time anything needs it.
+    """
+    client = vars(litellm).get("module_level_aclient")
+    if client is not None:
+        await client.close()
+        del litellm.module_level_aclient
+
+
+@pytest.fixture
+async def mock_ollama_server() -> AsyncIterator[MockOllamaServerFactory]:
+    """Yield a factory for hermetic, per-test mock Ollama embedding servers.
+
+    Call the yielded factory once per desired canned behavior -- a
+    scripted embeddings reply, or a fixed error status -- to boot a fresh
+    server and get back its ``base_url``. Every server started this way
+    is torn down automatically at the end of the test, along with the
+    litellm-internal client connection it was talking to.
+    """
+    servers: list[MockOllamaServer] = []
+
+    def _start(
+        *,
+        embeddings: Sequence[Sequence[float]] | None = None,
+        status_code: int = 200,
+        capture: list[bytes] | None = None,
+    ) -> str:
+        """Start one server for this test and return its base_url."""
+        server = MockOllamaServer(
+            embeddings=embeddings, status_code=status_code, capture=capture
+        )
+        server.start()
+        servers.append(server)
+        return server.base_url
+
+    yield _start
+
+    for server in servers:
+        try:
+            server.stop()
+        except Exception:
+            # One server failing to shut down cleanly shouldn't leave the
+            # rest of the test session's servers running.
+            logger.exception("mock_ollama_server: server.stop() failed")
+
+    try:
+        await _close_litellm_module_level_aclient()
+    except Exception:
+        logger.exception(
+            "mock_ollama_server: closing litellm's module-level client failed"
+        )
 
 
 @pytest.fixture
