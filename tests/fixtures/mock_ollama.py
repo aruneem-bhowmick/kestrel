@@ -111,7 +111,18 @@ class MockOllamaServer:
         if self._embeddings is None:
             return self._error_response()
         return JSONResponse(
-            {"embeddings": self._embeddings}, status_code=self._status_code
+            # A real Ollama server always includes "prompt_eval_count" in
+            # this response; a scripted reply that omits it drives
+            # litellm's own missing-count estimation fallback down a path
+            # that raises in the litellm version this project pins against
+            # -- an unrelated, pre-existing bug this fixture sidesteps by
+            # matching the real wire shape rather than working around it
+            # in the adapter under test.
+            {
+                "embeddings": self._embeddings,
+                "prompt_eval_count": len(self._embeddings),
+            },
+            status_code=self._status_code,
         )
 
     def _error_response(self) -> Response:
