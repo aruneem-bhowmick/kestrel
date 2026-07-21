@@ -11,6 +11,7 @@ real embedding call actually works end to end.
 from __future__ import annotations
 
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -19,6 +20,7 @@ from kestrel.kb.embeddings import (
     EmbeddingError,
     OllamaEmbeddingClient,
     _extract_embedding,
+    _row_field,
 )
 from kestrel.registry.model import ModelEntry, Registry
 
@@ -68,6 +70,26 @@ def test_extract_embedding_does_not_coerce_element_types() -> None:
     row: dict[str, Any] = {"object": "embedding", "index": 0, "embedding": [1, 2, 3]}
 
     assert _extract_embedding(row) == (1, 2, 3)
+
+
+def test_extract_embedding_supports_attribute_style_rows() -> None:
+    """Given a row exposing "embedding" as an attribute rather than a
+    mapping key, when extracted, then the same tuple comes back as it
+    would for an equivalent dict row -- litellm's own Ollama route never
+    returns rows shaped this way today, but a row from some other future
+    route might."""
+    row = SimpleNamespace(object="embedding", index=0, embedding=[0.1, 0.2])
+
+    assert _extract_embedding(row) == (0.1, 0.2)
+
+
+def test_row_field_reads_index_from_attribute_style_rows() -> None:
+    """Given a row exposing "index" as an attribute, when read through
+    `_row_field`, then its value comes back unchanged -- the same
+    compatibility fallback `embed`'s own sort key relies on."""
+    row = SimpleNamespace(object="embedding", index=3, embedding=[0.0])
+
+    assert _row_field(row, "index") == 3
 
 
 async def test_embed_empty_texts_raises_embedding_error() -> None:
