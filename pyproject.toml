@@ -164,4 +164,5 @@ markers = [
     "p054: wiring the Walkthrough artifact into the CLI's run summary and the TUI's artifact pane",
     "p055: the assembled propose/review/comment/execute/walkthrough acceptance suite and its per-backend effort proof",
     "dod_phase_4: acceptance scenario for the plan-review-execute-walkthrough workflow's Definition of Done",
+    "p056: the local Ollama embedding client and its registry entry",
 ]
