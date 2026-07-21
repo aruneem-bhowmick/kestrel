@@ -20,19 +20,23 @@ pytestmark = [pytest.mark.p005, pytest.mark.p006, pytest.mark.regression]
 _SRC_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "kestrel"
 
 # The adapter itself is the one place backend dispatch legitimately happens
-# (KES-PRV-002's "no call site names a vendor" applies to everything else).
-# The registry's own schema module legitimately enumerates the set of valid
+# ("no call site names a vendor" applies to everything else). The
+# registry's own schema module legitimately enumerates the set of valid
 # backend identifiers -- declaring that set is not the same as a call site
 # choosing among them. The doctor module reports the diagnostic status of
 # each registry-declared backend identifier by name (e.g. an "ollama" check
 # reporting that integration is not implemented yet) -- a status label is
-# not routing logic either. Packaged TOML data ships concrete backend
-# values by design (and is out of scope for this guard regardless, since
-# only *.py files are scanned below).
+# not routing logic either. The embeddings module is a second, independent
+# adapter bound to a single backend by design (embeddings are only ever
+# served locally) -- naming that backend is its entire purpose, exactly
+# like the chat-completion adapter naming its own backends. Packaged TOML
+# data ships concrete backend values by design (and is out of scope for
+# this guard regardless, since only *.py files are scanned below).
 _EXCLUDED_PATHS = {
     _SRC_ROOT / "doctor.py",
     _SRC_ROOT / "provider" / "litellm_client.py",
     _SRC_ROOT / "registry" / "model.py",
+    _SRC_ROOT / "kb" / "embeddings.py",
 }
 
 # "zai" (bare, no dot) is the registry's own backend identifier, distinct
