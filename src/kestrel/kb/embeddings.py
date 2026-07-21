@@ -62,11 +62,25 @@ class EmbeddingClient(Protocol):
         ...
 
 
-def _extract_embedding(row: Mapping[str, Any]) -> tuple[float, ...]:
+def _row_field(row: Any, field: str) -> Any:
+    """Read `field` off one `EmbeddingResponse.data` row.
+
+    litellm's own Ollama route always returns plain dicts (confirmed by
+    reading `litellm/llms/ollama/completion/handler.py` directly), so the
+    mapping branch is what every real call actually takes; the attribute
+    branch is a defensive fallback for a row shaped as an object instead,
+    which no code path this adapter calls into produces today.
+    """
+    if isinstance(row, Mapping):
+        return row[field]
+    return getattr(row, field)
+
+
+def _extract_embedding(row: Any) -> tuple[float, ...]:
     """One `EmbeddingResponse.data` row's own `"embedding"` field, as a
     plain tuple of floats. The one line this module adjusts if a future
     litellm version changes this row's shape."""
-    return tuple(row["embedding"])
+    return tuple(_row_field(row, "embedding"))
 
 
 class OllamaEmbeddingClient:
@@ -113,5 +127,5 @@ class OllamaEmbeddingClient:
             raise EmbeddingError(
                 f"embedding call failed for model {model_id!r}: {exc}"
             ) from exc
-        ordered = sorted(response.data, key=lambda row: row["index"])
+        ordered = sorted(response.data, key=lambda row: _row_field(row, "index"))
         return tuple(_extract_embedding(row) for row in ordered)
