@@ -145,6 +145,29 @@ class RouterConfig(BaseModel):
     policy: RouterPolicyConfig = RouterPolicyConfig()
 
 
+class KbConfig(BaseModel):
+    """Settings for the knowledge base.
+
+    Attributes:
+        enabled: When `True` (the default), a real knowledge-base
+            service is wired into every task's retrieval and writeback
+            calls; `False` leaves the knowledge base out of both paths
+            entirely, with no effect on any caller written before this
+            setting existed, since none of them read it.
+        top_k: How many notes a single search returns at most.
+        global_namespace: When `True`, a written note is stored in, and
+            a search reads from, both the per-repo store and a store
+            shared across every repo; `False` (the default) keeps the
+            knowledge base strictly per-repo.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    enabled: bool = True
+    top_k: int = Field(default=5, ge=1, le=50)
+    global_namespace: bool = False
+
+
 class SelfCritiqueConfig(BaseModel):
     """Whether the self-critique phase makes a real model call.
 
@@ -189,6 +212,7 @@ class KestrelConfig(BaseModel):
     paths: PathsConfig = PathsConfig()
     managers: ManagersConfig = ManagersConfig()
     router: RouterConfig = RouterConfig()
+    kb: KbConfig = KbConfig()
 
 
 class ConfigError(Exception):
