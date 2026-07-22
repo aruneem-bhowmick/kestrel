@@ -211,12 +211,28 @@ a small `sqlite-vec`-backed database storing each note's text, embedding,
 repo, tags, source task, and timestamp, and answering nearest-neighbor
 searches over them by cosine similarity. By default a repo's own
 knowledge lives at `.kestrel/kb.sqlite3`, next to its undo journal and
-session logs; an opt-in global namespace, shared across every repo, will
-live under a per-user data directory once a `[kb].global_namespace`
-config flag exists to turn it on. Nothing yet decides which of those two
-paths a caller should use, computes a real embedding to store or search
-with, or calls this store from the agent loop -- that composition lands
-as this section grows.
+session logs; an opt-in global namespace, shared across every repo,
+lives under a per-user data directory instead.
+
+`kestrel.kb.service.KbService` composes both of the above into the one
+object a retrieval or writeback call actually needs: `search` embeds a
+query and `add_note` embeds a note's text, each then reading from or
+writing to the per-repo store alone, or both the per-repo and global
+stores together, depending on the `[kb]` settings below. A `search`
+across both stores merges their results by score before returning the
+top `top_k`; an `add_note` across both returns one persisted note per
+store written to, sharing an identical embedding, text, tags, source
+task, and timestamp. Nothing yet calls `KbService` from the agent loop
+or a CLI/TUI entry point -- that wiring lands as this section grows.
+
+### Knowledge base configuration
+
+`[kb]` controls whether the knowledge base is active and how it behaves
+when it is. `enabled` (default `true`) gates whether retrieval and
+writeback do anything at all; `top_k` (default `5`) caps how many notes
+a single search returns; `global_namespace` (default `false`) opts a
+repo into also reading from and writing to the store shared across
+every repo, rather than staying strictly per-repo.
 
 ## Tools
 
