@@ -255,19 +255,20 @@ class KnowledgeStore:
         last, once filtering is done.
 
         Raises:
-            KnowledgeStoreError: `len(query_embedding) != embedding_dim`.
+            KnowledgeStoreError: `len(query_embedding) != embedding_dim`;
+                `query_embedding` is the zero vector.
         """
         if len(query_embedding) != self._embedding_dim:
             raise KnowledgeStoreError(
                 f"search: query embedding has {len(query_embedding)} dimensions, "
                 f"store is configured for {self._embedding_dim}"
             )
+        normalized_query = _l2_normalize(query_embedding)
         if top_k <= 0:
             return ()
         (total,) = self._conn.execute("SELECT COUNT(*) FROM notes").fetchone()
         if total == 0:
             return ()
-        normalized_query = _l2_normalize(query_embedding)
         try:
             rows = self._conn.execute(
                 "SELECT rowid, distance FROM note_embeddings "
