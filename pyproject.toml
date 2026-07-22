@@ -9,6 +9,7 @@ dependencies = [
     "pydantic>=2",
     "platformdirs",
     "textual>=0.80",
+    "sqlite-vec",
 ]
 
 [project.scripts]
