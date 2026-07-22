@@ -48,6 +48,10 @@ python_version = "3.12"
 strict = true
 files = ["src/kestrel"]
 
+[[tool.mypy.overrides]]
+module = "sqlite_vec"
+ignore_missing_imports = true
+
 [tool.interrogate]
 fail-under = 80
 paths = ["src/kestrel", "tests"]
