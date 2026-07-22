@@ -56,9 +56,7 @@ def global_data_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def _patch_global_path(
-    monkeypatch: pytest.MonkeyPatch, global_data_dir: Path
-) -> None:
+def _patch_global_path(monkeypatch: pytest.MonkeyPatch, global_data_dir: Path) -> None:
     """Point `resolve_kb_path`'s own global-path lookup at `global_data_dir`
     so no test in this module ever touches a real per-user directory."""
     monkeypatch.setattr(
