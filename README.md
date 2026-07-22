@@ -204,8 +204,19 @@ into one `litellm.aembedding` call against its `"ollama/"` route and
 returns one vector per input, in the same order. The packaged default
 registry ships a `nomic-embed-text` entry (`backend = "ollama"`, tagged
 `"local"`) naming the concrete model this and future embedding-consuming
-features resolve to. Nothing yet stores or searches the vectors this
-client produces -- that lands as this section grows.
+features resolve to.
+
+Vectors this client produces are held in `kestrel.kb.store.KnowledgeStore`,
+a small `sqlite-vec`-backed database storing each note's text, embedding,
+repo, tags, source task, and timestamp, and answering nearest-neighbor
+searches over them by cosine similarity. By default a repo's own
+knowledge lives at `.kestrel/kb.sqlite3`, next to its undo journal and
+session logs; an opt-in global namespace, shared across every repo, will
+live under a per-user data directory once a `[kb].global_namespace`
+config flag exists to turn it on. Nothing yet decides which of those two
+paths a caller should use, computes a real embedding to store or search
+with, or calls this store from the agent loop -- that composition lands
+as this section grows.
 
 ## Tools
 

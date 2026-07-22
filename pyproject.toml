@@ -9,6 +9,7 @@ dependencies = [
     "pydantic>=2",
     "platformdirs",
     "textual>=0.80",
+    "sqlite-vec",
 ]
 
 [project.scripts]
@@ -46,6 +47,10 @@ extend-select = ["I"]
 python_version = "3.12"
 strict = true
 files = ["src/kestrel"]
+
+[[tool.mypy.overrides]]
+module = "sqlite_vec"
+ignore_missing_imports = true
 
 [tool.interrogate]
 fail-under = 80
@@ -165,4 +170,5 @@ markers = [
     "p055: the assembled propose/review/comment/execute/walkthrough acceptance suite and its per-backend effort proof",
     "dod_phase_4: acceptance scenario for the plan-review-execute-walkthrough workflow's Definition of Done",
     "p056: the local Ollama embedding client and its registry entry",
+    "p057: the sqlite-vec knowledge store and its cosine-similarity search",
 ]
