@@ -278,16 +278,23 @@ class KnowledgeStore:
         except sqlite3.Error as exc:
             raise KnowledgeStoreError(f"search: query failed: {exc}") from exc
 
+        row_ids = [row_id for row_id, _ in rows]
+        placeholders = ",".join("?" * len(row_ids))
+        metadata_by_id = {
+            metadata_row[0]: metadata_row
+            for metadata_row in self._conn.execute(
+                "SELECT n.id, n.text, n.repo, n.tags, n.source_task, n.timestamp, "
+                "ne.embedding "
+                "FROM notes AS n JOIN note_embeddings AS ne ON ne.rowid = n.id "
+                f"WHERE n.id IN ({placeholders})",
+                row_ids,
+            ).fetchall()
+        }
+
         scored: list[ScoredNote] = []
         for row_id, distance in rows:
-            text, repo, tags_json, source_task, timestamp, embedding_blob = (
-                self._conn.execute(
-                    "SELECT n.text, n.repo, n.tags, n.source_task, n.timestamp, "
-                    "ne.embedding "
-                    "FROM notes AS n JOIN note_embeddings AS ne ON ne.rowid = n.id "
-                    "WHERE n.id = ?",
-                    (row_id,),
-                ).fetchone()
+            _, text, repo, tags_json, source_task, timestamp, embedding_blob = (
+                metadata_by_id[row_id]
             )
             note_tags = tuple(json.loads(tags_json))
             if tags is not None and not (set(note_tags) & tags):
