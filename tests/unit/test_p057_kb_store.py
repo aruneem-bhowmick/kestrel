@@ -154,6 +154,31 @@ def test_zero_vector_query_raises_knowledge_store_error(store: KnowledgeStore) -
         store.search((0.0, 0.0, 0.0, 0.0), top_k=5)
 
 
+def test_zero_vector_query_raises_even_when_top_k_is_zero(
+    store: KnowledgeStore,
+) -> None:
+    """Given a query embedding that is the all-zero vector and `top_k=0`,
+    when searched, then `KnowledgeStoreError` is still raised -- the
+    zero-vector check runs before the `top_k` short-circuit, not after
+    it, so an invalid query is never silently swallowed into an empty
+    result."""
+    store.add_note(_note("mine", (1.0, 0.0, 0.0, 0.0)))
+
+    with pytest.raises(KnowledgeStoreError, match="zero vector"):
+        store.search((0.0, 0.0, 0.0, 0.0), top_k=0)
+
+
+def test_zero_vector_query_raises_even_against_an_empty_store(
+    store: KnowledgeStore,
+) -> None:
+    """Given a query embedding that is the all-zero vector and a store
+    with no notes at all, when searched, then `KnowledgeStoreError` is
+    still raised -- the zero-vector check runs before the empty-store
+    short-circuit, not after it."""
+    with pytest.raises(KnowledgeStoreError, match="zero vector"):
+        store.search((0.0, 0.0, 0.0, 0.0), top_k=5)
+
+
 def test_add_note_with_id_already_set_raises_knowledge_store_error(
     store: KnowledgeStore,
 ) -> None:
