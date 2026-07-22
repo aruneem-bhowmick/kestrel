@@ -170,4 +170,5 @@ markers = [
     "p055: the assembled propose/review/comment/execute/walkthrough acceptance suite and its per-backend effort proof",
     "dod_phase_4: acceptance scenario for the plan-review-execute-walkthrough workflow's Definition of Done",
     "p056: the local Ollama embedding client and its registry entry",
+    "p057: the sqlite-vec knowledge store and its cosine-similarity search",
 ]
