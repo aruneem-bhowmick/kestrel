@@ -67,3 +67,16 @@
 # critique = "cheap"
 # trivial = "cheap"
 # embed = "local"
+
+[kb]
+# Whether the knowledge base is active at all: retrieval before a task
+# starts and writeback afterward both no-op when this is false.
+# enabled = true
+
+# How many notes a single search returns at most.
+# top_k = 5
+
+# When true, a written note is also stored in (and a search also reads
+# from) a store shared across every repo, in addition to this repo's
+# own. Leave false to keep the knowledge base strictly per-repo.
+# global_namespace = false

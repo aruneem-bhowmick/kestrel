@@ -171,4 +171,5 @@ markers = [
     "dod_phase_4: acceptance scenario for the plan-review-execute-walkthrough workflow's Definition of Done",
     "p056: the local Ollama embedding client and its registry entry",
     "p057: the sqlite-vec knowledge store and its cosine-similarity search",
+    "p058: the KbConfig settings model and the KbService embed-then-store/search composition",
 ]
