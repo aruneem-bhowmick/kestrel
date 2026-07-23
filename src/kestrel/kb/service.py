@@ -86,12 +86,17 @@ class KbService:
         return the top `config.top_k` results across both, ordered by
         score descending. The two stores are physically separate
         databases with independently assigned note ids, so no
-        deduplication step is needed to merge their results.
+        deduplication step is needed to merge their results. Returns an
+        empty tuple immediately, without embedding anything or opening
+        any store, when `config.enabled` is `False`.
 
         Raises:
             KbServiceError: the embedding call or either store's own
                 search fails.
         """
+        if not self.config.enabled:
+            return ()
+
         try:
             (embedding,) = await self.embedding_client.embed(
                 [query], model_id=self.embedding_model_id
@@ -124,12 +129,17 @@ class KbService:
         written to (one normally, two with the global namespace
         enabled), each with its own store-assigned id. Every persisted
         copy shares the identical embedding, text, tags, source task,
-        and timestamp; only which database holds it differs.
+        and timestamp; only which database holds it differs. Returns an
+        empty tuple immediately, without embedding anything or opening
+        any store, when `config.enabled` is `False`.
 
         Raises:
             KbServiceError: the embedding call or either store's own
                 insert fails.
         """
+        if not self.config.enabled:
+            return ()
+
         try:
             (embedding,) = await self.embedding_client.embed(
                 [text], model_id=self.embedding_model_id

@@ -108,6 +108,43 @@ def _seed_note(
         store.close()
 
 
+async def test_search_disabled_never_calls_the_embedding_client(tmp_path: Path) -> None:
+    """Given `config.enabled=False`, when searched, then an empty tuple
+    comes back without ever calling the embedding client -- proven by
+    wiring a client that raises if it is ever invoked."""
+    service = KbService(
+        repo_root=tmp_path,
+        config=KbConfig(enabled=False),
+        embedding_client=_FakeEmbeddingClient(
+            error=EmbeddingError("must not be called")
+        ),
+        embedding_model_id="fake-embed",
+        embedding_dim=_DIM,
+    )
+
+    assert await service.search("query") == ()
+
+
+async def test_add_note_disabled_never_calls_the_embedding_client(
+    tmp_path: Path,
+) -> None:
+    """Given `config.enabled=False`, when a note is added, then an empty
+    tuple comes back without ever calling the embedding client or
+    creating a store on disk."""
+    service = KbService(
+        repo_root=tmp_path,
+        config=KbConfig(enabled=False),
+        embedding_client=_FakeEmbeddingClient(
+            error=EmbeddingError("must not be called")
+        ),
+        embedding_model_id="fake-embed",
+        embedding_dim=_DIM,
+    )
+
+    assert await service.add_note("hello", tags=(), source_task="task-1") == ()
+    assert not resolve_kb_path(tmp_path, global_=False).exists()
+
+
 async def test_add_note_with_global_namespace_disabled_writes_only_the_per_repo_store(
     tmp_path: Path,
 ) -> None:
