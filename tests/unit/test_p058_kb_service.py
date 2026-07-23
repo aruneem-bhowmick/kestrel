@@ -11,8 +11,9 @@ in this module places a real embedding call.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -377,18 +378,38 @@ async def test_add_note_store_failure_surfaces_as_kb_service_error(
         await service.add_note("hello", tags=(), source_task="task-1")
 
 
+def _fail_on_call(
+    original: Callable[..., Any], *, call: int, exc: Exception
+) -> Callable[..., Any]:
+    """Wrap `original` so its `call`-th invocation (1-indexed) raises
+    `exc` instead of running, while every other invocation delegates
+    straight through to `original` -- shared by every test below that
+    monkeypatches a `KnowledgeStore` method to fail, whether on its
+    first call or only after a prior call already succeeded."""
+    calls = {"count": 0}
+
+    def _wrapper(*args: Any, **kwargs: Any) -> Any:
+        """Count this invocation, raising `exc` if it is the `call`-th
+        one and delegating to `original` otherwise."""
+        calls["count"] += 1
+        if calls["count"] == call:
+            raise exc
+        return original(*args, **kwargs)
+
+    return _wrapper
+
+
 async def test_search_open_failure_surfaces_as_kb_service_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Given a store that fails to open (its own `__init__` raises,
     modeling a disk or permissions failure), when searched, then the
     raw error never escapes -- it surfaces as `KbServiceError` instead."""
-
-    def _flaky_init(self: KnowledgeStore, *, db_path: Path, embedding_dim: int) -> None:
-        """Stand in for `KnowledgeStore.__init__`, always failing."""
-        raise RuntimeError("disk full")
-
-    monkeypatch.setattr(KnowledgeStore, "__init__", _flaky_init)
+    monkeypatch.setattr(
+        KnowledgeStore,
+        "__init__",
+        _fail_on_call(KnowledgeStore.__init__, call=1, exc=RuntimeError("disk full")),
+    )
 
     service = _service(tmp_path, global_namespace=False)
 
@@ -401,12 +422,11 @@ async def test_add_note_open_failure_surfaces_as_kb_service_error(
 ) -> None:
     """Given a store that fails to open, when a note is added, then the
     raw error never escapes -- it surfaces as `KbServiceError` instead."""
-
-    def _flaky_init(self: KnowledgeStore, *, db_path: Path, embedding_dim: int) -> None:
-        """Stand in for `KnowledgeStore.__init__`, always failing."""
-        raise RuntimeError("disk full")
-
-    monkeypatch.setattr(KnowledgeStore, "__init__", _flaky_init)
+    monkeypatch.setattr(
+        KnowledgeStore,
+        "__init__",
+        _fail_on_call(KnowledgeStore.__init__, call=1, exc=RuntimeError("disk full")),
+    )
 
     service = _service(tmp_path, global_namespace=False)
 
@@ -422,18 +442,11 @@ async def test_add_note_open_failure_after_per_repo_success_exposes_persisted_no
     when a note is added, then `KbServiceError` names the global store
     and its own `persisted` attribute carries the one note that was
     already written, so a caller can tell a retry would duplicate it."""
-    original_init = KnowledgeStore.__init__
-    calls = {"count": 0}
-
-    def _flaky_init(self: KnowledgeStore, *, db_path: Path, embedding_dim: int) -> None:
-        """Stand in for `KnowledgeStore.__init__`, failing only on the
-        second store this test opens (the global one)."""
-        calls["count"] += 1
-        if calls["count"] == 2:
-            raise RuntimeError("disk full")
-        original_init(self, db_path=db_path, embedding_dim=embedding_dim)
-
-    monkeypatch.setattr(KnowledgeStore, "__init__", _flaky_init)
+    monkeypatch.setattr(
+        KnowledgeStore,
+        "__init__",
+        _fail_on_call(KnowledgeStore.__init__, call=2, exc=RuntimeError("disk full")),
+    )
 
     service = _service(tmp_path, global_namespace=True)
 
@@ -454,18 +467,13 @@ async def test_add_note_insert_failure_after_per_repo_success_exposes_persisted_
     succeeded, when a note is added, then `KbServiceError` names the
     global store and its own `persisted` attribute carries the one note
     that was already written."""
-    original_add_note = KnowledgeStore.add_note
-    calls = {"count": 0}
-
-    def _flaky_add_note(self: KnowledgeStore, note: KnowledgeNote) -> KnowledgeNote:
-        """Stand in for `KnowledgeStore.add_note`, failing only on the
-        second store this test inserts into (the global one)."""
-        calls["count"] += 1
-        if calls["count"] == 2:
-            raise KnowledgeStoreError("insert boom")
-        return original_add_note(self, note)
-
-    monkeypatch.setattr(KnowledgeStore, "add_note", _flaky_add_note)
+    monkeypatch.setattr(
+        KnowledgeStore,
+        "add_note",
+        _fail_on_call(
+            KnowledgeStore.add_note, call=2, exc=KnowledgeStoreError("insert boom")
+        ),
+    )
 
     service = _service(tmp_path, global_namespace=True)
 
