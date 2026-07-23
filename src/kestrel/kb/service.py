@@ -35,12 +35,13 @@ from kestrel.kb.store import (
 
 
 class KbServiceError(Exception):
-    """A `KbService` call could not complete, whether the embedding step
-    or one of the underlying stores is what actually failed -- wraps
-    both `EmbeddingError` and `KnowledgeStoreError` behind one type, so a
-    caller several layers up (a tool executor, a CLI command) only ever
-    has to handle "the knowledge base is unavailable right now" once,
-    regardless of which layer actually raised it."""
+    """A `KbService` call could not complete, whether the embedding step,
+    opening a store, or a store's own operation is what actually failed
+    -- wraps `EmbeddingError` and `KnowledgeStoreError` (and a store's
+    own construction failure) behind one type, so a caller several
+    layers up (a tool executor, a CLI command) only ever has to handle
+    "the knowledge base is unavailable right now" once, regardless of
+    which layer actually raised it."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,8 +92,8 @@ class KbService:
         any store, when `config.enabled` is `False`.
 
         Raises:
-            KbServiceError: the embedding call or either store's own
-                search fails.
+            KbServiceError: the embedding call, opening either store, or
+                either store's own search fails.
         """
         if not self.config.enabled:
             return ()
@@ -107,7 +108,10 @@ class KbService:
         scopes = (False, True) if self.config.global_namespace else (False,)
         results: list[ScoredNote] = []
         for global_ in scopes:
-            store = self._open(global_=global_)
+            try:
+                store = self._open(global_=global_)
+            except Exception as exc:
+                raise KbServiceError(f"search: failed to open store: {exc}") from exc
             try:
                 results.extend(
                     store.search(embedding, top_k=self.config.top_k, tags=tags)
@@ -134,8 +138,8 @@ class KbService:
         any store, when `config.enabled` is `False`.
 
         Raises:
-            KbServiceError: the embedding call or either store's own
-                insert fails.
+            KbServiceError: the embedding call, opening either store, or
+                either store's own insert fails.
         """
         if not self.config.enabled:
             return ()
@@ -160,7 +164,10 @@ class KbService:
         scopes = (False, True) if self.config.global_namespace else (False,)
         persisted: list[KnowledgeNote] = []
         for global_ in scopes:
-            store = self._open(global_=global_)
+            try:
+                store = self._open(global_=global_)
+            except Exception as exc:
+                raise KbServiceError(f"add_note: failed to open store: {exc}") from exc
             try:
                 persisted.append(store.add_note(note))
             except KnowledgeStoreError as exc:

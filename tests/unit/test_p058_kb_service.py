@@ -372,6 +372,43 @@ async def test_add_note_store_failure_surfaces_as_kb_service_error(
         await service.add_note("hello", tags=(), source_task="task-1")
 
 
+async def test_search_open_failure_surfaces_as_kb_service_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a store that fails to open (its own `__init__` raises,
+    modeling a disk or permissions failure), when searched, then the
+    raw error never escapes -- it surfaces as `KbServiceError` instead."""
+
+    def _flaky_init(self: KnowledgeStore, *, db_path: Path, embedding_dim: int) -> None:
+        """Stand in for `KnowledgeStore.__init__`, always failing."""
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(KnowledgeStore, "__init__", _flaky_init)
+
+    service = _service(tmp_path, global_namespace=False)
+
+    with pytest.raises(KbServiceError, match="failed to open store"):
+        await service.search("query")
+
+
+async def test_add_note_open_failure_surfaces_as_kb_service_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a store that fails to open, when a note is added, then the
+    raw error never escapes -- it surfaces as `KbServiceError` instead."""
+
+    def _flaky_init(self: KnowledgeStore, *, db_path: Path, embedding_dim: int) -> None:
+        """Stand in for `KnowledgeStore.__init__`, always failing."""
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(KnowledgeStore, "__init__", _flaky_init)
+
+    service = _service(tmp_path, global_namespace=False)
+
+    with pytest.raises(KbServiceError, match="failed to open store"):
+        await service.add_note("hello", tags=(), source_task="task-1")
+
+
 @pytest.mark.cost_regression
 def test_kb_service_carries_no_cost_meter_field() -> None:
     """`KbService` carries no `CostMeter` (or any other cost-accounting
