@@ -41,7 +41,26 @@ class KbServiceError(Exception):
     own construction failure) behind one type, so a caller several
     layers up (a tool executor, a CLI command) only ever has to handle
     "the knowledge base is unavailable right now" once, regardless of
-    which layer actually raised it."""
+    which layer actually raised it.
+
+    Attributes:
+        persisted: Any `KnowledgeNote`s `add_note` already wrote before
+            this error was raised -- empty unless `global_namespace` is
+            on and the per-repo store's own insert succeeded before the
+            global store's insert (or its own opening) failed. A caller
+            catching this must not blindly retry the same `add_note`
+            call: doing so would insert a second copy into every store
+            already holding one.
+    """
+
+    def __init__(
+        self, message: str, *, persisted: tuple[KnowledgeNote, ...] = ()
+    ) -> None:
+        """Store `message` as this exception's own text, and `persisted`
+        for a caller to inspect before deciding whether, or how, to
+        retry."""
+        super().__init__(message)
+        self.persisted = persisted
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,7 +158,13 @@ class KbService:
 
         Raises:
             KbServiceError: the embedding call, opening either store, or
-                either store's own insert fails.
+                either store's own insert fails. When `global_namespace`
+                is on and the per-repo store's insert already succeeded
+                before the global store fails, the raised error's own
+                `persisted` attribute carries that already-written note
+                -- a caller must consult it rather than blindly
+                retrying, since retrying would insert a second copy
+                into the per-repo store.
         """
         if not self.config.enabled:
             return ()
@@ -164,14 +189,23 @@ class KbService:
         scopes = (False, True) if self.config.global_namespace else (False,)
         persisted: list[KnowledgeNote] = []
         for global_ in scopes:
+            scope_name = "global" if global_ else "per-repo"
             try:
                 store = self._open(global_=global_)
             except Exception as exc:
-                raise KbServiceError(f"add_note: failed to open store: {exc}") from exc
+                raise KbServiceError(
+                    f"add_note: failed to open the {scope_name} store "
+                    f"(already persisted to {len(persisted)} store(s)): {exc}",
+                    persisted=tuple(persisted),
+                ) from exc
             try:
                 persisted.append(store.add_note(note))
             except KnowledgeStoreError as exc:
-                raise KbServiceError(f"add_note: store insert failed: {exc}") from exc
+                raise KbServiceError(
+                    f"add_note: {scope_name} store insert failed "
+                    f"(already persisted to {len(persisted)} store(s)): {exc}",
+                    persisted=tuple(persisted),
+                ) from exc
             finally:
                 store.close()
         return tuple(persisted)
