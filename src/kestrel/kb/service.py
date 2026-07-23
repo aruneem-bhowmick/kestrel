@@ -14,6 +14,18 @@ single `search`/`add_note` call rather than held open across calls --
 retrieval and writeback each happen at most a handful of times per task,
 so pooling a connection across calls would add complexity this module
 has no use for.
+
+`DEFAULT_EMBEDDING_DIM` pins the vector length a caller building a
+`KbService` for the packaged default `nomic-embed-text` route should
+use. `kestrel.registry.model.ModelEntry` has no field naming an
+embedding model's own output length -- only its context window, a
+different number entirely -- so rather than widen that schema for one
+attribute only this module's caller needs, the real, documented output
+size of the one embedding model this project ships today is fixed here
+instead. A registry entry whose real model produces a
+different-length vector than this constant surfaces as a loud
+`KnowledgeStoreError`/`KbServiceError` dimension mismatch the first time
+`add_note` or `search` runs against it, not a silent corruption.
 """
 
 from __future__ import annotations
@@ -22,6 +34,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 from kestrel.config import KbConfig
 from kestrel.kb.embeddings import EmbeddingClient, EmbeddingError
@@ -32,6 +45,11 @@ from kestrel.kb.store import (
     ScoredNote,
     resolve_kb_path,
 )
+
+DEFAULT_EMBEDDING_DIM: Final[int] = 768
+"""`nomic-embed-text`'s own real, documented output vector length --
+the `embedding_dim` every caller building a `KbService` for the
+packaged default registry's embedding route should pass."""
 
 
 class KbServiceError(Exception):
