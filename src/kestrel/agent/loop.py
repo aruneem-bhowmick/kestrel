@@ -111,6 +111,12 @@ the loop decides next. Leaving `observer` unset is a no-op by
 construction, so every caller written before this hook existed keeps
 its exact prior behavior.
 
+`LoopDeps.kb` joins `session` and `budget` as the same shape of
+optional collaborator -- a `kestrel.kb.service.KbService | None`,
+`None` by default, threaded into a dispatched tool call's own `context`
+for whichever tool executor later declares a `kb` keyword-only
+parameter to find.
+
 Which effort level a turn is sent at, and which tools it may call, are
 themselves per-task fields rather than fixed constants: `LoopDeps.effort`
 (default `"high"`) is threaded straight through to the retrying client
@@ -171,6 +177,7 @@ from typing import Final, assert_never
 from kestrel.agent.compaction import compact_history, should_compact
 from kestrel.agent.observer import NULL_OBSERVER, LoopObserver
 from kestrel.cost.meter import CostMeter, TurnCost
+from kestrel.kb.service import KbService
 from kestrel.kestrel_md import KestrelMd
 from kestrel.managers.approval import ApprovalDenied, ApprovalManager
 from kestrel.managers.budget import BudgetManager, BudgetStatus
@@ -334,6 +341,12 @@ class LoopDeps:
         available_tools: The tool names this task's turns may call, or
             `None` for every registered tool. Defaults to `None`,
             identical to every caller before this field existed.
+        kb: This task's own knowledge-base service, or `None` when the
+            knowledge base is disabled (`config.kb.enabled=False`) --
+            threaded into a dispatched tool call's own `context` (see
+            `_dispatch_tool_call`) so a tool executor's semantic half
+            can reach it. Defaults to `None`, identical to every caller
+            before this field existed.
     """
 
     client: ProviderClient
@@ -357,6 +370,7 @@ class LoopDeps:
     observer: LoopObserver = field(default_factory=lambda: NULL_OBSERVER)
     effort: Effort = "high"
     available_tools: frozenset[str] | None = None
+    kb: KbService | None = None
 
 
 def _split_events(
@@ -580,6 +594,7 @@ def _dispatch_tool_call(
             turn_id=turn_id,
             task_id=task_id,
             report_sink=deps.verification_reports,
+            kb=deps.kb,
         )
     except ApprovalDenied as exc:
         return ToolResult(

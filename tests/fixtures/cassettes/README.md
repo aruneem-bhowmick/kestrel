@@ -115,6 +115,11 @@ module.
   replying `"REJECT"` instead, with `usage` (`prompt_tokens=31`,
   `completion_tokens=2`, `cached_tokens=0`) -- standing in for a
   self-critique call declining a turn's proposed action.
+- `toolcall_kb_probe.sse` -- a single tool call naming a test-only
+  `kb_probe` tool, whole (empty) JSON arguments `{}` in one chunk,
+  standing in for a model calling whichever real tool eventually reads
+  `LoopDeps.kb` -- no such tool exists yet, so this cassette names one
+  a test registers for the duration of a single suite instead.
 
 ## Re-recording the zai cassette
 

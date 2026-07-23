@@ -222,8 +222,13 @@ stores together, depending on the `[kb]` settings below. A `search`
 across both stores merges their results by score before returning the
 top `top_k`; an `add_note` across both returns one persisted note per
 store written to, sharing an identical embedding, text, tags, source
-task, and timestamp. Nothing yet calls `KbService` from the agent loop
-or a CLI/TUI entry point -- that wiring lands as this section grows.
+task, and timestamp. `kestrel.task_setup.build_task_deps` builds a real
+`KbService` for every kb-enabled task, resolving the `"embed"` task
+class through `[router.policy]` exactly like self-critique resolves
+`"critique"`, and wires it into `LoopDeps.kb` -- from there it reaches
+every dispatched tool call's own `context`, though no tool executor
+reads it yet, so a call still runs exactly as it did before this wiring
+existed.
 
 ### Knowledge base configuration
 
@@ -532,6 +537,14 @@ is ever read, and nothing it does can change what the loop decides
 next. Leaving `observer` unset (the default) wires in an all-no-op
 `NullLoopObserver` and behaves exactly as it did before this field
 existed.
+
+`LoopDeps.kb` carries this task's own `kestrel.kb.service.KbService`,
+the same optional-collaborator shape `session` and `budget` already
+establish: `None` by default, and a harmless no-op wherever nothing yet
+reads it. `build_task_deps` wires in a real one whenever `[kb].enabled`
+is set (see "Knowledge base" above); `_dispatch_tool_call` threads it
+into every dispatched tool call's own `context`, ready for a future tool
+executor to declare a `kb` keyword-only parameter and receive it.
 
 ### Compaction
 

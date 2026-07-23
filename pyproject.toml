@@ -172,4 +172,5 @@ markers = [
     "p056: the local Ollama embedding client and its registry entry",
     "p057: the sqlite-vec knowledge store and its cosine-similarity search",
     "p058: the KbConfig settings model and the KbService embed-then-store/search composition",
+    "p059: LoopDeps.kb and build_task_deps's own knowledge-base-service wiring",
 ]

@@ -11,6 +11,24 @@ outside the CLI could construct without faking one up. `build_task_deps`
 is that construction logic pulled out from under the `Namespace`
 coupling, so any caller -- the CLI included -- builds an identical bundle
 from plain keyword arguments instead.
+
+`build_task_deps` also constructs this task's own knowledge-base
+service when `config.kb.enabled`, resolving the `"embed"` task class
+through `kestrel.router.policy.resolve_model_id` exactly like the
+self-critique wiring above resolves `"critique"`, then wiring a
+`kestrel.kb.embeddings.OllamaEmbeddingClient` bound to that model id
+into a `kestrel.kb.service.KbService`. That service needs a fixed
+embedding vector length to open or create a store at, and
+`kestrel.registry.model.ModelEntry` carries no field naming one -- an
+embedding model's own output length is a different number entirely
+from its context window, the only size a registry entry does track --
+so rather than widen that schema for one attribute only this one
+construction site needs, the vector length is instead fixed via
+`kestrel.kb.service.DEFAULT_EMBEDDING_DIM`, the packaged default
+`nomic-embed-text` route's own real, documented output size. A registry
+entry whose real model produces a different-length vector surfaces as
+a loud dimension-mismatch error the first time the knowledge base is
+actually read from or written to, not a silent corruption.
 """
 
 from __future__ import annotations
@@ -26,6 +44,8 @@ from kestrel.agent.loop import LoopDeps, LoopLimits, _default_self_critique
 from kestrel.agent.observer import NULL_OBSERVER, LoopObserver
 from kestrel.config import KestrelConfig
 from kestrel.cost.meter import CostMeter
+from kestrel.kb.embeddings import OllamaEmbeddingClient
+from kestrel.kb.service import DEFAULT_EMBEDDING_DIM, KbService
 from kestrel.kestrel_md import KestrelMd
 from kestrel.managers.approval import (
     ApprovalDecision,
@@ -133,6 +153,18 @@ def build_task_deps(
     `kestrel.agent.critique.make_self_critique_fn`'s real, routed check;
     disabling the flag leaves it at `agent.loop`'s own always-approve
     default instead.
+
+    When `config.kb.enabled` (the default), also resolves the `"embed"`
+    task class the same way and wires `LoopDeps.kb` to a real
+    `kestrel.kb.service.KbService`, built from a fresh
+    `kestrel.kb.embeddings.OllamaEmbeddingClient` bound to `registry` and
+    `kestrel.kb.service.DEFAULT_EMBEDDING_DIM` (see this module's own
+    docstring for why that constant, not a registry field, is what fixes
+    the vector length). No embedding call is made merely by building
+    this collaborator -- one only happens once a task's own turn
+    actually reads from or writes to the knowledge base. Disabling the
+    flag leaves `LoopDeps.kb` at `agent.loop`'s own `None` default
+    instead, identical to every caller before this field existed.
     """
     if budget_limits is not None:
         resolved_budget_limits = budget_limits
@@ -167,6 +199,21 @@ def build_task_deps(
         )
     else:
         self_critique_fn = _default_self_critique
+    kb: KbService | None = None
+    if config.kb.enabled:
+        embedding_model_id = resolve_model_id(
+            "embed",
+            registry=registry,
+            policy=config.router.policy.as_mapping(),
+            fallback_model_id=model_id,
+        )
+        kb = KbService(
+            repo_root=repo_root,
+            config=config.kb,
+            embedding_client=OllamaEmbeddingClient(registry),
+            embedding_model_id=embedding_model_id,
+            embedding_dim=DEFAULT_EMBEDDING_DIM,
+        )
     effort: Effort = mode_manager.effort() if mode_manager is not None else "high"
     available_tools = (
         frozenset({"read_file", "search"})
@@ -200,6 +247,7 @@ def build_task_deps(
         spent_day_usd=spent_day_usd,
         spent_month_usd=spent_month_usd,
         observer=observer,
+        kb=kb,
     )
     return TaskSetup(
         deps=deps,
