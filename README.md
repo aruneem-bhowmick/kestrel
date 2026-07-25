@@ -231,6 +231,15 @@ mode (see [Tools](#tools)) is the first reader of it: a call left at
 `semantic`'s default `False` runs exactly as it did before this wiring
 existed.
 
+`kestrel.kb.retrieval.build_kb_context` is a second, independent reader:
+given a task's own description and a `KbService | None`, it searches for
+notes relevant to that description and renders whatever it finds as one
+already-framed (`source="kb"`) context block, ready to hand straight to
+`run_task`'s own `kb_context` parameter (see "Agent loop" below) --
+`None` when the knowledge base is disabled, the search finds nothing, or
+the search itself fails, so a retrieval problem never blocks a task that
+would otherwise run fine without it.
+
 ### Knowledge base configuration
 
 `[kb]` controls whether the knowledge base is active and how it behaves
@@ -552,6 +561,17 @@ reads it. `build_task_deps` wires in a real one whenever `[kb].enabled`
 is set (see "Knowledge base" above); `_dispatch_tool_call` threads it
 into every dispatched tool call's own `context`, ready for a future tool
 executor to declare a `kb` keyword-only parameter and receive it.
+
+`run_task` also takes an optional `kb_context`: an already-framed block
+of retrieved knowledge-base text (built by `kestrel.kb.retrieval.
+build_kb_context`, see "Knowledge base" above), folded into a fresh
+task's history as one extra user-role message right after
+`task_description`, before the first turn ever runs. It is seeded once,
+at task start, and never re-derived turn to turn -- unlike
+`resume_task`'s own `inject_message`, which can fold a new message into
+an already-running task at any later resume point. Leaving `kb_context`
+unset (the default) preserves the exact history every caller had before
+this parameter existed; nothing here yet calls it from the CLI or TUI.
 
 ### Compaction
 
