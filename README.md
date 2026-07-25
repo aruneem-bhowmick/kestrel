@@ -226,8 +226,9 @@ task, and timestamp. `kestrel.task_setup.build_task_deps` builds a real
 `KbService` for every kb-enabled task, resolving the `"embed"` task
 class through `[router.policy]` exactly like self-critique resolves
 `"critique"`, and wires it into `LoopDeps.kb` -- from there it reaches
-every dispatched tool call's own `context`, though no tool executor
-reads it yet, so a call still runs exactly as it did before this wiring
+every dispatched tool call's own `context`. `search`'s own `semantic`
+mode (see [Tools](#tools)) is the first reader of it: a call left at
+`semantic`'s default `False` runs exactly as it did before this wiring
 existed.
 
 ### Knowledge base configuration
@@ -268,6 +269,12 @@ else needs to change.
   result count. Requires `rg` (ripgrep) on `PATH`; refuses a scope that
   escapes the repository root and a pattern `rg` rejects as invalid
   regex. A search that matches nothing is a normal result, not an error.
+  Passing `semantic: true` additionally embeds the pattern as a
+  natural-language query, searches the knowledge base for it, and
+  appends its own top matches after `rg`'s hits, each rendered as a
+  `[kb score=... task=...]` line; a disabled or unavailable knowledge
+  base degrades this back to `rg`-only output rather than failing the
+  call.
 - **`execute`** -- runs a command (an argv list, never a shell string)
   in a `bwrap` sandbox scoped to the repo: the rest of the filesystem is
   mounted read-only, the repo and a fresh scratch directory are
