@@ -125,9 +125,7 @@ async def test_kb_context_is_seeded_once_right_after_the_task_description(
     outgoing `.complete()` call -- including the second turn's -- carries
     that same message unchanged, proving it is seeded once and never
     re-derived."""
-    client = _MessagesRecordingClient(
-        turns=[_stop_turn("first"), _stop_turn("second")]
-    )
+    client = _MessagesRecordingClient(turns=[_stop_turn("first"), _stop_turn("second")])
     deps = _build_deps(client, tmp_path)
 
     result = await run_task(

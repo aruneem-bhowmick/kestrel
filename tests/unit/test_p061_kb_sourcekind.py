@@ -17,7 +17,9 @@ def test_kb_source_frames_like_every_other_source_kind() -> None:
     """Given `source="kb"`, when framed, then the header names it
     verbatim and the payload round-trips between the real delimiters,
     with no different marker shape than any other `SourceKind`."""
-    framed = frame_untrusted("- a retrieved note", source="kb", origin="nomic-embed-text")
+    framed = frame_untrusted(
+        "- a retrieved note", source="kb", origin="nomic-embed-text"
+    )
 
     assert framed.startswith("<<<UNTRUSTED:kb:nomic-embed-text>>>\n")
     assert "- a retrieved note" in framed

@@ -20,7 +20,9 @@ from kestrel.kb.service import KbService, KbServiceError
 from kestrel.security.framing import frame_untrusted
 
 
-async def build_kb_context(task_description: str, *, kb: KbService | None) -> str | None:
+async def build_kb_context(
+    task_description: str, *, kb: KbService | None
+) -> str | None:
     """Retrieve knowledge-base notes relevant to `task_description` and
     render them as one already-framed context block.
 
