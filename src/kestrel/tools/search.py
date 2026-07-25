@@ -18,18 +18,36 @@ message meant to be handed straight back to the model, never a raw
 traceback or subprocess exit code. `rg` exiting 1 (its documented "no
 matches" exit code) is not a failure: it is a normal, framed
 empty-results response.
+
+Passing `semantic: true` turns on a second, independent engine alongside
+`rg`: `pattern` is also embedded as a natural-language query and run
+against the knowledge base (`context["kb"]`, a `KbService | None` a
+caller threads through), and its own top matches are appended to the
+same result body, each rendered as a `[kb score=... task=...]` line so a
+reader can tell the two engines' hits apart at a glance. The two engines
+are never interleaved by score -- `rg`'s hits have no comparable numeric
+score to rank against a knowledge-base match's cosine similarity -- so a
+semantic search's results always read as "every `rg` hit, then every
+knowledge-base hit," each independently capped at `max_results`. A
+knowledge base that is disabled, or unavailable, degrades `semantic`
+silently to `rg`-only output, never a failed call.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
+from kestrel.kb.service import KbServiceError
 from kestrel.provider.base import ToolSchema
 from kestrel.security.framing import frame_untrusted
+
+if TYPE_CHECKING:
+    from kestrel.kb.service import KbService
 
 # `rg` exit codes: 0 means at least one match, 1 means the search ran
 # cleanly but found nothing (a normal outcome, not a failure), and
@@ -186,7 +204,49 @@ def _render_hit(hit: SearchHit) -> str:
     return f"{hit.path}:{hit.line_number}: {hit.line_text}"
 
 
-def search(args: SearchArgs, *, repo_root: Path) -> str:
+@dataclass(frozen=True, slots=True)
+class _KbHit:
+    """One knowledge-base match, rendered alongside a `SearchHit`."""
+
+    text: str
+    score: float
+    source_task: str
+
+
+def _render_kb_hit(hit: _KbHit) -> str:
+    """Render one `_KbHit` as `"[kb score={score:.2f} task={source_task}]
+    {text}"`, visually distinct from an `rg`-sourced `path:line: text`
+    line so a reader (model or human) can tell the two engines' results
+    apart without the framing header alone having to carry that
+    distinction."""
+    return f"[kb score={hit.score:.2f} task={hit.source_task}] {hit.text}"
+
+
+def _kb_hits(kb: "KbService | None", pattern: str, *, max_results: int) -> list[_KbHit]:
+    """`[]` when `kb` is `None` (knowledge base disabled); otherwise
+    embeds `pattern` and searches it via `asyncio.run` -- safe here for
+    the identical reason `kestrel.agent.critique.model_self_critique`
+    already documents: this function only ever runs on an
+    `asyncio.to_thread` worker, never on the event loop driving the task
+    itself, so opening a fresh one here cannot collide with an
+    already-running loop. A `KbServiceError` here is caught and turned
+    into an empty list, not raised -- a knowledge-base outage must
+    degrade `search` to its ordinary `rg`-only behavior, never fail the
+    whole call outright.
+    """
+    if kb is None:
+        return []
+    try:
+        scored = asyncio.run(kb.search(pattern))
+    except KbServiceError:
+        return []
+    return [
+        _KbHit(text=s.note.text, score=s.score, source_task=s.note.source_task)
+        for s in scored[:max_results]
+    ]
+
+
+def search(args: SearchArgs, *, repo_root: Path, kb: "KbService | None" = None) -> str:
     """Run `rg` for `args.pattern` under `repo_root` (or `args.scope`
     within it) and return the matches framed as untrusted search results.
 
@@ -198,6 +258,15 @@ def search(args: SearchArgs, *, repo_root: Path) -> str:
     hits are returned, in that deterministic file order; each hit's line
     text is capped at `_MAX_LINE_CHARS` characters.
 
+    When `args.semantic` is `True`, `kb`'s own top matches for
+    `args.pattern` (via `_kb_hits`) are appended after `rg`'s own hits,
+    each independently capped at `args.max_results` -- and, when `rg`
+    itself found nothing, the "no matches" message is replaced by the
+    knowledge-base section alone, so a semantic-only match is never
+    masked by an empty regex result. Leaving `args.semantic` at its
+    default `False` returns exactly the regex-only body this tool always
+    has, unchanged.
+
     Raises:
         SearchError: `args.scope` resolves outside `repo_root` (whether
             by `..` traversal or by following a symlink that points
@@ -208,12 +277,12 @@ def search(args: SearchArgs, *, repo_root: Path) -> str:
             found) or 1 (no matches, not an error) -- most commonly
             because `args.pattern` is not a regex `rg` accepts, in which
             case the message is `rg`'s own diagnostic; or `rg` printed
-            output this tool could not parse as `path:line:text`.
+            output this tool could not parse as `path:line:text`. A
+            knowledge-base failure never raises here -- see `_kb_hits`.
 
     `rg` exiting 1 is not an error: it returns a framed message stating
     no matches were found, exactly like a search that matched nothing for
-    any other reason. `args.semantic` is not yet consulted here -- an
-    optional knowledge-base merge that reads it lands separately.
+    any other reason.
     """
     cmd = ["rg", "--line-number", "--no-heading", "--sort", "path", args.pattern]
     if args.scope is not None:
@@ -242,9 +311,17 @@ def search(args: SearchArgs, *, repo_root: Path) -> str:
 
     if completed.returncode == _RG_EXIT_NO_MATCHES:
         body = f"No matches for pattern {args.pattern!r}."
+        rg_matched = False
     else:
         hits = _parse_hits(completed.stdout)[: args.max_results]
         body = "\n".join(_render_hit(hit) for hit in hits)
+        rg_matched = True
+
+    if args.semantic:
+        kb_hits = _kb_hits(kb, args.pattern, max_results=args.max_results)
+        if kb_hits:
+            kb_section = "\n".join(_render_kb_hit(hit) for hit in kb_hits)
+            body = f"{body}\n\n{kb_section}" if rg_matched else kb_section
 
     return frame_untrusted(body, source="search_result", origin=args.pattern)
 
