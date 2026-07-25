@@ -19,13 +19,21 @@ from pathlib import Path
 
 import pytest
 
+import kestrel.agent.loop as loop_module
 from kestrel.agent.loop import LoopDeps, TerminationReason, run_task
 from kestrel.cost.meter import CostMeter
 from kestrel.managers.approval import ApprovalManager
 from kestrel.managers.undo import UndoManager
 from kestrel.provider.base import Effort, Message, ToolSchema
-from kestrel.provider.events import StopEvent, StreamEvent, TextDelta, UsageEvent
+from kestrel.provider.events import (
+    StopEvent,
+    StreamEvent,
+    TextDelta,
+    ToolCallEvent,
+    UsageEvent,
+)
 from kestrel.registry.model import ModelEntry, Registry
+from kestrel.tools.registry import ToolResult
 
 pytestmark = [pytest.mark.p061, pytest.mark.system]
 
@@ -66,10 +74,18 @@ class _ScriptedTurn:
 class _MessagesRecordingClient:
     """A `ProviderClient` that replays one `_ScriptedTurn` per call, in
     order, recording the full `messages` argument it was actually called
-    with on every single call."""
+    with on every single call.
+
+    Each call is snapshotted as a `tuple`, not the raw `Sequence` handed
+    in: `_drain_think` builds a fresh list per call today, but recording
+    a plain reference would silently start asserting on a mutated list
+    instead of that call's own point-in-time messages the moment that
+    internal detail ever changed -- a `tuple` copy makes this recording
+    immune to that regardless.
+    """
 
     turns: Sequence[_ScriptedTurn]
-    recorded_messages: list[Sequence[Message]] = field(default_factory=list)
+    recorded_messages: list[tuple[Message, ...]] = field(default_factory=list)
     call_count: int = field(default=0, init=False)
 
     async def complete(
@@ -81,9 +97,9 @@ class _MessagesRecordingClient:
         stream: bool = True,
         max_tokens: int | None = None,
     ) -> AsyncIterator[StreamEvent]:
-        """Record `messages`, then replay the next scripted turn's
-        events."""
-        self.recorded_messages.append(messages)
+        """Record `messages` as an immutable snapshot, then replay the
+        next scripted turn's events."""
+        self.recorded_messages.append(tuple(messages))
         turn = self.turns[self.call_count]
         self.call_count += 1
         for event in turn.events:
@@ -102,6 +118,28 @@ def _stop_turn(text: str) -> _ScriptedTurn:
     )
 
 
+def _tool_turn(call_id: str) -> _ScriptedTurn:
+    """A turn that requests one tool call rather than answering plainly,
+    keeping the task running past this turn instead of letting it
+    complete here -- used to make the first scripted turn non-terminal
+    so a second `.complete()` call actually happens."""
+    return _ScriptedTurn(
+        events=(
+            ToolCallEvent(id=call_id, name="read_file", arguments_json="{}"),
+            UsageEvent(input_tokens=100, output_tokens=20, cached_tokens=0),
+            StopEvent(reason="tool_use"),
+        )
+    )
+
+
+def _fake_dispatch(event: object, *, repo_root: Path, **context: object) -> ToolResult:
+    """Stand in for `kestrel.agent.loop.dispatch`: succeeds
+    unconditionally without running any real tool, so `_tool_turn`'s
+    requested call doesn't need a real file or sandbox to resolve."""
+    call_id = getattr(event, "id", "unknown")
+    return ToolResult(tool_call_id=call_id, content="ran it")
+
+
 def _build_deps(client: _MessagesRecordingClient, repo_root: Path) -> LoopDeps:
     """Assemble a `LoopDeps` bundle scoped to `repo_root`, matching this
     suite's siblings."""
@@ -117,15 +155,21 @@ def _build_deps(client: _MessagesRecordingClient, repo_root: Path) -> LoopDeps:
 
 
 async def test_kb_context_is_seeded_once_right_after_the_task_description(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Given `run_task(..., kb_context=<a framed block>)` scripted to run
-    two turns before completing, when the task runs, then `history[1]`
-    is exactly that framed block as a user-role message, and every
+    """Given `run_task(..., kb_context=<a framed block>)` scripted so its
+    first turn requests a tool call (keeping the task running) and its
+    second turn stops, when the task runs, then `history[1]` is exactly
+    that framed block as a user-role message, the client is actually
+    called twice, the first call's own messages carry the system prefix,
+    task description, and kb context in that exact order, and every
     outgoing `.complete()` call -- including the second turn's -- carries
-    that same message unchanged, proving it is seeded once and never
-    re-derived."""
-    client = _MessagesRecordingClient(turns=[_stop_turn("first"), _stop_turn("second")])
+    that same kb-context message unchanged, proving it is seeded once and
+    never re-derived."""
+    monkeypatch.setattr(loop_module, "dispatch", _fake_dispatch)
+    client = _MessagesRecordingClient(
+        turns=[_tool_turn("call-1"), _stop_turn("second")]
+    )
     deps = _build_deps(client, tmp_path)
 
     result = await run_task(
@@ -136,9 +180,16 @@ async def test_kb_context_is_seeded_once_right_after_the_task_description(
     )
 
     assert result.reason == TerminationReason.TASK_COMPLETE
+    assert client.call_count == 2
     assert result.history[1] == {"role": "user", "content": _KB_CONTEXT}
 
     kb_message: Message = {"role": "user", "content": _KB_CONTEXT}
+    task_message: Message = {"role": "user", "content": "implement the feature"}
+    first_call_messages = client.recorded_messages[0]
+    assert first_call_messages[0]["role"] == "system"
+    assert first_call_messages[1] == task_message
+    assert first_call_messages[2] == kb_message
+    assert len(first_call_messages) == 3
     for call_messages in client.recorded_messages:
         assert kb_message in call_messages
 
