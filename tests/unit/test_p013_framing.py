@@ -22,6 +22,7 @@ _ALL_SOURCE_KINDS: tuple[SourceKind, ...] = (
     "tool_stderr",
     "search_result",
     "web",
+    "kb",
 )
 
 
