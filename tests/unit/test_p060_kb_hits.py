@@ -18,7 +18,13 @@ import pytest
 
 from kestrel.kb.service import KbServiceError
 from kestrel.kb.store import KnowledgeNote, ScoredNote
-from kestrel.tools.search import _kb_hits, _KbHit, _render_kb_hit
+from kestrel.tools.search import (
+    _MAX_LINE_CHARS,
+    _kb_hits,
+    _KbHit,
+    _render_kb_hit,
+    _truncate_line,
+)
 
 pytestmark = [pytest.mark.p060, pytest.mark.unit]
 
@@ -120,3 +126,18 @@ def test_render_kb_hit_renders_the_documented_shape() -> None:
     hit = _KbHit(text="some note", score=0.876, source_task="task-9")
 
     assert _render_kb_hit(hit) == "[kb score=0.88 task=task-9] some note"
+
+
+def test_render_kb_hit_truncates_oversized_note_text() -> None:
+    """Given a `_KbHit` whose text exceeds `_MAX_LINE_CHARS`, when
+    rendered, then the text is capped with the same truncation marker an
+    oversized `rg` hit's own line already gets -- a persisted note
+    carries no length limit of its own, so nothing else stops one from
+    dominating the response on its own."""
+    long_text = "a" * (_MAX_LINE_CHARS + 50)
+    hit = _KbHit(text=long_text, score=0.5, source_task="task-1")
+
+    rendered = _render_kb_hit(hit)
+
+    assert rendered == f"[kb score=0.50 task=task-1] {_truncate_line(long_text)}"
+    assert "[truncated: 50 more chars omitted]" in rendered

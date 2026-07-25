@@ -218,8 +218,14 @@ def _render_kb_hit(hit: _KbHit) -> str:
     {text}"`, visually distinct from an `rg`-sourced `path:line: text`
     line so a reader (model or human) can tell the two engines' results
     apart without the framing header alone having to carry that
-    distinction."""
-    return f"[kb score={hit.score:.2f} task={hit.source_task}] {hit.text}"
+    distinction. `hit.text` is capped by the same `_truncate_line` bound
+    an `rg` hit's own line already gets -- a persisted note carries no
+    length limit of its own, so nothing else stops one from dominating
+    the response the way `_MAX_LINE_CHARS` already stops an oversized
+    matched line from doing the same."""
+    return (
+        f"[kb score={hit.score:.2f} task={hit.source_task}] {_truncate_line(hit.text)}"
+    )
 
 
 def _kb_hits(kb: "KbService | None", pattern: str, *, max_results: int) -> list[_KbHit]:
