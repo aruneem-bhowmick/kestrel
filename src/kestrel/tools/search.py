@@ -52,7 +52,7 @@ _MIN_MAX_RESULTS: Final[int] = 1
 _MAX_MAX_RESULTS: Final[int] = 200
 
 _ALLOWED_ARG_FIELDS: Final[frozenset[str]] = frozenset(
-    {"pattern", "scope", "max_results"}
+    {"pattern", "scope", "max_results", "semantic"}
 )
 
 SEARCH_SCHEMA = ToolSchema(
@@ -67,6 +67,14 @@ SEARCH_SCHEMA = ToolSchema(
                 "description": "Repo-relative subdirectory; defaults to the repo root.",
             },
             "max_results": {"type": "integer", "minimum": 1, "maximum": 200},
+            "semantic": {
+                "type": "boolean",
+                "description": (
+                    "Also search the knowledge base for text semantically "
+                    "related to 'pattern' and merge its top matches into the "
+                    "results."
+                ),
+            },
         },
         "required": ["pattern"],
         "additionalProperties": False,
@@ -84,11 +92,15 @@ class SearchArgs:
             searches the whole repo.
         max_results: Maximum number of hits to return, in file order;
             excess hits beyond this count are dropped, not an error.
+        semantic: When `True`, also embeds `pattern` as a natural-language
+            query and merges the knowledge base's own top matches into
+            the returned results, alongside `rg`'s own hits.
     """
 
     pattern: str
     scope: str | None = None
     max_results: int = _DEFAULT_MAX_RESULTS
+    semantic: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,7 +212,8 @@ def search(args: SearchArgs, *, repo_root: Path) -> str:
 
     `rg` exiting 1 is not an error: it returns a framed message stating
     no matches were found, exactly like a search that matched nothing for
-    any other reason.
+    any other reason. `args.semantic` is not yet consulted here -- an
+    optional knowledge-base merge that reads it lands separately.
     """
     cmd = ["rg", "--line-number", "--no-heading", "--sort", "path", args.pattern]
     if args.scope is not None:
@@ -257,6 +270,17 @@ def _parse_max_results(value: Any) -> int:
     return value
 
 
+def _parse_semantic(value: Any) -> bool:
+    """Validate the optional `semantic` field, defaulting to `False`
+    when absent and raising `SearchError` when present but not a real
+    `bool`."""
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise SearchError("arguments: 'semantic' must be a boolean")
+    return value
+
+
 def parse_search_args(arguments_json: str) -> SearchArgs:
     """Parse and validate one `ToolCallEvent.arguments_json` payload for
     `search` against `SEARCH_SCHEMA`.
@@ -265,9 +289,9 @@ def parse_search_args(arguments_json: str) -> SearchArgs:
         SearchError: `arguments_json` is not valid JSON, is not a JSON
             object, is missing the required `pattern` field, carries a
             field `SEARCH_SCHEMA` does not declare, or gives `pattern`,
-            `scope`, or `max_results` a value of the wrong type or
-            range -- every case names the offending field, never a raw
-            `json.JSONDecodeError` or `KeyError`.
+            `scope`, `max_results`, or `semantic` a value of the wrong
+            type or range -- every case names the offending field, never
+            a raw `json.JSONDecodeError` or `KeyError`.
     """
     try:
         raw: Any = json.loads(arguments_json)
@@ -296,4 +320,5 @@ def parse_search_args(arguments_json: str) -> SearchArgs:
         pattern=pattern,
         scope=scope,
         max_results=_parse_max_results(raw.get("max_results")),
+        semantic=_parse_semantic(raw.get("semantic")),
     )
