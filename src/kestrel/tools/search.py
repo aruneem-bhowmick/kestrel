@@ -353,11 +353,17 @@ def _parse_max_results(value: Any) -> int:
     return value
 
 
+_SEMANTIC_ABSENT: Final[object] = object()
+
+
 def _parse_semantic(value: Any) -> bool:
     """Validate the optional `semantic` field, defaulting to `False`
-    when absent and raising `SearchError` when present but not a real
-    `bool`."""
-    if value is None:
+    only when the field is genuinely absent (`value is _SEMANTIC_ABSENT`).
+    Raises `SearchError` when present but not a real `bool` -- including
+    an explicit JSON `null`, which is a type violation for a field
+    `SEARCH_SCHEMA` declares as `boolean`, not a valid way to request
+    the default."""
+    if value is _SEMANTIC_ABSENT:
         return False
     if not isinstance(value, bool):
         raise SearchError("arguments: 'semantic' must be a boolean")
@@ -403,5 +409,5 @@ def parse_search_args(arguments_json: str) -> SearchArgs:
         pattern=pattern,
         scope=scope,
         max_results=_parse_max_results(raw.get("max_results")),
-        semantic=_parse_semantic(raw.get("semantic")),
+        semantic=_parse_semantic(raw.get("semantic", _SEMANTIC_ABSENT)),
     )

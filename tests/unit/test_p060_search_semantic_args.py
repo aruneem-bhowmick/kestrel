@@ -39,10 +39,25 @@ def test_semantic_absent_defaults_to_false() -> None:
     assert args.semantic is False
 
 
-@pytest.mark.parametrize("bad_value", ['"yes"', "1", "0", "1.5", "[]"])
+@pytest.mark.parametrize("bad_value", ['"yes"', "1", "0", "1.5", "[]", "null"])
 def test_semantic_non_boolean_raises(bad_value: str) -> None:
     """Given a `semantic` field that is not a JSON boolean -- including a
-    JSON `1`/`0`, which are `int`s, never `bool`s, in Python -- when
-    parsed, then `SearchError` names the offending field."""
+    JSON `1`/`0`, which are `int`s, never `bool`s, in Python, and an
+    explicit JSON `null`, which is a type violation for a field the
+    schema declares as `boolean` rather than a valid way to request the
+    default -- when parsed, then `SearchError` names the offending
+    field."""
     with pytest.raises(SearchError, match="'semantic' must be a boolean"):
         parse_search_args(f'{{"pattern": "foo", "semantic": {bad_value}}}')
+
+
+def test_semantic_absent_and_explicit_null_are_not_the_same() -> None:
+    """Given the field omitted entirely versus given as an explicit JSON
+    `null`, when each is parsed, then only the omitted case defaults to
+    `False` -- `raw.get("semantic")` alone cannot distinguish the two,
+    since both would otherwise read back as Python `None`."""
+    absent = parse_search_args('{"pattern": "foo"}')
+    assert absent.semantic is False
+
+    with pytest.raises(SearchError, match="'semantic' must be a boolean"):
+        parse_search_args('{"pattern": "foo", "semantic": null}')
