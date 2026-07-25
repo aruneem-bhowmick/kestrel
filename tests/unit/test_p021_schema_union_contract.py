@@ -1,5 +1,9 @@
 """Contract test: every schema `all_schemas()` offers a provider call
 is itself valid JSON Schema, and no two of them collide on `name`.
+
+Also marked `p060`: re-run under that marker too, this suite confirms
+`search`'s own amended `SEARCH_SCHEMA` (its new `semantic` field) still
+validates against this same contract.
 """
 
 from __future__ import annotations
@@ -9,7 +13,7 @@ from jsonschema import Draft7Validator
 
 from kestrel.tools.registry import all_schemas
 
-pytestmark = [pytest.mark.p021, pytest.mark.unit, pytest.mark.api]
+pytestmark = [pytest.mark.p021, pytest.mark.p060, pytest.mark.unit, pytest.mark.api]
 
 
 def test_every_schemas_parameters_are_valid_json_schema() -> None:

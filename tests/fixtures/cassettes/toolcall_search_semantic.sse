@@ -1,0 +1,7 @@
+data: {"id": "chatcmpl-toolcall-search-semantic", "object": "chat.completion.chunk", "created": 1700000060, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [{"index": 0, "id": "call_search_semantic_1", "type": "function", "function": {"name": "search", "arguments": "{\"pattern\": \"widget\", \"semantic\": true}"}}]}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-toolcall-search-semantic", "object": "chat.completion.chunk", "created": 1700000060, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+
+data: {"id": "chatcmpl-toolcall-search-semantic", "object": "chat.completion.chunk", "created": 1700000060, "model": "z-ai/glm-5.2", "choices": [], "usage": {"prompt_tokens": 55, "completion_tokens": 10, "total_tokens": 65, "prompt_tokens_details": {"cached_tokens": 0}}}
+
+data: [DONE]
