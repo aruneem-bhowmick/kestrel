@@ -45,6 +45,12 @@ extend-select = ["I"]
 
 [tool.mypy]
 python_version = "3.12"
+# Pinned to the deployment target (Linux/Jetson), not inferred from
+# whichever OS happens to run `mypy` -- otherwise a POSIX-only stdlib
+# module guarded for a non-Linux dev machine (see
+# kestrel.managers.resource_guard) type-checks differently depending on
+# who runs this command.
+platform = "linux"
 strict = true
 files = ["src/kestrel"]
 
