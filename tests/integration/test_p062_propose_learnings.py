@@ -135,27 +135,37 @@ async def test_a_rejected_call_surfaces_as_writeback_error(
 
 
 @pytest.mark.cost_regression
-async def test_the_two_learnings_cassettes_own_usage_prices_within_an_unsurprising_band(
+@pytest.mark.parametrize(
+    ("cassette", "expected_cost"),
+    [
+        (_LEARNINGS_TWO, Decimal("0.000034")),
+        (_LEARNINGS_NONE, Decimal("0.000020")),
+    ],
+    ids=["two_learnings", "none"],
+)
+async def test_a_learnings_cassettes_own_usage_prices_within_an_unsurprising_band(
     client: LiteLLMClient,
     mock_openai_server: Callable[..., str],
     monkeypatch: pytest.MonkeyPatch,
+    cassette: Path,
+    expected_cost: Decimal,
 ) -> None:
-    """Given each of the two writeback cassettes, when the raw usage
-    figures a real proposal call against them would produce are priced
-    via `compute_turn_cost` against the same "cheap" rate card
+    """Given each of the two writeback cassettes in turn, when the raw
+    usage figures a real proposal call against it would produce are
+    priced via `compute_turn_cost` against the same "cheap" rate card
     `test_p047_critique_scripted.py` already exercises for a similarly
-    short, capped completion, then each prices to a small, pinned amount
-    well under a cent -- proof that a proposal call's own token footprint
-    stays unsurprising in size, not merely that it succeeds. Neither
-    figure is ever billed through a `CostMeter` here: `propose_learnings`
-    itself has no meter to bill through, matching this suite's own
-    scope fence that a caller, not this module, is responsible for
-    accounting a proposal call's spend."""
+    short, capped completion, then it prices to a small, pinned amount
+    well under a cent -- proof that a proposal call's own token
+    footprint stays unsurprising in size, not merely that it succeeds.
+    That figure is never billed through a `CostMeter` here:
+    `propose_learnings` itself has no meter to bill through, matching
+    this suite's own scope fence that a caller, not this module, is
+    responsible for accounting a proposal call's spend."""
     entry = _registry().get(_MODEL_ID)
+    base_url = mock_openai_server(cassette)
+    monkeypatch.setenv("KESTREL_OPENROUTER_BASE_URL", base_url)
 
-    base_url_two = mock_openai_server(_LEARNINGS_TWO)
-    monkeypatch.setenv("KESTREL_OPENROUTER_BASE_URL", base_url_two)
-    events_two = [
+    events = [
         event
         async for event in client.complete(
             [{"role": "user", "content": "irrelevant"}],
@@ -166,25 +176,8 @@ async def test_the_two_learnings_cassettes_own_usage_prices_within_an_unsurprisi
             max_tokens=256,
         )
     ]
-    usage_two = next(e for e in events_two if isinstance(e, UsageEvent))
-    cost_two = compute_turn_cost(usage_two, entry)
-    assert cost_two == Decimal("0.000034")
-    assert cost_two < Decimal("0.01")
+    usage = next(e for e in events if isinstance(e, UsageEvent))
+    cost = compute_turn_cost(usage, entry)
 
-    base_url_none = mock_openai_server(_LEARNINGS_NONE)
-    monkeypatch.setenv("KESTREL_OPENROUTER_BASE_URL", base_url_none)
-    events_none = [
-        event
-        async for event in client.complete(
-            [{"role": "user", "content": "irrelevant"}],
-            None,
-            _MODEL_ID,
-            "high",
-            stream=False,
-            max_tokens=256,
-        )
-    ]
-    usage_none = next(e for e in events_none if isinstance(e, UsageEvent))
-    cost_none = compute_turn_cost(usage_none, entry)
-    assert cost_none == Decimal("0.000020")
-    assert cost_none < Decimal("0.01")
+    assert cost == expected_cost
+    assert cost < Decimal("0.01")
