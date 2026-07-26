@@ -34,6 +34,7 @@ from kestrel.provider.base import Message, ProviderClient
 from kestrel.provider.errors import ProviderError
 from kestrel.provider.events import StreamEvent, TextDelta
 from kestrel.provider.retry import complete_with_retry
+from kestrel.repl import sanitize_terminal
 
 _WRITEBACK_SYSTEM_PROMPT: Final[str] = (
     "You just finished a coding task. Propose at most three short, "
@@ -157,10 +158,14 @@ def _prompt_stdin_writeback(
     `learning.text` and `learning.tags`, then reads a single line via
     `input_fn` (defaulting to the built-in `input`), matched case-
     insensitively. `"y"`/`"yes"` decides `"approve"`; anything else,
-    including an empty line, decides `"skip"`.
+    including an empty line, decides `"skip"`. Both printed fields are
+    run through `sanitize_terminal` first: `learning.text`/`learning.tags`
+    are model-generated text a hostile reply could load with terminal
+    control sequences, and a human approving from a corrupted or hidden
+    prompt is exactly what this gate exists to prevent.
     """
-    print(f"Proposed learning: {learning.text}")
-    print(f"Tags: {', '.join(learning.tags)}")
+    print(f"Proposed learning: {sanitize_terminal(learning.text)}")
+    print(f"Tags: {', '.join(sanitize_terminal(tag) for tag in learning.tags)}")
     reply = input_fn("Commit this learning? [y]es / [N]o: ").strip().lower()
     if reply in ("y", "yes"):
         return "approve"
