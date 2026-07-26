@@ -647,6 +647,21 @@ builds a fresh `ApprovalManager`, `UndoManager`, `SessionManager`, and
 the real terminal exactly as described under [Approval](#approval); a
 piped, non-interactive answer works identically to a typed one.
 
+A fresh task (not `--resume`) also reaches into the knowledge base
+(see [Knowledge base](#knowledge-base)) on both ends: before its first
+turn, `build_kb_context` retrieves whatever notes are relevant to the
+task description and seeds them in as extra context; once it ends on
+anything but `BUDGET_HALT`, its `Walkthrough` is offered back to
+`kestrel.kb.writeback` for up to three durable learnings, each printed
+and prompted for approval on the real terminal before being committed
+-- a `kb: committed N learning(s)` line names how many were approved.
+A resumed task skips both: its original `run` invocation already
+retrieved whatever context it was going to get, and writeback for just
+a resumed segment is not something this CLI offers. Either step
+degrades to a silent no-op on a knowledge-base outage or an empty
+result, never changing the run's own outcome or exit code; set
+`[kb] enabled = false` in `kestrel.toml` to turn both off outright.
+
 `--require-verification`/`--no-require-verification`
 (default: **enabled**) sets `LoopDeps.require_verification` -- with it
 on, a task only completes once the most recent `verify` call passed
