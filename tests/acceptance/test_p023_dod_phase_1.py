@@ -72,7 +72,13 @@ def _write_run_config(config_dir: Path) -> Path:
     registry, and starting model. The entry's actual base URL is
     redirected to the hermetic mock server entirely through the
     `KESTREL_OPENROUTER_BASE_URL` environment variable seam (see
-    `_run_env`), never through this file."""
+    `_run_env`), never through this file. The knowledge base is turned
+    off outright: this registry names no `"local"`-tagged entry for it
+    to embed through, and every scenario here counts exactly the
+    requests its own scripted cassette sequence accounts for -- an
+    unrelated, on-by-default retrieval or writeback call would either
+    throw off that count or embed against a chat-only entry that was
+    never meant to serve one."""
     models_toml = config_dir / "models.toml"
     models_toml.write_text(
         """\
@@ -100,6 +106,9 @@ default_model = "glm-5.2"
 
 [paths]
 models_file = "{models_toml.as_posix()}"
+
+[kb]
+enabled = false
 """,
         encoding="utf-8",
     )

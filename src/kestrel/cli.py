@@ -28,12 +28,21 @@ from kestrel.agent.walkthrough import (
 from kestrel.config import ConfigError, KestrelConfig, load_config
 from kestrel.cost.meter import CostMeter
 from kestrel.doctor import all_checks_passed, render_report, run_doctor
+from kestrel.kb.retrieval import build_kb_context
+from kestrel.kb.service import KbServiceError
+from kestrel.kb.writeback import (
+    WritebackError,
+    _prompt_stdin_writeback,
+    commit_learnings,
+    propose_learnings,
+)
 from kestrel.kestrel_md import KestrelMd, KestrelMdError, load_kestrel_md
 from kestrel.managers.budget import BudgetLimits, BudgetManager
 from kestrel.managers.mode import ModeManager
 from kestrel.managers.undo import UndoConflictError, UndoManager
 from kestrel.registry.loader import load_registry
 from kestrel.registry.model import ModelEntry, Registry, RegistryError
+from kestrel.router.policy import resolve_model_id
 from kestrel.task_setup import TaskSetup, build_task_deps
 from kestrel.tools.verify import VerificationReport
 
@@ -407,6 +416,65 @@ def _build_and_persist_walkthrough(
         return None
 
 
+def _propose_and_commit_learnings(
+    result: LoopResult,
+    *,
+    task_id: str,
+    setup: TaskSetup,
+    config: KestrelConfig,
+    registry: Registry,
+) -> None:
+    """Propose and interactively commit durable learnings from a
+    finished task's own `Walkthrough`.
+
+    No-ops when `setup.deps.kb is None` (the knowledge base is disabled)
+    or `result.reason is not TerminationReason.TASK_COMPLETE` -- a task
+    that did not finish cleanly has nothing durable to propose. Builds a
+    fresh `Walkthrough` (cheap, pure) rather than threading the one
+    `_build_and_persist_walkthrough` already built past this function's
+    own caller, proposes learnings via a `"trivial"`-tag-routed model
+    call, prompts once per proposed learning via `_prompt_stdin_writeback`,
+    and commits every approved one via `commit_learnings`.
+
+    A `WritebackError`/`KbServiceError` here is printed to `sys.stderr`
+    and swallowed -- writeback failing must never change this command's
+    own exit code, the same "auxiliary, best-effort" contract
+    `_build_and_persist_walkthrough` already holds for `WalkthroughError`.
+    """
+    if setup.deps.kb is None or result.reason is not TerminationReason.TASK_COMPLETE:
+        return
+    walkthrough = build_walkthrough(
+        result,
+        task_id=task_id,
+        undo=setup.undo,
+        verification_reports=setup.deps.verification_reports,
+    )
+    writeback_model_id = resolve_model_id(
+        "trivial",
+        registry=registry,
+        policy=config.router.policy.as_mapping(),
+        fallback_model_id=setup.deps.model_id,
+    )
+    try:
+        proposed = asyncio.run(
+            propose_learnings(
+                walkthrough, client=setup.deps.client, model_id=writeback_model_id
+            )
+        )
+        if not proposed:
+            return
+        decisions = [_prompt_stdin_writeback(p) for p in proposed]
+        committed = asyncio.run(
+            commit_learnings(
+                proposed, decisions=decisions, task_id=task_id, kb=setup.deps.kb
+            )
+        )
+    except (WritebackError, KbServiceError) as exc:
+        print(str(exc), file=sys.stderr)
+        return
+    print(f"kb: committed {len(committed)} learning(s)")
+
+
 def _print_plan_summary(task_id: str, result: LoopResult, plan_path: Path) -> None:
     """Print the PLAN-mode counterpart to `_print_task_summary`: task
     id, termination reason, turn count, total cost, and the persisted
@@ -478,20 +546,26 @@ def _run_task_command(
     summary.
 
     Builds its collaborators via `_build_run_deps` -- nothing built
-    there is reused across separate `run` invocations. When
-    `args.mode == "plan"` and the task did not end `BUDGET_HALT`, parses
-    and persists the resulting `ImplementationPlan` via
-    `extract_plan_from_result`/`persist_plan` and prints
+    there is reused across separate `run` invocations. Before the
+    task's first turn, retrieves whatever knowledge-base context is
+    relevant to `args.task` via `build_kb_context` and seeds it into
+    `run_task`'s own `kb_context` parameter -- a disabled or unavailable
+    knowledge base degrades to no context at all rather than blocking
+    the task. When `args.mode == "plan"` and the task did not end
+    `BUDGET_HALT`, parses and persists the resulting `ImplementationPlan`
+    via `extract_plan_from_result`/`persist_plan` and prints
     `_print_plan_summary` in place of the ordinary summary, exiting `1`
     with the parse/persist failure on `sys.stderr` if either raises
     `PlanError`. Otherwise, on `TerminationReason.BUDGET_HALT`, prints
     `_print_budget_halt`'s dedicated message instead; every remaining
     reason gets a `Walkthrough` built and persisted via
     `build_walkthrough`/`persist_walkthrough` before `_print_task_summary`
-    prints it alongside the rest of the summary. A `WalkthroughError`
-    (e.g. a hostile `.kestrel/artifacts` symlink) is printed to
-    `sys.stderr` and otherwise ignored -- it never changes this
-    function's own return code, since a walkthrough that fails to
+    prints it alongside the rest of the summary, followed by
+    `_propose_and_commit_learnings` proposing and interactively
+    committing up to three durable learnings from that same task. A
+    `WalkthroughError` (e.g. a hostile `.kestrel/artifacts` symlink) is
+    printed to `sys.stderr` and otherwise ignored -- it never changes
+    this function's own return code, since a walkthrough that fails to
     persist must not mask whether the task itself actually succeeded.
     Exits `0` only on `TerminationReason.TASK_COMPLETE`.
     """
@@ -508,7 +582,10 @@ def _run_task_command(
     )
 
     assert args.task is not None  # enforced by the `task`/`--resume` mutex group
-    result = asyncio.run(run_task(args.task, setup.deps, task_id))
+    kb_context = asyncio.run(build_kb_context(args.task, kb=setup.deps.kb))
+    result = asyncio.run(
+        run_task(args.task, setup.deps, task_id, kb_context=kb_context)
+    )
 
     if args.mode == "plan" and result.reason is not TerminationReason.BUDGET_HALT:
         try:
@@ -545,6 +622,9 @@ def _run_task_command(
         setup.meter,
         registry.get(model_id),
         walkthrough_path=walkthrough_path,
+    )
+    _propose_and_commit_learnings(
+        result, task_id=task_id, setup=setup, config=config, registry=registry
     )
     return 0 if result.reason is TerminationReason.TASK_COMPLETE else 1
 
