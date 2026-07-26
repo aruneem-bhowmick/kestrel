@@ -41,7 +41,7 @@ from dataclasses import dataclass
 
 from kestrel.provider.base import Effort, Message, ProviderClient, ToolSchema
 from kestrel.provider.errors import ProviderError, RateLimitError, ServerError
-from kestrel.provider.events import StreamEvent
+from kestrel.provider.events import StreamEvent, TextDelta
 
 _RETRIABLE: tuple[type[ProviderError], ...] = (RateLimitError, ServerError)
 
@@ -128,3 +128,28 @@ async def complete_with_retry(
             if emitted or attempt == policy.max_attempts - 1:
                 raise
             await sleep_fn(_delay_for_attempt(exc, attempt, policy, jitter_fn))
+
+
+async def complete_short_text(
+    client: ProviderClient,
+    messages: Sequence[Message],
+    model_id: str,
+    *,
+    max_tokens: int,
+) -> str:
+    """Run one short, non-streamed completion and return its joined text.
+
+    Offers no tools (``tools=None``) and sends ``effort="high"``,
+    ``stream=False`` through :func:`complete_with_retry`, then joins
+    every yielded :class:`~kestrel.provider.events.TextDelta`'s own text
+    in arrival order. This is the shape every narrow, single-question
+    model call in this codebase needs -- self-critique, a writeback
+    proposal -- factored out so each caller collects events once rather
+    than re-implementing the same loop.
+    """
+    events: list[StreamEvent] = []
+    async for event in complete_with_retry(
+        client, messages, None, model_id, "high", stream=False, max_tokens=max_tokens
+    ):
+        events.append(event)
+    return "".join(event.text for event in events if isinstance(event, TextDelta))

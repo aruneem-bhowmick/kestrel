@@ -120,6 +120,18 @@ module.
   standing in for a model calling whichever real tool eventually reads
   `LoopDeps.kb` -- no such tool exists yet, so this cassette names one
   a test registers for the duration of a single suite instead.
+- `learnings_two.sse` -- a three-line writeback proposal reply: two
+  well-formed `LEARNING: <text> | TAGS: <tags>` lines and one
+  deliberately malformed line missing its own `| TAGS:` separator, with
+  `usage` (`prompt_tokens=210`, `completion_tokens=64`,
+  `cached_tokens=0`) and `finish_reason="stop"`. Served as a
+  non-streaming chat-completion object (see "Non-streaming callers"
+  below), matching `kestrel.kb.writeback.propose_learnings`'s own
+  `stream=False` call, the same as `critique_approve.sse`.
+- `learnings_none.sse` -- the same shape, replying the literal `"NONE"`
+  instead, with a deliberately small `usage` (`prompt_tokens=195`,
+  `completion_tokens=3`, `cached_tokens=0`) -- standing in for a
+  writeback proposal call that found nothing durable to propose.
 
 ## Re-recording the zai cassette
 

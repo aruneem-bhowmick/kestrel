@@ -1,0 +1,7 @@
+data: {"id": "chatcmpl-learnings-two", "object": "chat.completion.chunk", "created": 1700000010, "model": "z-ai/glm-5.2-cheap", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "LEARNING: This repo's Makefile targets assume tabs, not spaces, for recipe indentation | TAGS: style,make\nLEARNING: forgot the separator entirely, so this whole line should be dropped\nLEARNING: Run `uv run pytest -m sanity` before pushing any change here | TAGS: testing"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-learnings-two", "object": "chat.completion.chunk", "created": 1700000010, "model": "z-ai/glm-5.2-cheap", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"id": "chatcmpl-learnings-two", "object": "chat.completion.chunk", "created": 1700000010, "model": "z-ai/glm-5.2-cheap", "choices": [], "usage": {"prompt_tokens": 210, "completion_tokens": 64, "total_tokens": 274, "prompt_tokens_details": {"cached_tokens": 0}}}
+
+data: [DONE]
