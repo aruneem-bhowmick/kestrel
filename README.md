@@ -252,26 +252,27 @@ every repo, rather than staying strictly per-repo.
 ### Writeback
 
 `kestrel.kb.writeback` turns a finished task's own `Walkthrough` into at
-most three durable, human-approved knowledge-base notes. `propose_
-learnings` sends one short, non-streamed model call -- routed through
-`[router.policy]`'s `"trivial"` task class, the cheap-and-non-critical
-tag this router policy has named since it was introduced, now given its
-first real caller -- asking the model to distill the walkthrough into
-zero to three lines of the form `LEARNING: <text> | TAGS: <tags>`; a
-reply that names nothing durable, or that this module's own parser
-cannot read as that shape, degrades to no proposal at all rather than an
-error. Nothing proposed is committed automatically: `commit_learnings`
-writes only the entries a caller-supplied decision (`"approve"` or
-`"skip"`, one per proposed learning) marks approved, via `KbService.
-add_note`. The default decision function, `_prompt_stdin_writeback`,
-prompts on the real terminal exactly the way `kestrel.managers.approval.
-_prompt_stdin` already does for destructive-action approval, applied
-here to an unrelated question -- whether to remember something, not
-whether to run something -- so it keeps its own separate vocabulary
-rather than reusing `ApprovalDecision`. Proposing and deciding are kept
-as two calls a caller composes, never one this module performs itself,
-so a caller can render every proposal through whatever interface it has
-before any of them are committed.
+most three durable, human-approved knowledge-base notes.
+`propose_learnings` sends one short, non-streamed model call -- routed
+through `[router.policy]`'s `"trivial"` task class, the cheap-and-non-
+critical tag this router policy has named since it was introduced, now
+given its first real caller -- asking the model to distill the
+walkthrough into zero to three lines of the form
+`LEARNING: <text> | TAGS: <tags>`; a reply that names nothing durable,
+or that this module's own parser cannot read as that shape, degrades to
+no proposal at all rather than an error. Nothing proposed is committed
+automatically: `commit_learnings` writes only the entries a
+caller-supplied decision (`"approve"` or `"skip"`, one per proposed
+learning) marks approved, via `KbService.add_note`. The default
+decision function, `_prompt_stdin_writeback`, prompts on the real
+terminal exactly the way `kestrel.managers.approval._prompt_stdin`
+already does for destructive-action approval, applied here to an
+unrelated question -- whether to remember something, not whether to run
+something -- so it keeps its own separate vocabulary rather than
+reusing `ApprovalDecision`. Proposing and deciding are kept as two calls
+a caller composes, never one this module performs itself, so a caller
+can render every proposal through whatever interface it has before any
+of them are committed.
 
 ## Tools
 
