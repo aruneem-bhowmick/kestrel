@@ -62,7 +62,7 @@ def test_doctor_prints_nine_lines_and_exits_zero_when_all_pass(
     write_config: Callable[..., Path],
 ) -> None:
     """Given a valid config with its credential set, when `doctor` runs
-    through the real CLI entry point, then it prints nine lines to
+    through the real CLI entry point, then it prints ten lines to
     stdout and returns exit code 0."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
     _patch_sandbox_ok(monkeypatch)
@@ -73,7 +73,7 @@ def test_doctor_prints_nine_lines_and_exits_zero_when_all_pass(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert len(captured.out.splitlines()) == 9
+    assert len(captured.out.splitlines()) == 10
 
 
 def test_doctor_exits_one_when_any_check_fails(

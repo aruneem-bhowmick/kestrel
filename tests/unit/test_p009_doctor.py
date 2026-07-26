@@ -99,7 +99,7 @@ def _patch_tui_ok(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.sanity
-def test_all_green_non_live_run_passes_seven_and_skips_two(
+def test_all_green_non_live_run_passes_eight_and_skips_two(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     write_config: Callable[..., Path],
@@ -107,8 +107,9 @@ def test_all_green_non_live_run_passes_seven_and_skips_two(
     """Given a valid config, a valid registry, the default model present,
     its credential set, a sandbox-capable environment, and a real
     (simulated) interactive terminal, when run without ``--live``, then
-    checks 1-5, ``sandbox``, and ``tui`` are OK, the remaining two
-    (``endpoint``, ``ollama``) are SKIP, and the run counts as passing."""
+    checks 1-5, ``sandbox``, ``tui``, and ``resources`` are OK, the
+    remaining two (``endpoint``, ``ollama``) are SKIP, and the run counts
+    as passing."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-value")
     _patch_sandbox_ok(monkeypatch)
     _patch_tui_ok(monkeypatch)
@@ -126,6 +127,7 @@ def test_all_green_non_live_run_passes_seven_and_skips_two(
         "sandbox",
         "tui",
         "ollama",
+        "resources",
     ]
     statuses = _statuses(results)
     for name in (
@@ -136,6 +138,7 @@ def test_all_green_non_live_run_passes_seven_and_skips_two(
         "api-key",
         "sandbox",
         "tui",
+        "resources",
     ):
         assert statuses[name] is CheckStatus.OK
     for name in ("endpoint", "ollama"):
@@ -408,7 +411,7 @@ def test_no_config_anywhere_resolves_to_builtin_defaults(tmp_path: Path) -> None
 @pytest.mark.regression
 @pytest.mark.acceptance
 def test_render_report_matches_golden_snapshot() -> None:
-    """The exact nine-line block `kestrel doctor` prints for an all-green,
+    """The exact ten-line block `kestrel doctor` prints for an all-green,
     non-live run must match a pinned snapshot byte-for-byte -- this is the
     stable alignment contract a provisioning walkthrough can screenshot.
 
@@ -417,7 +420,7 @@ def test_render_report_matches_golden_snapshot() -> None:
     would embed OS-specific separators (and a fresh ``tmp_path`` on every
     run) into the very text this test pins, which would make the
     snapshot neither stable nor portable. ``test_all_green_non_live_run_
-    passes_seven_and_skips_two`` above already covers the real,
+    passes_eight_and_skips_two`` above already covers the real,
     file-backed path end to end.
     """
     results = [
@@ -429,8 +432,11 @@ def test_render_report_matches_golden_snapshot() -> None:
         CheckResult("endpoint", CheckStatus.SKIP, "pass --live"),
         CheckResult("sandbox", CheckStatus.OK, "bwrap"),
         CheckResult("tui", CheckStatus.OK, "interactive"),
+        CheckResult("ollama", CheckStatus.SKIP, "pass --live"),
         CheckResult(
-            "ollama", CheckStatus.SKIP, "the Ollama backend is not implemented"
+            "resources",
+            CheckStatus.OK,
+            "kestrel=512MB ollama=unknown / ceiling=5200MB",
         ),
     ]
 
