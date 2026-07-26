@@ -28,8 +28,7 @@ from collections.abc import Callable
 from typing import Final
 
 from kestrel.provider.base import Message, ProviderClient
-from kestrel.provider.events import StreamEvent, TextDelta
-from kestrel.provider.retry import complete_with_retry
+from kestrel.provider.retry import complete_short_text
 
 _CRITIQUE_SYSTEM_PROMPT: Final[str] = (
     "You are a fast sanity-checker for an autonomous coding agent's "
@@ -55,26 +54,19 @@ async def _critique_async(
 ) -> bool:
     """Send one short, non-streamed completion asking whether `proposal`
     looks reasonable given `history`, and parse the reply via
-    `_parses_as_approve`. Offers no tools (`tools=None`) and
-    `stream=False` -- a normalized single `TextDelta` is guaranteed by
-    `ProviderClient`'s own contract regardless of backend."""
+    `_parses_as_approve`. Delegates the actual call to
+    `provider.retry.complete_short_text`, which offers no tools and
+    sends `stream=False` -- a normalized single `TextDelta` is
+    guaranteed by `ProviderClient`'s own contract regardless of
+    backend."""
     messages: list[Message] = [
         {"role": "system", "content": _CRITIQUE_SYSTEM_PROMPT},
         *history[-4:],
         {"role": "user", "content": f"Proposed action:\n{proposal}"},
     ]
-    events: list[StreamEvent] = []
-    async for event in complete_with_retry(
-        client,
-        messages,
-        None,
-        model_id,
-        "high",
-        stream=False,
-        max_tokens=_CRITIQUE_MAX_TOKENS,
-    ):
-        events.append(event)
-    text = "".join(event.text for event in events if isinstance(event, TextDelta))
+    text = await complete_short_text(
+        client, messages, model_id, max_tokens=_CRITIQUE_MAX_TOKENS
+    )
     return _parses_as_approve(text)
 
 

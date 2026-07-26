@@ -32,8 +32,7 @@ from kestrel.kb.service import KbService
 from kestrel.kb.store import KnowledgeNote
 from kestrel.provider.base import Message, ProviderClient
 from kestrel.provider.errors import ProviderError
-from kestrel.provider.events import StreamEvent, TextDelta
-from kestrel.provider.retry import complete_with_retry
+from kestrel.provider.retry import complete_short_text
 from kestrel.repl import sanitize_terminal
 
 _WRITEBACK_SYSTEM_PROMPT: Final[str] = (
@@ -105,13 +104,15 @@ async def propose_learnings(
 ) -> tuple[ProposedLearning, ...]:
     """Ask the model to propose durable learnings from `walkthrough`.
 
-    Sends one short, non-streamed completion -- `stream=False`, a fixed
-    system prompt, `max_tokens=_WRITEBACK_MAX_TOKENS` -- mirroring
-    `agent.critique._critique_async`'s own shape. `walkthrough` is
-    rendered via `render_walkthrough_markdown` and passed as the user
-    turn's own content: a task's own Walkthrough is first-party, model-
-    and tool-derived content already surfaced to the same user this
-    session belongs to, so it needs no untrusted-content framing here.
+    Sends one short, non-streamed completion via `provider.retry.
+    complete_short_text` -- `stream=False`, a fixed system prompt,
+    `max_tokens=_WRITEBACK_MAX_TOKENS` -- the same shared helper
+    `agent.critique._critique_async` uses for its own narrow, capped
+    question. `walkthrough` is rendered via `render_walkthrough_markdown`
+    and passed as the user turn's own content: a task's own Walkthrough
+    is first-party, model- and tool-derived content already surfaced to
+    the same user this session belongs to, so it needs no
+    untrusted-content framing here.
 
     The reply is split into lines, each parsed via
     `_parse_proposal_line`; lines that fail to parse (including a bare
@@ -126,22 +127,13 @@ async def propose_learnings(
         {"role": "system", "content": _WRITEBACK_SYSTEM_PROMPT},
         {"role": "user", "content": render_walkthrough_markdown(walkthrough)},
     ]
-    events: list[StreamEvent] = []
     try:
-        async for event in complete_with_retry(
-            client,
-            messages,
-            None,
-            model_id,
-            "high",
-            stream=False,
-            max_tokens=_WRITEBACK_MAX_TOKENS,
-        ):
-            events.append(event)
+        text = await complete_short_text(
+            client, messages, model_id, max_tokens=_WRITEBACK_MAX_TOKENS
+        )
     except ProviderError as exc:
         raise WritebackError(f"propose_learnings: model call failed: {exc}") from exc
 
-    text = "".join(event.text for event in events if isinstance(event, TextDelta))
     parsed = [
         learning
         for line in text.splitlines()
