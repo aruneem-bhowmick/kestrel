@@ -130,6 +130,17 @@ defaults sees identical behavior to before either field existed; this
 module makes no decision about which effort or tool set a given task
 should actually run with, only carries whichever values it is given.
 
+`run_task` can also seed a fresh task's history with retrieved
+knowledge-base context before its first turn: its `kb_context` parameter,
+when set, is an already-framed (`frame_untrusted(..., source="kb", ...)`)
+block of text -- built by `kestrel.kb.retrieval.build_kb_context`, not by
+this module -- appended as one extra user-role message right after
+`task_description`. It is seeded exactly once, never re-derived on a
+later turn, keeping the leading portion of `history` stable for the same
+cache-prefix reasons `kestrel_md` already is. Leaving it unset (the
+default) preserves the exact history shape every caller had before this
+parameter existed.
+
 `resume_task` can also fold one new instruction into a prior task's
 history before continuing it: its `inject_message` parameter, when set,
 is appended as a fresh user-role message right after the loaded history
@@ -1016,6 +1027,7 @@ async def run_task(
     deps: LoopDeps,
     task_id: str,
     *,
+    kb_context: str | None = None,
     clock_fn: Callable[[], float] = time.monotonic,
 ) -> LoopResult:
     """Drive `task_description` through the loop until it completes or a
@@ -1030,8 +1042,23 @@ async def run_task(
     drives it via the shared `_drive` engine (see its own docstring for
     the loop's full turn-by-turn behavior); `resume_task` is the sibling
     entry point that continues a prior session instead of starting one.
+
+    `kb_context`, when given, is an already-framed (via
+    `frame_untrusted(..., source="kb", ...)`) block of retrieved
+    knowledge-base context, folded into `history` as one extra
+    `user`-role message immediately after `task_description` and before
+    the first turn -- `None` (the default) preserves every existing
+    caller's exact behavior. Unlike `resume_task`'s own `inject_message`,
+    this is seeded once, at task start, never mid-task, matching the
+    retrieval step's own "before the first turn" placement without
+    weakening cache-prefix stability across later turns. `kb_context` is
+    the caller's own responsibility to have already framed -- `run_task`
+    itself never calls `frame_untrusted`, matching every other parameter
+    of this function (it carries values, it does not transform them).
     """
     history: list[Message] = [{"role": "user", "content": task_description}]
+    if kb_context is not None:
+        history.append({"role": "user", "content": kb_context})
     return await _drive(history, deps, task_id, clock_fn, turns_used_start=0)
 
 

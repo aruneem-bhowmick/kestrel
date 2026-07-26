@@ -1,8 +1,8 @@
 """Delimits untrusted external text before it enters a prompt.
 
 Every byte that did not come from the user's own typed input -- file
-contents, tool stdout/stderr, search results, and (once a web tool
-exists) web content -- is data, never instructions. :func:`frame_untrusted`
+contents, tool stdout/stderr, search results, web content, and
+knowledge-base retrievals -- is data, never instructions. :func:`frame_untrusted`
 is the single choke point every such byte passes through: it wraps the
 text in a fixed, recognizable marker pair, ``<<<UNTRUSTED:{source}:{origin}>>>``
 / ``<<<END_UNTRUSTED>>>``, chosen to be vanishingly unlikely to appear in
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Final, Literal, get_args
 
-SourceKind = Literal["file", "tool_stdout", "tool_stderr", "search_result", "web"]
+SourceKind = Literal["file", "tool_stdout", "tool_stderr", "search_result", "web", "kb"]
 
 # The Literal's own values, so this can never drift out of sync with
 # SourceKind: adding a new source kind to the type alone is enough to

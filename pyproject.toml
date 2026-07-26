@@ -174,4 +174,5 @@ markers = [
     "p058: the KbConfig settings model and the KbService embed-then-store/search composition",
     "p059: LoopDeps.kb and build_task_deps's own knowledge-base-service wiring",
     "p060: search's semantic hybrid mode, merging rg hits with knowledge-base matches",
+    "p061: the kb SourceKind, the retrieval context builder, and run_task's kb_context seeding",
 ]
