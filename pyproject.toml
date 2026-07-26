@@ -183,4 +183,5 @@ markers = [
     "p061: the kb SourceKind, the retrieval context builder, and run_task's kb_context seeding",
     "p062: writeback's propose_learnings/commit_learnings split and its approve-before-commit contract",
     "p063: kestrel run's own pre-task knowledge-base retrieval and post-Walkthrough writeback CLI wiring",
+    "p064: the resource guard's RSS classification and doctor's real ollama/resources checks",
 ]
