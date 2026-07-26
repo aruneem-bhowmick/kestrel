@@ -75,12 +75,13 @@ def _parse_proposal_line(line: str) -> ProposedLearning | None:
     Only a line whose stripped form starts with `"LEARNING:"` is
     considered -- a blank line, the literal `"NONE"` reply, and any other
     non-conforming line all return `None`. A line that does start with
-    the prefix but is missing the `"| TAGS:"` separator is treated as
-    malformed and also returns `None`, rather than raising: one bad line
-    degrades to "no learning from this line" instead of failing the
-    whole batch. Tags are split on commas and stripped, so a trailing
-    `"TAGS: "` with nothing after it yields an empty tags tuple rather
-    than a tuple holding one blank string.
+    the prefix but is missing the `"| TAGS:"` separator, or whose own
+    text is empty once stripped (e.g. `"LEARNING: | TAGS: x"`), is
+    treated as malformed and also returns `None`, rather than raising:
+    one bad line degrades to "no learning from this line" instead of
+    failing the whole batch. Tags are split on commas and stripped, so a
+    trailing `"TAGS: "` with nothing after it yields an empty tags tuple
+    rather than a tuple holding one blank string.
 
     This function never raises, regardless of its input -- it is the
     first thing a hostile or malformed model reply reaches.
@@ -92,8 +93,11 @@ def _parse_proposal_line(line: str) -> ProposedLearning | None:
     if _TAGS_SEPARATOR not in body:
         return None
     text_part, _, tags_part = body.partition(_TAGS_SEPARATOR)
+    text = text_part.strip()
+    if not text:
+        return None
     tags = tuple(tag.strip() for tag in tags_part.split(",") if tag.strip())
-    return ProposedLearning(text=text_part.strip(), tags=tags)
+    return ProposedLearning(text=text, tags=tags)
 
 
 async def propose_learnings(

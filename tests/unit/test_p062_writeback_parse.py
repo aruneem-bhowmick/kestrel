@@ -69,3 +69,13 @@ def test_a_line_not_starting_with_the_learning_prefix_parses_to_none() -> None:
     """Given an ordinary sentence that happens to mention "LEARNING"
     without leading with it, when parsed, then it comes back as `None`."""
     assert _parse_proposal_line("we learned something | TAGS: x") is None
+
+
+def test_a_line_with_empty_learning_text_parses_to_none() -> None:
+    """Given a line whose `LEARNING:` field is present but empty once
+    stripped, when parsed, then it comes back as `None` rather than a
+    `ProposedLearning` with blank text -- a tagged-but-textless entry is
+    not a usable learning, so it degrades the same way a missing tags
+    separator does."""
+    assert _parse_proposal_line("LEARNING: | TAGS: x") is None
+    assert _parse_proposal_line("LEARNING:    | TAGS: x") is None
