@@ -25,24 +25,31 @@ _SRC_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "kestrel"
 # backend identifiers -- declaring that set is not the same as a call site
 # choosing among them. The doctor module reports the diagnostic status of
 # each registry-declared backend identifier by name (e.g. an "ollama" check
-# reporting that integration is not implemented yet) -- a status label is
-# not routing logic either. The embeddings module is a second, independent
-# adapter bound to a single backend by design (embeddings are only ever
-# served locally) -- naming that backend is its entire purpose, exactly
-# like the chat-completion adapter naming its own backends. The task-setup
+# reporting whether it answers) -- a status label is not routing logic
+# either. The embeddings module is a second, independent adapter bound to
+# a single backend by design (embeddings are only ever served locally) --
+# naming that backend is its entire purpose, exactly like the
+# chat-completion adapter naming its own backends. The task-setup
 # composition root constructs that same embeddings adapter for every task
 # exactly once, the identical role it already plays for `LiteLLMClient`
 # constructing chat completions -- the one wiring site where a concrete
 # adapter is instantiated is not a call site choosing among several,
-# either. Packaged TOML data ships concrete backend values by design (and
-# is out of scope for this guard regardless, since only *.py files are
-# scanned below).
+# either. The resource guard is bound to the same single local backend by
+# the same design as the embeddings module -- finding its own process and
+# unloading its own model are both backend-specific by nature, not a
+# choice among several. The managers package's own `__init__` re-exports
+# that module's public names verbatim, which is a wiring site rather than
+# a routing decision, exactly like `task_setup.py`. Packaged TOML data
+# ships concrete backend values by design (and is out of scope for this
+# guard regardless, since only *.py files are scanned below).
 _EXCLUDED_PATHS = {
     _SRC_ROOT / "doctor.py",
     _SRC_ROOT / "provider" / "litellm_client.py",
     _SRC_ROOT / "registry" / "model.py",
     _SRC_ROOT / "kb" / "embeddings.py",
     _SRC_ROOT / "task_setup.py",
+    _SRC_ROOT / "managers" / "resource_guard.py",
+    _SRC_ROOT / "managers" / "__init__.py",
 }
 
 # "zai" (bare, no dot) is the registry's own backend identifier, distinct
