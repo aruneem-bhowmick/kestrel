@@ -122,6 +122,9 @@ default_model = "glm-5.2"
 
 [paths]
 models_file = "{models_toml.as_posix()}"
+
+[kb]
+enabled = false
 """,
         encoding="utf-8",
     )
@@ -135,7 +138,11 @@ def _write_budget_config(config_dir: Path) -> Path:
     Mtok input, `$0` output and cached) so a scripted turn's own huge
     `usage.prompt_tokens` (see `budget_toolcall_big.sse`) crosses a small
     USD cap on a clean, hand-verifiable dollar amount, mirroring
-    ``tests/unit/test_p031_budget_wiring.py``'s own convention."""
+    ``tests/unit/test_p031_budget_wiring.py``'s own convention. The
+    knowledge base is turned off, exactly like ``_write_run_config``
+    above, so a completed run's own writeback call never adds an
+    unaccounted-for request against the same `"cheap"`-tagged entry
+    these scenarios already route real budget-degradation turns through."""
     config_dir.mkdir(parents=True, exist_ok=True)
     models_toml = config_dir / "models.toml"
     models_toml.write_text(
@@ -179,6 +186,9 @@ default_model = "glm-5.2"
 
 [paths]
 models_file = "{models_toml.as_posix()}"
+
+[kb]
+enabled = false
 """,
         encoding="utf-8",
     )
