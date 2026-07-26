@@ -10,10 +10,13 @@ is reported once, at its source, and every check downstream of it is
 marked skipped rather than re-deriving (and re-reporting) the same root
 cause under a different name.
 
-Nothing here repairs a broken environment; every check is read-only, and
-the optional live endpoint probe is the only check that ever reaches the
-network -- and only when the caller explicitly opts in, since it is the
-only check with a real (if tiny, budget-capped) cost.
+Nothing here repairs a broken environment; every check is read-only.
+Two checks reach the network, both only when the caller explicitly opts
+in with ``--live``: the endpoint probe (a tiny, budget-capped
+completion) and the ``ollama`` check (a one-word, zero-cost embedding
+call against the local Ollama backend). The ``resources`` check reads
+this process's and Ollama's own resident memory and never reaches the
+network at all.
 """
 
 from __future__ import annotations
@@ -26,6 +29,12 @@ from enum import StrEnum
 from pathlib import Path
 
 from kestrel.config import ConfigError, KestrelConfig, load_config
+from kestrel.kb.embeddings import EmbeddingError, OllamaEmbeddingClient
+from kestrel.managers.resource_guard import (
+    check_resources,
+    measure_kestrel_rss_mb,
+    measure_ollama_rss_mb,
+)
 from kestrel.provider.errors import AuthError, ProviderError
 from kestrel.provider.litellm_client import LiteLLMClient, _require_api_key
 from kestrel.registry.loader import load_registry
@@ -36,6 +45,7 @@ from kestrel.registry.model import (
     UnknownModelError,
 )
 from kestrel.repl import sanitize_terminal
+from kestrel.router.policy import resolve_model_id
 from kestrel.tools.sandbox import (
     SandboxUnavailableError,
     bwrap_available,
@@ -58,6 +68,7 @@ _CHECK_NAMES: tuple[str, ...] = (
     "sandbox",
     "tui",
     "ollama",
+    "resources",
 )
 _STATUS_WIDTH = max(len(status) for status in ("OK", "FAIL", "SKIP"))
 _NAME_WIDTH = max(len(name) for name in _CHECK_NAMES)
@@ -243,8 +254,91 @@ def _check_tui() -> CheckResult:
     )
 
 
+async def _drain_embedding_probe(registry: Registry, entry: ModelEntry) -> None:
+    """Send one single-word embedding call to confirm Ollama answers,
+    discarding the returned vector."""
+    client = OllamaEmbeddingClient(registry)
+    await client.embed(["ping"], model_id=entry.id)
+
+
+async def _probe_ollama(registry: Registry, entry: ModelEntry) -> None:
+    """Run :func:`_drain_embedding_probe` under the identical hard
+    wall-clock bound :func:`_probe_endpoint` already applies to the
+    chat-completion probe, for the same reason: an unresponsive backend
+    must produce a bounded ``FAIL``, not a hung terminal.
+    """
+    await asyncio.wait_for(
+        _drain_embedding_probe(registry, entry), timeout=_LIVE_PROBE_TIMEOUT_S
+    )
+
+
+def _check_ollama(
+    registry: Registry, config: KestrelConfig, *, live: bool
+) -> CheckResult:
+    """Confirm the router's ``"embed"`` task class resolves to a reachable
+    Ollama backend.
+
+    Skipped with ``"pass --live"`` when ``live=False``, mirroring
+    ``endpoint``'s own opt-in gate -- this check reaches a real network
+    endpoint too. Otherwise resolves the ``"embed"`` task class against
+    ``config.router.policy`` and probes it: a policy with no reachable
+    ``"local"``-tagged entry falls back to the configured default model
+    (never raising on its own), but a fallback that is not itself an
+    Ollama-backed entry surfaces as an ``EmbeddingError`` from
+    ``OllamaEmbeddingClient.embed``'s own backend check, which this
+    function reports as ``FAIL`` rather than letting it escape.
+    """
+    if not live:
+        return CheckResult("ollama", CheckStatus.SKIP, "pass --live")
+    model_id = resolve_model_id(
+        "embed",
+        registry=registry,
+        policy=config.router.policy.as_mapping(),
+        fallback_model_id=config.general.default_model,
+    )
+    entry = registry.get(model_id)
+    try:
+        asyncio.run(_probe_ollama(registry, entry))
+    except TimeoutError:
+        return CheckResult(
+            "ollama",
+            CheckStatus.FAIL,
+            f"no response within {_LIVE_PROBE_TIMEOUT_S:.0f}s",
+        )
+    except EmbeddingError as exc:
+        return CheckResult("ollama", CheckStatus.FAIL, str(exc))
+    return CheckResult("ollama", CheckStatus.OK, entry.id)
+
+
+def _check_resources() -> CheckResult:
+    """Report Kestrel's and Ollama's combined resident memory.
+
+    Never ``FAIL``s -- a resource check that could itself crash
+    ``kestrel doctor`` on an unusual platform (no ``/proc``, an
+    unreadable status file) would defeat its own purpose, so both
+    underlying measurements already degrade to a safe default rather
+    than raising. A combined-RSS warning is folded into the detail
+    string rather than changing ``status``: this check is advisory,
+    matching the "warn," never "block," nature of a memory ceiling.
+    """
+    status = check_resources(
+        kestrel_rss_mb=measure_kestrel_rss_mb(),
+        ollama_rss_mb=measure_ollama_rss_mb(),
+    )
+    detail = f"kestrel={status.kestrel_rss_mb:.0f}MB"
+    detail += (
+        f" ollama={status.ollama_rss_mb:.0f}MB"
+        if status.ollama_rss_mb is not None
+        else " ollama=unknown"
+    )
+    detail += f" / ceiling={status.ceiling_mb:.0f}MB"
+    if status.warning is not None:
+        detail += f" -- {status.warning}"
+    return CheckResult("resources", CheckStatus.OK, detail)
+
+
 def run_doctor(config_path: Path | None, *, live: bool) -> list[CheckResult]:
-    """Run every flight check, in order, and return all nine results.
+    """Run every flight check, in order, and return all ten results.
 
     Checks, in order:
 
@@ -266,15 +360,24 @@ def run_doctor(config_path: Path | None, *, live: bool) -> list[CheckResult]:
     8. ``tui`` -- stdout is a real terminal, the same precondition
        `kestrel` (no subcommand) itself requires before mounting the
        cockpit.
-    9. ``ollama`` -- always skipped; the Ollama backend does not exist in
-       this codebase yet.
+    9. ``ollama`` -- only when ``live=True``: a one-word embedding call
+       against the router's resolved ``"embed"`` model confirms Ollama
+       answers. Skipped with ``"pass --live"`` when ``live=False``.
+    10. ``resources`` -- Kestrel's and Ollama's combined resident memory
+        against a fixed ceiling; always ``OK``, a high-memory reading is
+        folded into the detail as an advisory warning rather than a
+        failure.
 
     Checks 2 through 6 form a dependency chain: the first one to fail
     records its own ``FAIL``, and every check after it in the chain
     reports ``SKIP`` naming that same original check (not whichever check
     immediately precedes it), so the root cause is never obscured by a
-    chain of "blocked by the previous line" indirection. Checks 7, 8, and
-    9 are unconditional and never join this chain.
+    chain of "blocked by the previous line" indirection. Checks 7 and 8
+    are unconditional and never join this chain. Check 9 rejoins the
+    chain -- it needs ``registry``/``config`` resolved exactly like
+    ``endpoint`` does -- reporting ``SKIP`` naming the original blocker
+    when checks 2 through 5 failed upstream. Check 10 is unconditional
+    and never reports anything but ``OK``.
     """
     results: list[CheckResult] = [
         _check_python_version((sys.version_info.major, sys.version_info.minor))
@@ -335,9 +438,17 @@ def run_doctor(config_path: Path | None, *, live: bool) -> list[CheckResult]:
 
     results.append(_check_sandbox())
     results.append(_check_tui())
-    results.append(
-        CheckResult("ollama", CheckStatus.SKIP, "the Ollama backend is not implemented")
-    )
+
+    if blocking is not None:
+        results.append(
+            CheckResult("ollama", CheckStatus.SKIP, f"blocked by: {blocking}")
+        )
+    else:
+        assert config is not None
+        assert registry is not None
+        results.append(_check_ollama(registry, config, live=live))
+
+    results.append(_check_resources())
 
     return results
 

@@ -88,7 +88,8 @@ def _build_parser() -> ArgumentParser:
         action="store_true",
         help=(
             "Also probe the default model's endpoint with a real, "
-            "budget-capped completion."
+            "budget-capped completion, and the router's resolved local "
+            "embedding backend with a real embedding call."
         ),
     )
     doctor_parser.add_argument(
