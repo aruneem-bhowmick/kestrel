@@ -24,6 +24,14 @@ from kestrel.managers.budget import (
     BudgetStatus,
 )
 from kestrel.managers.mode import Mode, ModeManager
+from kestrel.managers.resource_guard import (
+    ResourceStatus,
+    UnloadAuxError,
+    check_resources,
+    measure_kestrel_rss_mb,
+    measure_ollama_rss_mb,
+    unload_aux_model,
+)
 from kestrel.managers.undo import UndoConflictError, UndoEntry, UndoManager
 
 __all__ = [
@@ -38,7 +46,13 @@ __all__ = [
     "DestructiveKind",
     "Mode",
     "ModeManager",
+    "ResourceStatus",
     "UndoConflictError",
     "UndoEntry",
     "UndoManager",
+    "UnloadAuxError",
+    "check_resources",
+    "measure_kestrel_rss_mb",
+    "measure_ollama_rss_mb",
+    "unload_aux_model",
 ]
