@@ -253,10 +253,13 @@ every repo, rather than staying strictly per-repo.
 
 `kestrel.kb.writeback` turns a finished task's own `Walkthrough` into at
 most three durable, human-approved knowledge-base notes.
-`propose_learnings` sends one short, non-streamed model call -- routed
-through `[router.policy]`'s `"trivial"` task class, the cheap-and-non-
-critical tag this router policy has named since it was introduced, now
-given its first real caller -- asking the model to distill the
+`propose_learnings` sends one short, non-streamed model call. It takes a
+plain `model_id` rather than resolving one itself -- the same shape
+`agent.critique._critique_async` already uses for `"critique"` -- so a
+caller is meant to resolve the real model through `[router.policy]`'s
+`"trivial"` task class, the cheap-and-non-critical tag this router
+policy has carried since it was introduced but has no real caller
+wiring it through yet. The call itself asks the model to distill the
 walkthrough into zero to three lines of the form
 `LEARNING: <text> | TAGS: <tags>`; a reply that names nothing durable,
 or that this module's own parser cannot read as that shape, degrades to
