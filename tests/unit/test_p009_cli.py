@@ -55,7 +55,7 @@ def _patch_tui_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
 
 
-def test_doctor_prints_nine_lines_and_exits_zero_when_all_pass(
+def test_doctor_prints_ten_lines_and_exits_zero_when_all_pass(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
