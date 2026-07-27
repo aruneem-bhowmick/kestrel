@@ -6,4 +6,5 @@ OK    api-key         OPENROUTER_API_KEY
 SKIP  endpoint        pass --live
 OK    sandbox         bwrap
 OK    tui             interactive
-SKIP  ollama          the Ollama backend is not implemented
+SKIP  ollama          pass --live
+OK    resources       kestrel=512MB ollama=unknown / ceiling=5200MB

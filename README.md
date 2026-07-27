@@ -989,7 +989,7 @@ The `ctrl+p` command palette open over the cockpit.
 
 ## Flight check
 
-`kestrel doctor` runs nine checks and prints one aligned line per check,
+`kestrel doctor` runs ten checks and prints one aligned line per check,
 in order: (1) `python-version` checking the interpreter version, (2) `config`
 checking whether the configuration file loads, (3) `registry` checking
 whether the model registry loads, (4) `default-model` checking whether the
@@ -998,10 +998,12 @@ credential environment variable is set, (6) `endpoint` probing the default
 model's live completion API, (7) `sandbox` checking whether the `execute`
 tool's `bwrap` sandbox is usable, (8) `tui` checking whether stdout is a
 real terminal -- the same precondition `kestrel` (no subcommand) itself
-requires before mounting the cockpit -- and (9) `ollama` as a placeholder
-for the unimplemented Ollama backend. By default, the run is read-only and
-skips the `endpoint` check; passing `--live` runs the endpoint check, which
-performs a networked, potentially billable completion. A typical all-green
+requires before mounting the cockpit -- (9) `ollama` probing the router's
+resolved local embedding model, and (10) `resources` reporting Kestrel's
+and Ollama's combined resident memory against a fixed ceiling. By default,
+the run is read-only and skips both network-reaching checks (`endpoint`
+and `ollama`); passing `--live` runs both, each performing one real,
+zero-or-near-zero-cost call against its own backend. A typical all-green
 run against a fresh checkout, invoked from a real terminal, looks like:
 
 ```text
@@ -1013,7 +1015,8 @@ OK    api-key         OPENROUTER_API_KEY
 SKIP  endpoint        pass --live
 OK    sandbox         bwrap
 OK    tui             interactive
-SKIP  ollama          the Ollama backend is not implemented
+SKIP  ollama          pass --live
+OK    resources       kestrel=512MB ollama=unknown / ceiling=5200MB
 ```
 
 Running `kestrel doctor` itself from a script or a subprocess (any
@@ -1024,22 +1027,45 @@ stdout would also make `kestrel` (no subcommand) refuse to start there.
 Each of the first five checks depends on the one before it; if one fails,
 every check after it in that chain reports `SKIP` naming that same
 original failure (`blocked by: <check>`) instead of re-deriving the same
-root cause under a different name. `sandbox` and `tui` are both
-unconditional -- neither depends on `config` or the registry resolving
-first, so both always run and report their own real outcome even when an
-earlier check fails. A `FAIL` line's detail is the remedy -- a missing
-config file names its path, a broken registry names the offending entry
-and field, an unset credential names the environment variable (never its
-value). `kestrel doctor` exits `0` unless at least one check `FAIL`s;
+root cause under a different name. `ollama` rejoins that same chain --
+it needs a resolved config and registry exactly like `endpoint` does --
+so a failure anywhere in checks 2 through 5 also skips it, naming the
+original blocker. `sandbox`, `tui`, and `resources` are all
+unconditional -- none of them depends on `config` or the registry
+resolving first, so all three always run and report their own real
+outcome even when an earlier check fails. A `FAIL` line's detail is the
+remedy -- a missing config file names its path, a broken registry names
+the offending entry and field, an unset credential names the environment
+variable (never its value). `resources` never reports `FAIL`: a
+combined-memory reading at or past its warn threshold is folded into the
+`OK` line's own detail as an advisory note instead, since a resource
+ceiling is something to watch, not something that blocks a diagnostic
+run. `kestrel doctor` exits `0` unless at least one check `FAIL`s;
 `SKIP` never affects the exit code.
 
 Pass `--config PATH` (before or after `doctor`) to check a specific
 configuration instead of the one that would otherwise be resolved. Pass
-`--live` to also run the sixth check: a real, budget-capped (one output
-token) completion against the configured default model, confirming the
-backend actually answers. This is the only check that spends money or
-touches the network, so it never runs unless explicitly requested --
-never pass `--live` in an automated or CI context.
+`--live` to also run the sixth and ninth checks: a real, budget-capped
+(one output token) completion against the configured default model, and
+a one-word embedding call against the router's resolved local Ollama
+model, confirming both backends actually answer. These are the only two
+checks that touch the network, so neither runs unless explicitly
+requested -- never pass `--live` in an automated or CI context.
+
+`resources` reads this process's own resident memory alongside Ollama's
+own server process (found by scanning `/proc` for a process named
+`ollama`, or whose command line contains `ollama serve`), and warns --
+still as part of an `OK` line, never `FAIL` -- once their combined
+figure reaches 85% of a fixed ceiling sized for the Jetson Orin Nano's
+own 8GB of shared memory. When Ollama's own process cannot be found or
+measured, the detail names its usage as `unknown` and excludes it from
+the combined figure rather than guessing. Both readings come from the
+same place: the `VmRSS` line in a process's own `/proc/<pid>/status`,
+which names *current* resident memory rather than a lifetime peak --
+Kestrel reads its own via the kernel's `/proc/self` symlink. On a
+non-Linux development machine this reads as `0MB` rather than raising,
+since a diagnostic command must never crash the environment it exists to
+check.
 
 ## Mutation testing
 

@@ -21,20 +21,20 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _TIMEOUT_S = 30.0
 
 
-def test_doctor_cli_reports_nine_lines_and_fails_tui_under_a_piped_stdout(
+def test_doctor_cli_reports_ten_lines_and_fails_tui_under_a_piped_stdout(
     kestrel_executable: str,
 ) -> None:
     """Given the committed system-test fixture config and its credential
     env var set, when `kestrel doctor` runs against it (without --live)
     as a real subprocess with its stdout captured through a pipe, then it
-    prints exactly nine aligned lines: five OK checks, `endpoint`/`ollama`
+    prints exactly ten aligned lines: five OK checks, `endpoint`/`ollama`
     SKIP, `sandbox` OK on a `bwrap`-equipped runner or FAIL naming the
-    reason otherwise, and `tui` FAIL -- a piped stdout is never a real
-    terminal, so this check deterministically fails under any subprocess
-    harness that captures output this way, which is exactly the failure
-    mode it exists to catch. The exit code is always 1, since at least
-    one check (`tui`, always; `sandbox`, conditionally) always FAILs
-    here."""
+    reason otherwise, `tui` FAIL, and `resources` OK -- a piped stdout is
+    never a real terminal, so `tui` deterministically fails under any
+    subprocess harness that captures output this way, which is exactly
+    the failure mode it exists to catch. The exit code is always 1, since
+    at least one check (`tui`, always; `sandbox`, conditionally) always
+    FAILs here."""
     env = dict(os.environ)
     env["KESTREL_SYSTEM_TEST_API_KEY"] = "sk-test-system"
     env["PYTHONIOENCODING"] = "utf-8"
@@ -56,7 +56,7 @@ def test_doctor_cli_reports_nine_lines_and_fails_tui_under_a_piped_stdout(
     )
 
     lines = result.stdout.splitlines()
-    assert len(lines) == 9
+    assert len(lines) == 10
 
     statuses = [line.split(None, 1)[0] for line in lines]
     actual_sandbox_status = statuses[6]
@@ -74,6 +74,7 @@ def test_doctor_cli_reports_nine_lines_and_fails_tui_under_a_piped_stdout(
         actual_sandbox_status,
         "FAIL",
         "SKIP",
+        "OK",
     ]
 
     names = [line.split(None, 2)[1] for line in lines]
@@ -87,9 +88,11 @@ def test_doctor_cli_reports_nine_lines_and_fails_tui_under_a_piped_stdout(
         "sandbox",
         "tui",
         "ollama",
+        "resources",
     ]
     assert "pass --live" in lines[5]
     assert "not a terminal" in lines[7]
+    assert "pass --live" in lines[8]
 
 
 def test_doctor_cli_missing_credential_exits_one(kestrel_executable: str) -> None:
