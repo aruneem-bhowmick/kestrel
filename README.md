@@ -1059,8 +1059,10 @@ still as part of an `OK` line, never `FAIL` -- once their combined
 figure reaches 85% of a fixed ceiling sized for the Jetson Orin Nano's
 own 8GB of shared memory. When Ollama's own process cannot be found or
 measured, the detail names its usage as `unknown` and excludes it from
-the combined figure rather than guessing. Kestrel's own resident memory
-is read via `resource.getrusage`, a POSIX-only interface -- on a
+the combined figure rather than guessing. Both readings come from the
+same place: the `VmRSS` line in a process's own `/proc/<pid>/status`,
+which names *current* resident memory rather than a lifetime peak --
+Kestrel reads its own via the kernel's `/proc/self` symlink. On a
 non-Linux development machine this reads as `0MB` rather than raising,
 since a diagnostic command must never crash the environment it exists to
 check.
