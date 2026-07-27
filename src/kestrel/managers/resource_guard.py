@@ -7,10 +7,10 @@ theoretical one -- and it fails ungracefully (the OOM killer, not a
 clean error) if nothing warns first. `check_resources` is a pure
 classifier over two already-measured RSS figures and a ceiling; the two
 `measure_*` functions are the readings it classifies, kept separate so
-each can be tested (and, for `measure_ollama_rss_mb`, faked) without the
-other. `unload_aux_model` is unrelated to the warning path -- it is the
-one place this module reaches the network, freeing Ollama's own GPU
-memory on request rather than warning about it.
+each can be tested (and faked, by pointing `_PROC_ROOT` at a fake tree)
+without the other. `unload_aux_model` is unrelated to the warning path
+-- it is the one place this module reaches the network, freeing
+Ollama's own GPU memory on request rather than warning about it.
 """
 
 from __future__ import annotations
@@ -117,24 +117,6 @@ def check_resources(
     )
 
 
-def measure_kestrel_rss_mb() -> float:
-    """This process's own resident memory, in MB.
-
-    Reads `resource.getrusage(resource.RUSAGE_SELF).ru_maxrss`, which is
-    reported in KiB on Linux -- the only platform Kestrel's own resource
-    guard runs on in practice (its target is a Jetson board). The
-    `resource` module does not exist on Windows at all, so the import is
-    guarded rather than hoisted to module scope: `kestrel doctor`'s own
-    `resources` check must never crash a developer's non-Linux machine,
-    it should simply have nothing to report there.
-    """
-    try:
-        import resource
-    except ImportError:  # pragma: no cover - exercised only off Linux
-        return 0.0
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / _KIB_PER_MB
-
-
 def _looks_like_ollama(pid_dir: Path) -> bool:
     """Whether `pid_dir` (a `/proc/<pid>` entry) is an Ollama server process.
 
@@ -183,6 +165,24 @@ def _read_vmrss_mb(pid_dir: Path) -> float | None:
         except ValueError:
             return None
     return None
+
+
+def measure_kestrel_rss_mb() -> float:
+    """This process's own current resident memory, in MB.
+
+    Reads `/proc/self/status`'s own `VmRSS` line through the same
+    `_read_vmrss_mb` helper `measure_ollama_rss_mb` uses for Ollama's
+    process -- `/proc/self` is the kernel's own always-current symlink
+    to the calling process's `/proc/<pid>` entry. `VmRSS` names
+    *current* resident memory, unlike `resource.getrusage()`'s own
+    `ru_maxrss` field, which reports a high-water mark that never falls
+    even after memory is freed and would leave a resource-ceiling
+    warning stuck long after the pressure that triggered it is gone.
+    Degrades to `0.0` -- never raises -- on any platform without a
+    `/proc` filesystem, the same outcome `_read_vmrss_mb` already
+    returns for a process it cannot read.
+    """
+    return _read_vmrss_mb(_PROC_ROOT / "self") or 0.0
 
 
 def measure_ollama_rss_mb() -> float | None:
