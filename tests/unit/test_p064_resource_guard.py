@@ -3,11 +3,12 @@ platform-reading helpers.
 
 `check_resources` is pure and needs no filesystem or process state, so
 its cases run everywhere. `measure_kestrel_rss_mb` and
-`measure_ollama_rss_mb` read real platform state (`resource.getrusage`
-and `/proc` respectively); the former is skipped on a non-POSIX
-platform, and the latter is exercised against a fake `/proc` tree built
-under `tmp_path` rather than the real one, so these tests never depend
-on -- or interfere with -- whatever is actually running on the machine.
+`measure_ollama_rss_mb` both read `/proc`; most of their own cases run
+against a fake tree built under `tmp_path` rather than the real one, so
+they never depend on -- or interfere with -- whatever is actually
+running on the machine. One case per function is the exception,
+confirming each still reads sensibly against the real, live `/proc` a
+Linux CI runner actually provides.
 """
 
 from __future__ import annotations
@@ -121,21 +122,7 @@ def test_check_resources_uses_default_ceiling_and_threshold() -> None:
     assert status.warning is None
 
 
-# --- measure_kestrel_rss_mb ---------------------------------------------------
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="resource.getrusage is POSIX-only")
-def test_measure_kestrel_rss_mb_returns_a_positive_float() -> None:
-    """Given the test process itself is running, when its own resident
-    memory is measured, then the result is a positive float -- this
-    process is always resident somewhere."""
-    rss = measure_kestrel_rss_mb()
-
-    assert isinstance(rss, float)
-    assert rss > 0.0
-
-
-# --- measure_ollama_rss_mb: a fake /proc tree ---------------------------------
+# --- shared fake /proc tree helper --------------------------------------------
 
 
 def _write_fake_process(
@@ -148,9 +135,12 @@ def _write_fake_process(
 ) -> None:
     """Create one fake `/proc/<pid>` entry under `proc_root`.
 
-    Any of `comm`, `cmdline`, or `vmrss_kb` left unset simply omits that
-    file, standing in for a real process that never exposed it (or one
-    that exited before it could be read).
+    `pid` is a literal directory name -- passing `"self"` stands in for
+    `measure_kestrel_rss_mb`'s own `/proc/self` symlink target, since a
+    fake tree has no real kernel to maintain that link. Any of `comm`,
+    `cmdline`, or `vmrss_kb` left unset simply omits that file, standing
+    in for a real process that never exposed it (or one that exited
+    before it could be read).
     """
     pid_dir = proc_root / pid
     pid_dir.mkdir()
@@ -162,6 +152,46 @@ def _write_fake_process(
         (pid_dir / "status").write_text(
             f"Name:\t{comm or ''}\nVmRSS:\t  {vmrss_kb} kB\n", encoding="utf-8"
         )
+
+
+# --- measure_kestrel_rss_mb ---------------------------------------------------
+
+
+def test_measure_kestrel_rss_mb_reads_its_own_fake_proc_self(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a fake `/proc/self/status` carrying a `VmRSS` line, when
+    measured, then that figure is returned in MB -- this is current
+    resident memory, not a `resource.getrusage()`-style lifetime peak
+    that would never fall back down once memory is freed."""
+    monkeypatch.setattr(resource_guard_module, "_PROC_ROOT", tmp_path)
+    _write_fake_process(tmp_path, "self", vmrss_kb=4096)
+
+    assert measure_kestrel_rss_mb() == pytest.approx(4.0)
+
+
+def test_measure_kestrel_rss_mb_returns_zero_when_proc_root_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given `/proc` does not exist at all (any non-Linux platform), when
+    measured, then `0.0` is returned rather than raising."""
+    monkeypatch.setattr(resource_guard_module, "_PROC_ROOT", tmp_path / "nonexistent")
+
+    assert measure_kestrel_rss_mb() == 0.0
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="/proc does not exist on Windows")
+def test_measure_kestrel_rss_mb_is_positive_against_the_real_proc() -> None:
+    """Given the test process itself is running, when its own resident
+    memory is measured against the real, live `/proc`, then the result
+    is a positive float -- this process is always resident somewhere."""
+    rss = measure_kestrel_rss_mb()
+
+    assert isinstance(rss, float)
+    assert rss > 0.0
+
+
+# --- measure_ollama_rss_mb: a fake /proc tree ---------------------------------
 
 
 def test_measure_ollama_rss_mb_finds_a_process_named_ollama(
