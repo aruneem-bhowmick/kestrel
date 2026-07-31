@@ -1067,6 +1067,21 @@ non-Linux development machine this reads as `0MB` rather than raising,
 since a diagnostic command must never crash the environment it exists to
 check.
 
+`kestrel unload-aux [--config PATH]` is the operator-facing action a
+`resources` warning points toward: it resolves the router's own
+`"embed"`-tagged registry entry -- the identical resolution `ollama`
+above already probes -- and asks that entry's Ollama server to free it
+from GPU memory immediately, printing `unloaded <id>` on success. It
+takes no `--repo`: unloading acts on a single, host-wide Ollama server,
+not on anything a target repo owns the way `.kestrel/` state is, so it
+needs no repository context at all. There is no `--model` override
+either -- it always targets the same `"embed"`-tagged entry `doctor`'s
+`ollama` check resolves, never an arbitrary registry id -- and no
+confirmation prompt, since unloading frees memory this codebase does
+not otherwise track rather than mutating anything it persists. A
+server that cannot be reached, or answers with a non-2xx status, exits
+1 with the failure reason on stderr instead of a confirmation line.
+
 ## Mutation testing
 
 `uv run mutmut run` checks that the automated suite would actually catch

@@ -39,6 +39,7 @@ from kestrel.kb.writeback import (
 from kestrel.kestrel_md import KestrelMd, KestrelMdError, load_kestrel_md
 from kestrel.managers.budget import BudgetLimits, BudgetManager
 from kestrel.managers.mode import ModeManager
+from kestrel.managers.resource_guard import UnloadAuxError, unload_aux_model
 from kestrel.managers.undo import UndoConflictError, UndoManager
 from kestrel.registry.loader import load_registry
 from kestrel.registry.model import ModelEntry, Registry, RegistryError
@@ -212,6 +213,16 @@ def _build_parser() -> ArgumentParser:
             "boundary. Defaults to kestrel.toml's "
             "[managers.budget].soft_threshold, itself 0.8 by default."
         ),
+    )
+
+    unload_parser = subparsers.add_parser(
+        "unload-aux", help="Unload the local aux model from GPU memory."
+    )
+    unload_parser.add_argument(
+        "--config",
+        metavar="PATH",
+        default=SUPPRESS,
+        help="Path to a kestrel.toml configuration file.",
     )
 
     undo_parser = subparsers.add_parser(
@@ -756,10 +767,32 @@ def _run_undo_command(args: Namespace) -> int:
     return 0
 
 
+def _run_unload_aux_command(config: KestrelConfig, registry: Registry) -> int:
+    """Resolve the `"embed"` task class and call `unload_aux_model`
+    against it; prints the resolved model id on success, or the
+    caught `UnloadAuxError`'s own message to stderr on failure,
+    exiting 1."""
+    model_id = resolve_model_id(
+        "embed",
+        registry=registry,
+        policy=config.router.policy.as_mapping(),
+        fallback_model_id=config.general.default_model,
+    )
+    entry = registry.get(model_id)
+    try:
+        asyncio.run(unload_aux_model(entry=entry))
+    except UnloadAuxError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"unloaded {entry.id}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point. Subcommands: (none)=interactive cockpit, doctor
-    [--live], run (TASK | --resume TASK_ID) --repo PATH [...], undo
-    --task-id ID --repo PATH. Flags: --version, --config PATH, --model ID.
+    [--live], run (TASK | --resume TASK_ID) --repo PATH [...],
+    unload-aux [--config PATH], undo --task-id ID --repo PATH. Flags:
+    --version, --config PATH, --model ID.
 
     ``doctor`` prints one aligned line per flight check and exits 0
     unless any check FAILed. ``run`` resolves config/registry/starting
@@ -767,7 +800,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     drives `run_task` (or, with `--resume`, `resume_task`) to
     completion, prints its summary or (on a budget halt) a dedicated
     resume hint, and exits 0 on `TerminationReason.TASK_COMPLETE` or 1
-    on any other reason. ``undo`` reverts a prior run's file mutations
+    on any other reason. ``unload-aux`` resolves only config/registry
+    (no starting model, repo, or KESTREL.md is needed) and frees the
+    router's resolved `"embed"`-tagged model from GPU memory, exiting 1
+    with the failure reason on stderr if its backend could not be
+    reached. ``undo`` reverts a prior run's file mutations
     and exits 1 only if a conflict stops it partway through. Every
     other path either prints the version or mounts the interactive
     cockpit against the resolved configuration, registry, starting
@@ -782,6 +819,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.version:
         print(__version__)
         return 0
+
+    if args.command == "unload-aux":
+        try:
+            config, _config_source_source = load_config(
+                Path(args.config) if args.config else None
+            )
+            registry = load_registry(config.paths.models_file)
+            return _run_unload_aux_command(config, registry)
+        except (ConfigError, RegistryError) as exc:
+            print(exc, file=sys.stderr)
+            return 1
 
     if args.command == "doctor":
         config_path = Path(args.config) if args.config else None
