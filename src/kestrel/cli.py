@@ -826,10 +826,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 Path(args.config) if args.config else None
             )
             registry = load_registry(config.paths.models_file)
+            return _run_unload_aux_command(config, registry)
         except (ConfigError, RegistryError) as exc:
             print(exc, file=sys.stderr)
             return 1
-        return _run_unload_aux_command(config, registry)
 
     if args.command == "doctor":
         config_path = Path(args.config) if args.config else None
