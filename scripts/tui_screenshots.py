@@ -15,10 +15,16 @@ after a visible UI change --
 Drives a real ``KestrelApp`` against a hermetic mock chat-completions
 server and a small fixture repo, submits the same scripted task
 ``tests/system/test_p039_tool_log_diff_live.py`` drives, lets it
-complete, then captures three named SVG files under
+complete, then captures four named SVG files under
 ``assets/screenshots/``: the conversation pane and tool log right after
-the task finishes, the diff pane in focus, and the command palette open
-over the assembled cockpit.
+the task finishes, the diff pane in focus, the command palette open
+over the assembled cockpit, and ``WritebackModal`` listing two
+illustrative proposed learnings. The knowledge base is disabled
+(``[kb].enabled = false``) for the scripted task itself, so its own
+completion never races a real background writeback proposal against
+the first three captures; the fourth instead pushes a `WritebackModal`
+built directly from two hand-written `ProposedLearning`s, a
+deterministic stand-in for what a real proposal would show.
 """
 
 from __future__ import annotations
@@ -36,14 +42,28 @@ sys.path.insert(0, str(_REPO_ROOT / "tests"))
 from fixtures.mock_openai import MockOpenAIServer  # noqa: E402
 from textual.widgets import Input  # noqa: E402
 
-from kestrel.config import KestrelConfig  # noqa: E402
+from kestrel.config import KbConfig, KestrelConfig  # noqa: E402
+from kestrel.kb.writeback import ProposedLearning  # noqa: E402
 from kestrel.registry.model import ModelEntry, Registry  # noqa: E402
 from kestrel.tui.app import DiffPane, KestrelApp  # noqa: E402
+from kestrel.tui.writeback_modal import WritebackModal  # noqa: E402
 
 _CASSETTES = _REPO_ROOT / "tests" / "fixtures" / "cassettes"
 _TOOLCALL_READ_FILE = _CASSETTES / "toolcall_read_file.sse"
 _TOOLCALL_EDIT_GREET = _CASSETTES / "toolcall_edit_greet.sse"
 _DONE_CASSETTE = _CASSETTES / "done_no_more_tools.sse"
+
+_ILLUSTRATIVE_LEARNINGS = (
+    ProposedLearning(
+        text="This repo's Makefile targets assume tabs, not spaces, "
+        "for recipe indentation",
+        tags=("style", "make"),
+    ),
+    ProposedLearning(
+        text="Run `uv run pytest -m sanity` before pushing any change here",
+        tags=("testing",),
+    ),
+)
 
 _GREET_STUB = "# TODO: implement greet\n"
 _TASK_TEXT = "read src/greet.py, then implement greet in greet.py"
@@ -83,12 +103,22 @@ def _write_fixture_repo(repo_root: Path) -> None:
 
 
 async def _capture_screenshots(repo_root: Path) -> None:
-    """Drive one scripted task to completion, then save the three named
+    """Drive one scripted task to completion, then save the four named
     screenshots the README embeds -- the conversation and tool log,
-    the diff pane in focus, and the command palette open over the
-    cockpit."""
+    the diff pane in focus, the command palette over the cockpit, and
+    `WritebackModal`.
+
+    The knowledge base is disabled for the app driving the first three
+    captures (`[kb].enabled = false`), so the scripted task's own
+    completion never starts a real background writeback proposal that
+    could race those captures with an unplanned modal. `WritebackModal`
+    itself is instead built directly, from two hand-written
+    `ProposedLearning`s, and pushed onto the same running app for the
+    fourth capture -- a deterministic stand-in for what a real proposal
+    would render.
+    """
     app = KestrelApp(
-        config=KestrelConfig(),
+        config=KestrelConfig(kb=KbConfig(enabled=False)),
         registry=_registry(),
         model_id="glm-5.2",
         kestrel_md=None,
@@ -117,6 +147,14 @@ async def _capture_screenshots(repo_root: Path) -> None:
         pilot.app.save_screenshot(
             filename="command-palette.svg", path=str(_SCREENSHOTS_DIR)
         )
+        await pilot.press("escape")
+        await pilot.pause()
+
+        pilot.app.push_screen(WritebackModal(_ILLUSTRATIVE_LEARNINGS))
+        await pilot.pause()
+        pilot.app.save_screenshot(
+            filename="writeback-modal.svg", path=str(_SCREENSHOTS_DIR)
+        )
 
 
 def main() -> None:
@@ -139,7 +177,7 @@ def main() -> None:
             asyncio.run(_capture_screenshots(repo_root))
     finally:
         server.stop()
-    print(f"wrote 3 screenshots to {_SCREENSHOTS_DIR}")
+    print(f"wrote 4 screenshots to {_SCREENSHOTS_DIR}")
 
 
 if __name__ == "__main__":

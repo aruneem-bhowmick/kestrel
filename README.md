@@ -805,6 +805,26 @@ persisted under `.kestrel/artifacts/walkthrough-<task_id>.md`, exactly
 like `kestrel run` does. A walkthrough that fails to persist surfaces
 as a warning notification rather than blocking the pane from showing it.
 
+When `[kb].enabled` (the default), a brand-new task's first turn is
+preceded by a real `kestrel.kb.retrieval.build_kb_context` call
+retrieving whatever notes are relevant to it and seeding them into
+`run_task`'s own `kb_context` parameter, exactly like `kestrel run`
+already does -- a resumed task or a plan's own FAST-mode continuation
+skip this step, since either one already carries its own prior turns'
+context forward. Once a FAST-mode task's `Walkthrough` renders, a
+background worker proposes up to three durable learnings from it
+(`kestrel.kb.writeback.propose_learnings`) and, when at least one comes
+back, pushes `kestrel.tui.writeback_modal.WritebackModal`: every
+proposed learning appears with a pre-checked checkbox and a "Commit"/
+"Cancel" button pair, mirroring `PlanCommentModal`'s own plain Textual
+widget composition. Unchecking an entry excludes it; confirming
+persists every still-checked one via `kestrel.kb.writeback
+.commit_learnings` and notifies how many landed, while Cancel (or
+unchecking everything) commits nothing. This proposal step runs as an
+independent worker rather than being awaited inline, so a slow or
+failing writeback call never delays the walkthrough itself from
+appearing.
+
 With a plan on screen, `c` opens `kestrel.tui.plan_comment_modal
 .PlanCommentModal`: a small dialog asking for a plan-line number and a
 free-text comment, dismissing into a queued `kestrel.agent.plan
@@ -925,9 +945,10 @@ command, fuzzy-matched against whatever is typed:
 - `/approve` -- informational only: approvals already surface
   automatically as a modal the instant a destructive action is
   proposed, so there is no queue for this entry to open.
-- `/kb` -- informational only: tells the user a persistent knowledge
-  base is not available yet, rather than pretending one exists to
-  browse.
+- `/kb` -- reports real per-repo (and, when `[kb].global_namespace` is
+  set, global) note counts, or that the knowledge base is disabled,
+  read from a fresh, throwaway `KbService` built on the spot rather
+  than a note-browsing UI.
 
 Selecting `/model` or `/mode` refreshes the idle status line
 immediately; selecting `/undo` or `/resume` runs as a background
@@ -962,7 +983,7 @@ session can find out the cockpit won't start there before ever trying.
 ## Screenshots
 
 `scripts/tui_screenshots.py` drives a real `KestrelApp` through a
-scripted task against the hermetic mock server and saves three SVG
+scripted task against the hermetic mock server and saves four SVG
 screenshots under `assets/screenshots/`. It is reviewed by eye rather
 than pinned byte-exact -- a rendered SVG's own font and layout metrics
 can shift across Textual point releases with nothing about the
@@ -986,6 +1007,11 @@ as a syntax-highlighted unified diff.
 ![Command palette open over the cockpit](assets/screenshots/command-palette.svg)
 
 The `ctrl+p` command palette open over the cockpit.
+
+![WritebackModal listing two proposed learnings for approval](assets/screenshots/writeback-modal.svg)
+
+`WritebackModal`, open over the cockpit once a scripted task's own
+`Walkthrough` renders, listing its proposed learnings for approval.
 
 ## Flight check
 
