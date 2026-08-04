@@ -676,10 +676,18 @@ class KestrelApp(App[None]):
         """Commits every entry of `approved` (all `"approve"` by
         construction -- `WritebackModal` only ever returns checked
         entries) via `commit_learnings`, and notifies how many were
-        persisted. A `KbServiceError` surfaces as a warning
-        notification."""
+        approved. A `KbServiceError` surfaces as a warning
+        notification.
+
+        The notified count is `len(approved)`, not `len(committed)`:
+        `commit_learnings` returns one persisted `KnowledgeNote` per
+        *store* a learning landed in, so `committed` holds twice as
+        many entries as `approved` once `[kb].global_namespace` is on
+        -- reporting `len(committed)` would double-count every
+        approved learning in that case.
+        """
         try:
-            committed = await commit_learnings(
+            await commit_learnings(
                 approved,
                 decisions=["approve"] * len(approved),
                 task_id=task_id,
@@ -688,7 +696,7 @@ class KestrelApp(App[None]):
         except KbServiceError as exc:
             self.notify(str(exc), severity="warning")
             return
-        self.notify(f"kb: committed {len(committed)} learning(s)")
+        self.notify(f"kb: committed {len(approved)} learning(s)")
 
     async def _show_plan_from_result(self, result: LoopResult, task_id: str) -> None:
         """Parse and persist `result`'s own plan, display it in
