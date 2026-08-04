@@ -98,15 +98,17 @@ def test_disabled_kb_notifies_and_never_constructs_a_kb_service(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Given `[kb].enabled=False`, when `/kb` runs, then the disabled
-    message is notified and `KbService` is never constructed --
-    checked by making the app module's own `KbService` name raise if
-    it is ever called."""
+    message is notified and no worker is even started -- checked by
+    making the app module's own `build_kb_service` name raise if it is
+    ever called, and never touching a mounted app or `run_worker` at
+    all, since the disabled branch returns before either would be
+    needed."""
 
     def _must_not_be_called(*args: object, **kwargs: object) -> None:
         """Fail loudly if `action_show_kb_info` ever reaches this."""
-        raise AssertionError("KbService must not be constructed while kb is disabled")
+        raise AssertionError("build_kb_service must not be called while kb is disabled")
 
-    monkeypatch.setattr(app_module, "KbService", _must_not_be_called)
+    monkeypatch.setattr(app_module, "build_kb_service", _must_not_be_called)
     app = _app(tmp_path, kb_enabled=False)
     notifications: list[str] = []
     monkeypatch.setattr(
@@ -118,13 +120,19 @@ def test_disabled_kb_notifies_and_never_constructs_a_kb_service(
     assert notifications == ["Knowledge base is disabled ([kb].enabled = false)."]
 
 
-def test_enabled_kb_notifies_the_real_per_repo_note_count(
+async def test_enabled_kb_notifies_the_real_per_repo_note_count(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Given `[kb].enabled=True` (the default) and two notes seeded
     directly into the per-repo store, when `/kb` runs, then the
     notified message names `"2 note(s)"` and omits any mention of the
-    global namespace, since `global_namespace` is `False` by default."""
+    global namespace, since `global_namespace` is `False` by default.
+
+    `action_show_kb_info` only schedules a worker -- a mounted app is
+    required for `run_worker` to accept it at all, and the count itself
+    lands once that worker's own `asyncio.to_thread` call resolves, so
+    the assertions wait on `workers.wait_for_complete()` first.
+    """
     repo = str(tmp_path.resolve())
     db_path = resolve_kb_path(tmp_path, global_=False)
     _seed_note(db_path, repo=repo)
@@ -135,14 +143,16 @@ def test_enabled_kb_notifies_the_real_per_repo_note_count(
         app, "notify", lambda message, **_: notifications.append(message)
     )
 
-    app.action_show_kb_info()
+    async with app.run_test() as pilot:
+        pilot.app.action_show_kb_info()
+        await pilot.app.workers.wait_for_complete()
 
     assert len(notifications) == 1
     assert "2 note(s)" in notifications[0]
     assert "global" not in notifications[0]
 
 
-def test_enabled_kb_with_global_namespace_reports_both_counts(
+async def test_enabled_kb_with_global_namespace_reports_both_counts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Given `[kb].global_namespace=True`, one note in the per-repo
@@ -165,8 +175,43 @@ def test_enabled_kb_with_global_namespace_reports_both_counts(
         app, "notify", lambda message, **_: notifications.append(message)
     )
 
-    app.action_show_kb_info()
+    async with app.run_test() as pilot:
+        pilot.app.action_show_kb_info()
+        await pilot.app.workers.wait_for_complete()
 
     assert len(notifications) == 1
     assert "1 note(s) in this repo" in notifications[0]
     assert "2 in the global namespace" in notifications[0]
+
+
+async def test_kb_service_error_while_counting_notifies_a_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a store that fails to open (its own `__init__` raises,
+    modeling a disk or permissions failure), when `/kb` runs, then the
+    raw error never escapes the worker -- it surfaces as a single
+    warning-severity notification instead."""
+
+    def _raise(*args: object, **kwargs: object) -> None:
+        """Stand in for `KnowledgeStore.__init__`, always failing."""
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(KnowledgeStore, "__init__", _raise)
+    app = _app(tmp_path, kb_enabled=True)
+    notifications: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        app,
+        "notify",
+        lambda message, *, severity="information", **_: notifications.append(
+            (message, severity)
+        ),
+    )
+
+    async with app.run_test() as pilot:
+        pilot.app.action_show_kb_info()
+        await pilot.app.workers.wait_for_complete()
+
+    assert len(notifications) == 1
+    message, severity = notifications[0]
+    assert severity == "warning"
+    assert "failed to open" in message

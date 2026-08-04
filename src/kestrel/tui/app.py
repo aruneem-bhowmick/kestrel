@@ -101,9 +101,8 @@ from kestrel.agent.walkthrough import (
 )
 from kestrel.config import KestrelConfig
 from kestrel.cost.meter import CostMeter, format_cost_line
-from kestrel.kb.embeddings import OllamaEmbeddingClient
 from kestrel.kb.retrieval import build_kb_context
-from kestrel.kb.service import DEFAULT_EMBEDDING_DIM, KbService, KbServiceError
+from kestrel.kb.service import KbService, KbServiceError
 from kestrel.kb.writeback import (
     ProposedLearning,
     WritebackError,
@@ -118,7 +117,7 @@ from kestrel.provider.events import ToolCallEvent
 from kestrel.registry.model import Registry
 from kestrel.repl import sanitize_terminal
 from kestrel.router.policy import resolve_model_id
-from kestrel.task_setup import TaskSetup, build_task_deps
+from kestrel.task_setup import TaskSetup, build_kb_service, build_task_deps
 from kestrel.tools.verify import VerificationReport, render_verification_markdown
 from kestrel.tui.approval_modal import make_tui_decide_fn
 from kestrel.tui.commands import KestrelCommandProvider
@@ -1074,31 +1073,37 @@ class KestrelApp(App[None]):
         )
 
     def action_show_kb_info(self) -> None:
-        """Show real per-repo (and, when enabled, global) note counts
-        via a fresh, throwaway `KbService` built the same way `_prepare_
-        task_run` builds one through `build_task_deps` -- constructed
-        here directly instead, since this action has no in-flight
-        task's own `setup.deps.kb` to read and must work even when no
-        task has run yet this session. `config.kb.enabled=False` still
-        tells the user that plainly, rather than silently doing
-        nothing."""
+        """Show real per-repo (and, when enabled, global) note counts,
+        counted in a background worker so real disk I/O never blocks
+        the UI thread. `config.kb.enabled=False` still tells the user
+        that plainly, without starting a worker at all."""
         if not self.config.kb.enabled:
             self.notify("Knowledge base is disabled ([kb].enabled = false).")
             return
-        embedding_model_id = resolve_model_id(
-            "embed",
+        self.run_worker(self._show_kb_info())
+
+    async def _show_kb_info(self) -> None:
+        """Build a fresh, throwaway `KbService` via `build_kb_service`
+        -- the same construction `_prepare_task_run` reaches through
+        `build_task_deps`, called here directly instead since this
+        action has no in-flight task's own `setup.deps.kb` to read and
+        must work even when no task has run yet this session -- then
+        count its notes off the event loop via `asyncio.to_thread`,
+        since a SQLite read is real, blocking file I/O. A
+        `KbServiceError` (the store fails to open, or the count query
+        itself fails) surfaces as a warning notification rather than
+        raising."""
+        kb = build_kb_service(
+            config=self.config,
             registry=self.registry,
-            policy=self.config.router.policy.as_mapping(),
-            fallback_model_id=self.active_model_id,
-        )
-        kb = KbService(
+            model_id=self.active_model_id,
             repo_root=self.repo_root,
-            config=self.config.kb,
-            embedding_client=OllamaEmbeddingClient(self.registry),
-            embedding_model_id=embedding_model_id,
-            embedding_dim=DEFAULT_EMBEDDING_DIM,
         )
-        per_repo, global_count = kb.count_notes()
+        try:
+            per_repo, global_count = await asyncio.to_thread(kb.count_notes)
+        except KbServiceError as exc:
+            self.notify(str(exc), severity="warning")
+            return
         message = f"Knowledge base: {per_repo} note(s) in this repo"
         if global_count is not None:
             message += f", {global_count} in the global namespace"
