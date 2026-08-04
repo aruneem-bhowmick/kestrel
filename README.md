@@ -1008,10 +1008,13 @@ as a syntax-highlighted unified diff.
 
 The `ctrl+p` command palette open over the cockpit.
 
-![WritebackModal listing two proposed learnings for approval](assets/screenshots/writeback-modal.svg)
+![WritebackModal listing two fixed, illustrative proposed learnings for approval](assets/screenshots/writeback-modal.svg)
 
-`WritebackModal`, open over the cockpit once a scripted task's own
-`Walkthrough` renders, listing its proposed learnings for approval.
+`WritebackModal`, pushed directly onto the same cockpit with two
+fixed, hand-written learnings standing in for a real model-generated
+proposal -- not output from the scripted task itself, which runs with
+the knowledge base disabled precisely so its own completion can't race
+this capture with an unplanned modal.
 
 ## Flight check
 
