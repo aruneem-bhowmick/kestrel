@@ -318,6 +318,12 @@ class KnowledgeStore:
                 break
         return tuple(scored)
 
+    def count(self) -> int:
+        """The number of notes currently in this store (`SELECT COUNT(*)
+        FROM notes`)."""
+        (total,) = self._conn.execute("SELECT COUNT(*) FROM notes").fetchone()
+        return int(total)
+
     def close(self) -> None:
         """Close the underlying connection. Idempotent."""
         if not self._closed:
