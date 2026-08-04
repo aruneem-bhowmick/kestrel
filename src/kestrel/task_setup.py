@@ -13,16 +13,21 @@ coupling, so any caller -- the CLI included -- builds an identical bundle
 from plain keyword arguments instead.
 
 `build_task_deps` also constructs this task's own knowledge-base
-service when `config.kb.enabled`, resolving the `"embed"` task class
-through `kestrel.router.policy.resolve_model_id` exactly like the
-self-critique wiring above resolves `"critique"`, then wiring a
+service when `config.kb.enabled`, via this module's own `build_kb_
+service` -- resolving the `"embed"` task class through
+`kestrel.router.policy.resolve_model_id` exactly like the self-critique
+wiring above resolves `"critique"`, then wiring a
 `kestrel.kb.embeddings.OllamaEmbeddingClient` bound to that model id
-into a `kestrel.kb.service.KbService`. That service needs a fixed
-embedding vector length to open or create a store at, and
+into a `kestrel.kb.service.KbService`. `build_kb_service` is its own
+function, not inlined here, so a caller that needs a `KbService`
+outside a full task run -- the TUI's own `/kb` info action, say -- gets
+it from this module's composition root too, rather than importing the
+embeddings adapter's own vendor-specific client directly. That service
+needs a fixed embedding vector length to open or create a store at, and
 `kestrel.registry.model.ModelEntry` carries no field naming one -- an
 embedding model's own output length is a different number entirely
 from its context window, the only size a registry entry does track --
-so rather than widen that schema for one attribute only this one
+so rather than widen that schema for one attribute only this
 construction site needs, the vector length is instead fixed via
 `kestrel.kb.service.DEFAULT_EMBEDDING_DIM`, the packaged default
 `nomic-embed-text` route's own real, documented output size. A registry
@@ -101,6 +106,39 @@ class TaskSetup:
     budget_limits: BudgetLimits
     spent_day_usd: Decimal
     spent_month_usd: Decimal
+
+
+def build_kb_service(
+    *, config: KestrelConfig, registry: Registry, model_id: str, repo_root: Path
+) -> KbService:
+    """Build a fresh `KbService` for `repo_root`, resolving the
+    `"embed"` task class against `registry`/`config.router.policy`
+    exactly like `build_task_deps` does for a task's own `LoopDeps.kb`
+    -- factored out here so a caller that needs a `KbService` without
+    running a full task (the TUI's own `/kb` info action) shares this
+    module's own construction instead of duplicating it, and instead
+    of importing the embeddings adapter's own vendor-specific client
+    directly (this module, like `kb/embeddings.py` itself, is one of
+    this codebase's own composition roots, exactly like it already is
+    for `LiteLLMClient`).
+
+    Does not check `config.kb.enabled` -- a caller that only wants a
+    service while the knowledge base is turned on checks that itself
+    before calling this, the same way `build_task_deps` does below.
+    """
+    embedding_model_id = resolve_model_id(
+        "embed",
+        registry=registry,
+        policy=config.router.policy.as_mapping(),
+        fallback_model_id=model_id,
+    )
+    return KbService(
+        repo_root=repo_root,
+        config=config.kb,
+        embedding_client=OllamaEmbeddingClient(registry),
+        embedding_model_id=embedding_model_id,
+        embedding_dim=DEFAULT_EMBEDDING_DIM,
+    )
 
 
 def build_task_deps(
@@ -201,18 +239,8 @@ def build_task_deps(
         self_critique_fn = _default_self_critique
     kb: KbService | None = None
     if config.kb.enabled:
-        embedding_model_id = resolve_model_id(
-            "embed",
-            registry=registry,
-            policy=config.router.policy.as_mapping(),
-            fallback_model_id=model_id,
-        )
-        kb = KbService(
-            repo_root=repo_root,
-            config=config.kb,
-            embedding_client=OllamaEmbeddingClient(registry),
-            embedding_model_id=embedding_model_id,
-            embedding_dim=DEFAULT_EMBEDDING_DIM,
+        kb = build_kb_service(
+            config=config, registry=registry, model_id=model_id, repo_root=repo_root
         )
     effort: Effort = mode_manager.effort() if mode_manager is not None else "high"
     available_tools = (
