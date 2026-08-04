@@ -318,6 +318,21 @@ class KnowledgeStore:
                 break
         return tuple(scored)
 
+    def count(self) -> int:
+        """The number of notes currently in this store (`SELECT COUNT(*)
+        FROM notes`).
+
+        Raises:
+            KnowledgeStoreError: the underlying query fails (wrapped,
+                never a raw `sqlite3.Error`), matching every other
+                query this class runs.
+        """
+        try:
+            (total,) = self._conn.execute("SELECT COUNT(*) FROM notes").fetchone()
+        except sqlite3.Error as exc:
+            raise KnowledgeStoreError(f"count: query failed: {exc}") from exc
+        return int(total)
+
     def close(self) -> None:
         """Close the underlying connection. Idempotent."""
         if not self._closed:

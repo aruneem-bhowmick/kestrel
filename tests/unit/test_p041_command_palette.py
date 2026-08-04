@@ -134,12 +134,15 @@ async def test_mode_query_yields_both_spellings_and_switches_mode(
         assert pilot.app.mode_manager.mode == "plan"
 
 
-async def test_kb_query_yields_a_hit_that_reports_unavailability(
+async def test_kb_query_yields_a_hit_that_reports_the_real_note_count(
     tmp_path: Path,
 ) -> None:
-    """Given a mounted app, when the palette is searched for "kb", then
-    it yields exactly one hit whose own command calls `app.notify` with
-    a message naming the knowledge base as unavailable."""
+    """Given a mounted app whose repo has no knowledge-base notes yet,
+    when the palette is searched for "kb", then it yields exactly one
+    hit whose own command calls `app.notify` with the real per-repo
+    note count -- read off disk by a background worker `action_show_
+    kb_info` schedules, so the assertion waits for that worker to
+    finish before checking what was notified."""
     app = _app(tmp_path, "glm-5.2")
     async with app.run_test() as pilot:
         provider = KestrelCommandProvider(pilot.app.screen)
@@ -150,9 +153,10 @@ async def test_kb_query_yields_a_hit_that_reports_unavailability(
 
         assert [hit.text for hit in hits] == ["/kb"]
         hits[0].command()  # type: ignore[operator]
+        await pilot.app.workers.wait_for_complete()
 
         assert len(notified) == 1
-        assert "not available" in notified[0]
+        assert "0 note(s) in this repo" in notified[0]
 
 
 async def test_approve_query_yields_a_hit_that_reports_automatic_approval(

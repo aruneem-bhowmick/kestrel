@@ -30,15 +30,28 @@ via `kestrel.agent.loop.resume_task`, now with every tool available and
 effort back at FAST's own level, so the model acts on the exact plan
 it just proposed rather than starting over from a re-summarized
 description of it; that execution's own end renders a `Walkthrough`
-exactly like any other FAST-mode task's does. Every pane that renders
+exactly like any other FAST-mode task's does. Whenever `setup.deps.kb`
+is wired (the knowledge base is enabled), a brand-new task's first turn
+is preceded by a real `kestrel.kb.retrieval.build_kb_context` call
+seeding whatever notes are relevant to it, exactly like the CLI's own
+`_run_task_command` does; a resumed or plan-continuing task skips this
+step, since either one already carries its own prior turns' context
+forward. Once a FAST-mode task's `Walkthrough` renders, a background
+worker proposes up to three durable learnings from it
+(`kestrel.kb.writeback.propose_learnings`) and, when at least one comes
+back, pushes a `kestrel.tui.writeback_modal.WritebackModal` listing
+them for approval; confirming it commits every checked entry via
+`kestrel.kb.writeback.commit_learnings` and notifies how many were
+persisted. Every pane that renders
 model- or
 tool-sourced text routes it through `kestrel.repl.sanitize_terminal`
 first, whether directly (the conversation pane) or via
 `kestrel.tui.observer_bridge.TuiLoopObserver`. A `ctrl+p` command
 palette (`kestrel.tui.commands.KestrelCommandProvider`) gives keyboard
 access to model/mode switching, undo, a cost breakdown, and resuming a
-prior task, alongside two informational entries covering approval and
-knowledge-base status. A destructive action proposed mid-task surfaces
+prior task, alongside an informational approval entry and a `/kb` entry
+reporting real per-repo (and, when enabled, global) note counts. A
+destructive action proposed mid-task surfaces
 as a real `kestrel.tui.approval_modal.ApprovalModal` rather than
 blocking on a terminal prompt, bridged onto this app's own event loop
 from the background thread the proposing tool call actually runs on
@@ -50,8 +63,9 @@ from __future__ import annotations
 import asyncio
 import difflib
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 from typing import Any, Final
 
@@ -87,6 +101,14 @@ from kestrel.agent.walkthrough import (
 )
 from kestrel.config import KestrelConfig
 from kestrel.cost.meter import CostMeter, format_cost_line
+from kestrel.kb.retrieval import build_kb_context
+from kestrel.kb.service import KbService, KbServiceError
+from kestrel.kb.writeback import (
+    ProposedLearning,
+    WritebackError,
+    commit_learnings,
+    propose_learnings,
+)
 from kestrel.kestrel_md import KestrelMd
 from kestrel.managers.approval import ApprovalDecision, ApprovalRequest
 from kestrel.managers.mode import Mode, ModeManager
@@ -94,13 +116,15 @@ from kestrel.managers.undo import UndoManager
 from kestrel.provider.events import ToolCallEvent
 from kestrel.registry.model import Registry
 from kestrel.repl import sanitize_terminal
-from kestrel.task_setup import TaskSetup, build_task_deps
+from kestrel.router.policy import resolve_model_id
+from kestrel.task_setup import TaskSetup, build_kb_service, build_task_deps
 from kestrel.tools.verify import VerificationReport, render_verification_markdown
 from kestrel.tui.approval_modal import make_tui_decide_fn
 from kestrel.tui.commands import KestrelCommandProvider
 from kestrel.tui.observer_bridge import TuiLoopObserver
 from kestrel.tui.plan_comment_modal import PlanCommentModal
 from kestrel.tui.status import StatusSnapshot, render_status_line
+from kestrel.tui.writeback_modal import WritebackModal
 
 _MAX_TOOL_ARG_SUMMARY_CHARS: Final[int] = 120
 _ARTIFACT_PLACEHOLDER: Final[str] = "_no artifact yet_"
@@ -461,8 +485,10 @@ class KestrelApp(App[None]):
 
     async def _run_task(self, text: str) -> None:
         """Run `text` as a brand new task: builds this task's own
-        `TaskSetup` and observer via `_prepare_task_run`, then drives it
-        to completion via `run_task`.
+        `TaskSetup` and observer via `_prepare_task_run`, retrieves
+        whatever knowledge-base context is relevant to `text` via
+        `build_kb_context`, and drives the task to completion via
+        `run_task`, seeded with that context.
 
         `loop = asyncio.get_running_loop()` is captured first, while
         this coroutine still runs on the app's own event loop, and
@@ -498,7 +524,8 @@ class KestrelApp(App[None]):
             setup = self._prepare_task_run(
                 task_id, decide_fn=make_tui_decide_fn(self, loop)
             )
-            result = await run_task(text, setup.deps, task_id)
+            kb_context = await build_kb_context(text, kb=setup.deps.kb)
+            result = await run_task(text, setup.deps, task_id, kb_context=kb_context)
             if self.mode_manager.mode == "plan":
                 await self._show_plan_from_result(result, task_id)
             else:
@@ -572,6 +599,13 @@ class KestrelApp(App[None]):
         symlink) surfaces as a warning notification rather than raising
         -- only the on-disk persistence can fail this way, so the
         artifact pane still shows the walkthrough either way.
+
+        Once the walkthrough is on screen, schedules `_propose_writeback`
+        as an independent worker (`exclusive=False`, matching every
+        other `run_worker` call in this file that must not cancel a task
+        still in flight) rather than awaiting it inline, so a slow or
+        failing writeback proposal never delays the walkthrough itself
+        from appearing.
         """
         walkthrough = build_walkthrough(
             result,
@@ -586,6 +620,83 @@ class KestrelApp(App[None]):
         except WalkthroughError as exc:
             self.notify(str(exc), severity="warning")
         self.query_one("#artifact", ArtifactPane).show_walkthrough(walkthrough)
+        self.run_worker(
+            self._propose_writeback(walkthrough, task_id, setup), exclusive=False
+        )
+
+    async def _propose_writeback(
+        self, walkthrough: Walkthrough, task_id: str, setup: TaskSetup
+    ) -> None:
+        """No-op when `setup.deps.kb is None`. Resolves the `"trivial"`
+        router tag, proposes learnings, and -- only when at least one
+        was proposed -- pushes `WritebackModal`; the modal's own
+        callback (`_on_writeback_decision`) does the actual commit. A
+        `WritebackError` surfaces as a warning notification, matching
+        `_show_plan_from_result`'s own `PlanError` handling."""
+        if setup.deps.kb is None:
+            return
+        writeback_model_id = resolve_model_id(
+            "trivial",
+            registry=self.registry,
+            policy=self.config.router.policy.as_mapping(),
+            fallback_model_id=self.active_model_id,
+        )
+        try:
+            proposed = await propose_learnings(
+                walkthrough, client=setup.deps.client, model_id=writeback_model_id
+            )
+        except WritebackError as exc:
+            self.notify(str(exc), severity="warning")
+            return
+        if not proposed:
+            return
+        self.push_screen(
+            WritebackModal(proposed),
+            partial(self._on_writeback_decision, task_id=task_id, kb=setup.deps.kb),
+        )
+
+    def _on_writeback_decision(
+        self,
+        approved: tuple[ProposedLearning, ...],
+        *,
+        task_id: str,
+        kb: KbService,
+    ) -> None:
+        """`push_screen` callback: `()` (Cancel, or nothing checked) is a
+        silent no-op; otherwise schedules `_commit_writeback` as a
+        worker (real I/O, kept off the widget-handling coroutine,
+        matching `_undo_current_task`'s own convention)."""
+        if not approved:
+            return
+        self.run_worker(self._commit_writeback(approved, task_id=task_id, kb=kb))
+
+    async def _commit_writeback(
+        self, approved: Sequence[ProposedLearning], *, task_id: str, kb: KbService
+    ) -> None:
+        """Commits every entry of `approved` (all `"approve"` by
+        construction -- `WritebackModal` only ever returns checked
+        entries) via `commit_learnings`, and notifies how many were
+        approved. A `KbServiceError` surfaces as a warning
+        notification.
+
+        The notified count is `len(approved)`, not `len(committed)`:
+        `commit_learnings` returns one persisted `KnowledgeNote` per
+        *store* a learning landed in, so `committed` holds twice as
+        many entries as `approved` once `[kb].global_namespace` is on
+        -- reporting `len(committed)` would double-count every
+        approved learning in that case.
+        """
+        try:
+            await commit_learnings(
+                approved,
+                decisions=["approve"] * len(approved),
+                task_id=task_id,
+                kb=kb,
+            )
+        except KbServiceError as exc:
+            self.notify(str(exc), severity="warning")
+            return
+        self.notify(f"kb: committed {len(approved)} learning(s)")
 
     async def _show_plan_from_result(self, result: LoopResult, task_id: str) -> None:
         """Parse and persist `result`'s own plan, display it in
@@ -970,10 +1081,41 @@ class KestrelApp(App[None]):
         )
 
     def action_show_kb_info(self) -> None:
-        """Tell the user the knowledge base is not available yet,
-        rather than stubbing out storage or retrieval this codebase
-        does not otherwise implement."""
-        self.notify("Knowledge base is not available yet.")
+        """Show real per-repo (and, when enabled, global) note counts,
+        counted in a background worker so real disk I/O never blocks
+        the UI thread. `config.kb.enabled=False` still tells the user
+        that plainly, without starting a worker at all."""
+        if not self.config.kb.enabled:
+            self.notify("Knowledge base is disabled ([kb].enabled = false).")
+            return
+        self.run_worker(self._show_kb_info())
+
+    async def _show_kb_info(self) -> None:
+        """Build a fresh, throwaway `KbService` via `build_kb_service`
+        -- the same construction `_prepare_task_run` reaches through
+        `build_task_deps`, called here directly instead since this
+        action has no in-flight task's own `setup.deps.kb` to read and
+        must work even when no task has run yet this session -- then
+        count its notes off the event loop via `asyncio.to_thread`,
+        since a SQLite read is real, blocking file I/O. A
+        `KbServiceError` (the store fails to open, or the count query
+        itself fails) surfaces as a warning notification rather than
+        raising."""
+        kb = build_kb_service(
+            config=self.config,
+            registry=self.registry,
+            model_id=self.active_model_id,
+            repo_root=self.repo_root,
+        )
+        try:
+            per_repo, global_count = await asyncio.to_thread(kb.count_notes)
+        except KbServiceError as exc:
+            self.notify(str(exc), severity="warning")
+            return
+        message = f"Knowledge base: {per_repo} note(s) in this repo"
+        if global_count is not None:
+            message += f", {global_count} in the global namespace"
+        self.notify(message)
 
     def list_resumable_task_ids(self) -> list[str]:
         """Every task id with a session journal on disk under this

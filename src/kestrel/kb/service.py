@@ -227,3 +227,38 @@ class KbService:
             finally:
                 store.close()
         return tuple(persisted)
+
+    def count_notes(self) -> tuple[int, int | None]:
+        """`(per_repo_count, global_count)` -- `global_count` is `None`
+        when `config.global_namespace` is `False` (the global store is
+        never opened at all, so there is nothing to count), matching
+        `search`/`add_note`'s own "only touch what's configured"
+        contract.
+
+        Raises:
+            KbServiceError: opening or counting either store fails.
+        """
+        per_repo_count = self._count_scope(global_=False)
+        if not self.config.global_namespace:
+            return per_repo_count, None
+        return per_repo_count, self._count_scope(global_=True)
+
+    def _count_scope(self, *, global_: bool) -> int:
+        """`count()` the per-repo or global store, opening and closing it
+        for just this one call like every other `KbService` method
+        does."""
+        scope_name = "global" if global_ else "per-repo"
+        try:
+            store = self._open(global_=global_)
+        except Exception as exc:
+            raise KbServiceError(
+                f"count_notes: failed to open the {scope_name} store: {exc}"
+            ) from exc
+        try:
+            return store.count()
+        except KnowledgeStoreError as exc:
+            raise KbServiceError(
+                f"count_notes: {scope_name} store count failed: {exc}"
+            ) from exc
+        finally:
+            store.close()

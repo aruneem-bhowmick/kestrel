@@ -179,4 +179,5 @@ markers = [
     "p063: kestrel run's own pre-task knowledge-base retrieval and post-Walkthrough writeback CLI wiring",
     "p064: the resource guard's RSS classification and doctor's real ollama/resources checks",
     "p065: the `kestrel unload-aux` CLI subcommand",
+    "p066: the cockpit's pre-task knowledge-base retrieval, the writeback approval modal, and the command palette's real /kb note-count summary",
 ]
