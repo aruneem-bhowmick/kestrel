@@ -20,7 +20,12 @@ from kestrel.config import KbConfig
 from kestrel.kb import store as kb_store
 from kestrel.kb.embeddings import EmbeddingError
 from kestrel.kb.service import KbService, KbServiceError
-from kestrel.kb.store import KnowledgeNote, KnowledgeStore, resolve_kb_path
+from kestrel.kb.store import (
+    KnowledgeNote,
+    KnowledgeStore,
+    KnowledgeStoreError,
+    resolve_kb_path,
+)
 
 pytestmark = [pytest.mark.p066, pytest.mark.unit, pytest.mark.sanity]
 
@@ -123,6 +128,20 @@ def test_store_count_reflects_every_added_note(tmp_path: Path) -> None:
         assert store.count() == 3
     finally:
         store.close()
+
+
+def test_store_count_wraps_a_raw_sqlite_error_as_knowledge_store_error(
+    tmp_path: Path,
+) -> None:
+    """Given a store whose underlying connection has already been
+    closed out from under it, when counted, then the raw `sqlite3.Error`
+    surfaces as `KnowledgeStoreError` instead, matching every other
+    query this class runs."""
+    store = KnowledgeStore(db_path=tmp_path / "kb.sqlite3", embedding_dim=_DIM)
+    store._conn.close()
+
+    with pytest.raises(KnowledgeStoreError, match="count: query failed"):
+        store.count()
 
 
 async def test_count_notes_with_global_namespace_disabled_reports_only_the_per_repo_count(
