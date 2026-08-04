@@ -66,7 +66,9 @@ def _registry(*, ollama_base_url: str) -> Registry:
         supports_cache=False,
         tags=frozenset({"local"}),
     )
-    return Registry(models={"glm-5.2": chat_entry, "nomic-embed-text": embed_entry}, source=None)
+    return Registry(
+        models={"glm-5.2": chat_entry, "nomic-embed-text": embed_entry}, source=None
+    )
 
 
 def _seed_note(repo_root: Path) -> None:
@@ -115,9 +117,7 @@ async def test_submitting_a_task_seeds_kb_context_into_the_first_outgoing_reques
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-key")
     captured: list[bytes] = []
-    base_url = mock_openai_server(
-        cassette_sequence=[_DONE_CASSETTE], capture=captured
-    )
+    base_url = mock_openai_server(cassette_sequence=[_DONE_CASSETTE], capture=captured)
     monkeypatch.setenv("KESTREL_OPENROUTER_BASE_URL", base_url)
 
     config = KestrelConfig(

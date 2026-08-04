@@ -109,7 +109,9 @@ def test_disabled_kb_notifies_and_never_constructs_a_kb_service(
     monkeypatch.setattr(app_module, "KbService", _must_not_be_called)
     app = _app(tmp_path, kb_enabled=False)
     notifications: list[str] = []
-    monkeypatch.setattr(app, "notify", lambda message, **_: notifications.append(message))
+    monkeypatch.setattr(
+        app, "notify", lambda message, **_: notifications.append(message)
+    )
 
     app.action_show_kb_info()
 
@@ -129,7 +131,9 @@ def test_enabled_kb_notifies_the_real_per_repo_note_count(
     _seed_note(db_path, repo=repo)
     app = _app(tmp_path, kb_enabled=True)
     notifications: list[str] = []
-    monkeypatch.setattr(app, "notify", lambda message, **_: notifications.append(message))
+    monkeypatch.setattr(
+        app, "notify", lambda message, **_: notifications.append(message)
+    )
 
     app.action_show_kb_info()
 
@@ -157,7 +161,9 @@ def test_enabled_kb_with_global_namespace_reports_both_counts(
         repo_root=tmp_path,
     )
     notifications: list[str] = []
-    monkeypatch.setattr(app, "notify", lambda message, **_: notifications.append(message))
+    monkeypatch.setattr(
+        app, "notify", lambda message, **_: notifications.append(message)
+    )
 
     app.action_show_kb_info()
 

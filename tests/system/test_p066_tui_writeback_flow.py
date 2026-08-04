@@ -71,7 +71,9 @@ def _registry(*, ollama_base_url: str) -> Registry:
         supports_cache=False,
         tags=frozenset({"local"}),
     )
-    return Registry(models={"glm-5.2": chat_entry, "nomic-embed-text": embed_entry}, source=None)
+    return Registry(
+        models={"glm-5.2": chat_entry, "nomic-embed-text": embed_entry}, source=None
+    )
 
 
 async def test_confirming_the_writeback_modal_persists_both_proposed_learnings(
@@ -90,9 +92,7 @@ async def test_confirming_the_writeback_modal_persists_both_proposed_learnings(
     ollama_base_url = mock_ollama_server(embeddings=[list(_KB_VECTOR)])
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-key")
-    base_url = mock_openai_server(
-        cassette_sequence=[_DONE_CASSETTE, _LEARNINGS_TWO]
-    )
+    base_url = mock_openai_server(cassette_sequence=[_DONE_CASSETTE, _LEARNINGS_TWO])
     monkeypatch.setenv("KESTREL_OPENROUTER_BASE_URL", base_url)
 
     config = KestrelConfig(
@@ -155,9 +155,7 @@ async def test_writeback_proposal_usage_never_lands_in_the_task_meter(
     ollama_base_url = mock_ollama_server(embeddings=[list(_KB_VECTOR)])
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-key")
-    base_url = mock_openai_server(
-        cassette_sequence=[_DONE_CASSETTE, _LEARNINGS_TWO]
-    )
+    base_url = mock_openai_server(cassette_sequence=[_DONE_CASSETTE, _LEARNINGS_TWO])
     monkeypatch.setenv("KESTREL_OPENROUTER_BASE_URL", base_url)
 
     config = KestrelConfig(
