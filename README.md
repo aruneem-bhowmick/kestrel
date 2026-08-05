@@ -277,6 +277,34 @@ a caller composes, never one this module performs itself, so a caller
 can render every proposal through whatever interface it has before any
 of them are committed.
 
+### Persistence and the repeat-task benefit
+
+A note committed by one process is ordinary data on disk the moment
+`add_note` returns -- reopening a fresh `KnowledgeStore` at the same
+`.kestrel/kb.sqlite3` path, whether that is a later `kestrel run`
+invocation, a different terminal, or a machine rebooted in between,
+finds every note a prior session ever wrote, since nothing about
+`KnowledgeStore` holds state anywhere but the file itself. Two separate
+`kestrel run` invocations against the same repo make this concrete:
+the first commits a learning through the usual propose/approve flow,
+and the second's own retrieval step -- a brand new process, sharing
+nothing with the first but the file on disk -- finds it and folds it
+into the very first outgoing model request as an
+`<<<UNTRUSTED:kb:...>>>` block.
+
+That round trip is also where retrieval earns its keep. Picture a task
+that has to read a file to learn some repo-specific convention before
+it can act on it correctly -- an extra turn (and its own extra tokens)
+spent purely on discovery. Once that task's own writeback commits a
+note stating the convention directly, a second, related task run
+afterward against the same repo skips the discovery turn entirely: the
+convention already arrives pre-seeded in `kb_context`, so the model can
+act on its very first turn instead of reading its way there again. Run
+the same second task without a knowledge base at all and it pays the
+discovery turn a second time, exactly as the first task did -- fewer
+turns, and fewer cumulative tokens, is retrieval's own measurable
+effect on a repeat task, not merely a claim about what it should do.
+
 ## Tools
 
 Kestrel offers a model a small, fixed set of capabilities -- read,
