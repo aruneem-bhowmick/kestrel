@@ -1,0 +1,8 @@
+data: {"id": "chatcmpl-learnings-one", "object": "chat.completion.chunk", "created": 1700000011, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "LEARNING: This repo's src/ modules keep their own docstring to one summary line, never a multi-paragraph block | TAGS: style,docs"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-learnings-one", "object": "chat.completion.chunk", "created": 1700000011, "model": "z-ai/glm-5.2", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"id": "chatcmpl-learnings-one", "object": "chat.completion.chunk", "created": 1700000011, "model": "z-ai/glm-5.2", "choices": [], "usage": {"prompt_tokens": 150, "completion_tokens": 28, "total_tokens": 178, "prompt_tokens_details": {"cached_tokens": 0}}}
+
+data: [DONE]
+

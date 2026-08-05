@@ -132,6 +132,14 @@ module.
   instead, with a deliberately small `usage` (`prompt_tokens=195`,
   `completion_tokens=3`, `cached_tokens=0`) -- standing in for a
   writeback proposal call that found nothing durable to propose.
+- `learnings_one.sse` -- a single well-formed `LEARNING: <text> |
+  TAGS: <tags>` reply, with `usage` (`prompt_tokens=150`,
+  `completion_tokens=28`, `cached_tokens=0`) and `finish_reason="stop"`.
+  Served as a non-streaming chat-completion object, the same as
+  `learnings_two.sse` -- standing in for a writeback proposal call that
+  distills exactly one durable learning out of a task's own
+  `Walkthrough`, for a scenario that only needs one committed note
+  rather than `learnings_two.sse`'s own two.
 
 ## Re-recording the zai cassette
 
