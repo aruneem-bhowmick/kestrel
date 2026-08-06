@@ -283,8 +283,10 @@ A note committed by one process is ordinary data on disk the moment
 `add_note` returns -- reopening a fresh `KnowledgeStore` at the same
 `.kestrel/kb.sqlite3` path, whether that is a later `kestrel run`
 invocation, a different terminal, or a machine rebooted in between,
-finds every note a prior session ever wrote, since nothing about
-`KnowledgeStore` holds state anywhere but the file itself. Two separate
+preserves every note a prior session ever wrote and makes each one
+available to a later search (still subject to that search's own
+`top_k`, same as any other), since nothing about `KnowledgeStore`
+holds state anywhere but the file itself. Two separate
 `kestrel run` invocations against the same repo make this concrete:
 the first commits a learning through the usual propose/approve flow,
 and the second's own retrieval step -- a brand new process, sharing
