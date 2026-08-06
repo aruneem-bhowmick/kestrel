@@ -21,7 +21,7 @@ from kestrel.doctor import CheckStatus, run_doctor
 from kestrel.registry import loader as registry_loader
 from kestrel.registry.loader import load_registry
 
-pytestmark = [pytest.mark.p067, pytest.mark.dod_phase_5, pytest.mark.acceptance]
+pytestmark = [pytest.mark.p067, pytest.mark.dod_phase_5]
 
 _LIVE_TESTS_ENV = "KESTREL_LIVE_TESTS"
 _STAND_IN_KEY_ENV = "KESTREL_E2E_STAND_IN_KEY"
@@ -85,6 +85,7 @@ def _isolate_registry_and_config_discovery(
     monkeypatch.delenv("KESTREL_CONFIG", raising=False)
 
 
+@pytest.mark.acceptance
 def test_nomic_embed_text_registry_entry_is_ollama_backed_and_tagged_local(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -103,6 +104,7 @@ def test_nomic_embed_text_registry_entry_is_ollama_backed_and_tagged_local(
     assert "local" in entry.tags
 
 
+@pytest.mark.acceptance
 def test_doctor_without_live_reports_ollama_as_skip_never_silently_ok(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
