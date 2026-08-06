@@ -224,7 +224,10 @@ async def test_retrieval_yields_fewer_turns_and_tokens_than_rediscovering_it(
     assert result_b_without.turns_used == 2
 
     # --- Task B with retrieval: the answer already arrived in kb_context ---
-    task_b_with_base_url = mock_openai_server(cassette_sequence=[_DONE_CASSETTE])
+    task_b_with_captured: list[bytes] = []
+    task_b_with_base_url = mock_openai_server(
+        cassette_sequence=[_DONE_CASSETTE], capture=task_b_with_captured
+    )
     monkeypatch.setenv("KESTREL_OPENROUTER_BASE_URL", task_b_with_base_url)
     task_b_with_client = LiteLLMClient(registry)
     deps_b_with = _build_deps(task_b_with_client, registry, repo_dir, kb=kb)
@@ -241,6 +244,9 @@ async def test_retrieval_yields_fewer_turns_and_tokens_than_rediscovering_it(
 
     assert result_b_with.reason == TerminationReason.TASK_COMPLETE
     assert result_b_with.turns_used == 1
+    assert len(task_b_with_captured) == 1
+    assert b"<<<UNTRUSTED:kb:" in task_b_with_captured[0]
+    assert _LEARNING_TEXT.encode("utf-8") in task_b_with_captured[0]
 
     assert result_b_with.turns_used < result_b_without.turns_used
     assert _cumulative_tokens(deps_b_with) < _cumulative_tokens(deps_b_without)
