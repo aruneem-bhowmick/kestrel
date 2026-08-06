@@ -72,8 +72,10 @@ def test_a_note_survives_closing_and_reopening_the_store_at_the_same_path(
     )
 
     first_session = KnowledgeStore(db_path=db_path, embedding_dim=DEFAULT_EMBEDDING_DIM)
-    first_session.add_note(note)
-    first_session.close()
+    try:
+        first_session.add_note(note)
+    finally:
+        first_session.close()
 
     second_session = KnowledgeStore(
         db_path=db_path, embedding_dim=DEFAULT_EMBEDDING_DIM
