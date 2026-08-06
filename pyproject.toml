@@ -180,4 +180,6 @@ markers = [
     "p064: the resource guard's RSS classification and doctor's real ollama/resources checks",
     "p065: the `kestrel unload-aux` CLI subcommand",
     "p066: the cockpit's pre-task knowledge-base retrieval, the writeback approval modal, and the command palette's real /kb note-count summary",
+    "p067: the assembled knowledge-base persistence, repeat-task-benchmark, and local-embeddings acceptance suite",
+    "dod_phase_5: acceptance scenario for the knowledge-base milestone's Definition of Done",
 ]
