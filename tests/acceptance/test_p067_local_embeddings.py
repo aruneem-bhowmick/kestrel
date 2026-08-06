@@ -174,6 +174,15 @@ def test_doctor_live_reports_ollama_ok_against_a_real_local_server(
         check=False,
     )
 
-    lines = {line.split(None, 2)[1]: line for line in result.stdout.splitlines()}
-    assert "ollama" in lines, result.stdout
-    assert lines["ollama"].startswith("OK"), result.stdout
+    lines = {
+        fields[1]: line
+        for line in result.stdout.splitlines()
+        if len(fields := line.split(None, 2)) >= 2
+    }
+    diagnostic = (
+        f"returncode={result.returncode}\n"
+        f"stdout={result.stdout}\n"
+        f"stderr={result.stderr}"
+    )
+    assert "ollama" in lines, diagnostic
+    assert lines["ollama"].startswith("OK"), diagnostic
